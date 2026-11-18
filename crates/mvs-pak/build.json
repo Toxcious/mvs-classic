@@ -1,0 +1,107 @@
+{
+  "id": "ac755018ad1d58ea",
+  "paks": [
+    {
+      "name": "pakchunk0-WindowsNoEditor.pak",
+      "size": 6138470006,
+      "sha256": "46ba21ab1833a15450908e23105c3b57dc99afa41a246dc13c6bd74e49f6e80f"
+    },
+    {
+      "name": "pakchunk1-WindowsNoEditor.pak",
+      "size": 66685862,
+      "sha256": "0b4fb1b42d7f243ead38b9417821a9cefcfa29accea00fc3f44641e754b97137"
+    },
+    {
+      "name": "pakchunk2-WindowsNoEditor.pak",
+      "size": 95031590,
+      "sha256": "152e31cdef2c16e4ed6362965a6927eaca2288af14f85a88045bd05e1ecc646b"
+    },
+    {
+      "name": "pakchunk3-WindowsNoEditor.pak",
+      "size": 119785126,
+      "sha256": "a72ecf21496590f9a6d43c5f5f5c9b7a4f10c0c6232b80fc10cd78b348e133fd"
+    },
+    {
+      "name": "pakchunk4-WindowsNoEditor.pak",
+      "size": 80931670,
+      "sha256": "f9399bdc574884292c370ad3fd7adfc80cd3d36410558364ae47796f3e167418"
+    },
+    {
+      "name": "pakchunk6-WindowsNoEditor.pak",
+      "size": 92753222,
+      "sha256": "1eede0162633b32d77787076381fb82378d2222928532a2d55b12da05f049001"
+    },
+    {
+      "name": "pakchunk7-WindowsNoEditor.pak",
+      "size": 92590326,
+      "sha256": "4e9688a0852b54d919f4e0f1692503d39f1fd011bb1d34a78bc3d3b9a967a562"
+    },
+    {
+      "name": "pakchunk9-WindowsNoEditor.pak",
+      "size": 56739654,
+      "sha256": "bf71cdce6c405e0f888555a311cbf0db86505253d4d15a1ae1e459c8f3b804db"
+    },
+    {
+      "name": "pakchunk10-WindowsNoEditor.pak",
+      "size": 50246822,
+      "sha256": "c81d4c47ffcc6e4eb8aa31fa0072d633974f02c2ca582757fb391b1efb994475"
+    },
+    {
+      "name": "pakchunk11-WindowsNoEditor.pak",
+      "size": 45139654,
+      "sha256": "97f7747b7b4b278d836d1ef57b4bfc6d8e4727fb963d7cb5d578712f17872132"
+    },
+    {
+      "name": "pakchunk12-WindowsNoEditor.pak",
+      "size": 203856982,
+      "sha256": "8b617fdb9151b57c1e552d02adbc9cc4c847cfebdedde71b2c423d53e5e1b2d8"
+    },
+    {
+      "name": "pakchunk71-WindowsNoEditor.pak",
+      "size": 12836319,
+      "sha256": "100339f51d657205d8a8c32fadc72e531342beb2909ebbf7c6e7d1ff57f2ee7b"
+    },
+    {
+      "name": "pakchunk72-WindowsNoEditor.pak",
+      "size": 8188614,
+      "sha256": "c85e7b9263a107967a346668ea21f170553c3856c9d1acee253fc94251669f7f"
+    },
+    {
+      "name": "pakchunk74-WindowsNoEditor.pak",
+      "size": 46667398,
+      "sha256": "50e7cf5e5658c3089f03913abab7106b78049adab4597ad92508dbe4513acec4"
+    },
+    {
+      "name": "pakchunk76-WindowsNoEditor.pak",
+      "size": 32624182,
+      "sha256": "8c7be01ff77069176b2b48058cdc6824b13a849a4bad5e1d531f4908bd096ac7"
+    },
+    {
+      "name": "pakchunk90-WindowsNoEditor.pak",
+      "size": 129779366,
+      "sha256": "5f0d2b34dd43f6b874cbce49821a2ceb8af5429be85bdb0ab77bcb9253097c14"
+    }
+  ],
+  "files": [
+    {
+      "path": "MultiVersus/Binaries/Win64/MultiVersus-Win64-Shipping.exe",
+      "tables": [
+        {
+          "name": "codebooks",
+          "size": 74387,
+          "sha256": "00a93eab267d281401b1efd54e888a2e183299b9e6c446c48d09f701a89d9d27"
+        }
+      ]
+    },
+    {
+      "path": "MultiVersus/Plugins/Wwise/ThirdParty/x64_vc160/Release/bin/AkRoomVerb.dll",
+      "tables": [
+        {
+          "name": "erPatterns",
+          "size": 26400,
+          "sha256": "0d5ce440faacde372411f6d24aa06e1e7ed2d16c7b08cab99d609257e2b26bf0"
+        }
+      ]
+    }
+  ]
+}

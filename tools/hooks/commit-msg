@@ -1,0 +1,67 @@
+#!/bin/sh
+# Refuses a commit on main whose message is not in the form of docs/workflow/git.md "Commits": a subject
+# `type(scope): subject` of 72 characters at most, with a scope from the list, no full stop, no issue id and no
+# batch or track name; a blank line before the body; body lines of 72 characters at most (a line holding a URL or
+# no space excepted); no tool attribution trailer. Other branches are not checked: a topic branch reaches main as
+# one squashed commit, and that commit's message is the one checked. Installed by copying this file to
+# .git/hooks/commit-msg of the main repo (every worktree shares that folder).
+[ "$(git symbolic-ref --short -q HEAD)" = main ] || exit 0
+trap '' PIPE  # a closed stderr must not kill the hook before it refuses
+# The message as committed: comment lines dropped, and nothing from a verbose commit's scissors line on.
+msg=$(sed '/^# -\{24\} >8 -\{24\}$/,$d' "$1" | grep -v '^#')
+subject=$(printf '%s\n' "$msg" | sed -n '1p')
+second=$(printf '%s\n' "$msg" | sed -n '2p')
+types='feat|fix|perf|refactor|test|docs|build|ci|style|chore|revert'
+# Scopes: every crate under crates/ without its mvs- prefix, then the named areas of git.md.
+root=$(git rev-parse --show-toplevel)
+scopes=$(ls "$root/crates" 2>/dev/null | sed -n 's/^mvs-//p' | tr '\n' ' ')
+scopes="$scopes tools extract workflow issues ledger facts plan"
+bad=
+if ! printf '%s\n' "$subject" | grep -Eq "^($types)(\([a-z0-9][a-z0-9-]*\))?!?: [^ ]"; then
+    bad="$bad  not 'type(scope): subject' (types: $(printf '%s' "$types" | tr '|' ' '))
+"
+else
+    scope=$(printf '%s\n' "$subject" | sed -n 's/^[a-z]*(\([^)]*\)).*/\1/p')
+    if [ -n "$scope" ]; then
+        case " $scopes " in
+            *" $scope "*) ;;
+            *) bad="$bad  scope '$scope' is not in the list (scopes: $scopes)
+" ;;
+        esac
+    fi
+fi
+if [ "${#subject}" -gt 72 ]; then
+    bad="$bad  subject is ${#subject} characters, 72 at most
+"
+fi
+case "$subject" in
+    *.) bad="$bad  subject ends with a full stop
+" ;;
+esac
+if printf '%s\n' "$subject" | grep -Eq 'MV-[0-9]+'; then
+    bad="$bad  an issue id in the subject (it goes in a 'Refs:' trailer)
+"
+fi
+if printf '%s\n' "$subject" | grep -Eq '\b[Bb]atch(es)? [A-Z][A-Z0-9]*\b|\b[Tt]rack [A-Z][A-Z0-9]*\b|\b([Bb]atch|[Tt]rack) [0-9]'; then
+    bad="$bad  a batch or track name in the subject (name what the commit holds)
+"
+fi
+if [ -n "$second" ]; then
+    bad="$bad  no blank line between the subject and the body
+"
+fi
+long=$(printf '%s\n' "$msg" | sed '1d' | awk 'length > 72 && !/:\/\// && / /' | head -3)
+if [ -n "$long" ]; then
+    bad="$bad  body lines over 72 characters (wrap them):
+$(printf '%s\n' "$long" | sed 's/^/    /')
+"
+fi
+if printf '%s\n' "$msg" | grep -Eiq '^Co-Authored-By:.*(claude|anthropic)'; then
+    bad="$bad  a Co-Authored-By trailer for Claude (no tool attribution in this repo)
+"
+fi
+[ -z "$bad" ] && exit 0
+echo "commit-msg: refused on main (docs/workflow/git.md \"Commits\"):" >&2
+printf '%s' "$bad" >&2
+echo "  subject: $subject" >&2
+exit 1

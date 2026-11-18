@@ -1,0 +1,6 @@
+This crate contains code ported from CUE4Parse 1.2.2 (https://github.com/FabianFG/CUE4Parse),
+Copyright (c) FabianFG and contributors, licensed under the Apache License, Version 2.0; the licence text is in
+LICENSE-CUE4Parse beside this file. The port is a translation of its package, property, struct and native-class
+readers (Package, ResolvedObject, FPropertyTag and the FPropertyTagType family, the native structs, ObjectTypeRegistry,
+the UObject classes' Deserialize and WriteJson, the custom versions and flag enums), by way of the TypeScript port in
+content/src/reader and content/src/native, changed to read only what an unversioned UE 4.26 cooked package holds.

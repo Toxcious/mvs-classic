@@ -1,0 +1,32 @@
+[package]
+name = "mvs-render"
+description = "The renderer on Direct3D 11: the build's cooked shaders drawn unchanged with its own View, Primitive, vertex factory and material buffers; the scene, lighting, post, fighters' and particles' draws, and the render-frame capture binary."
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+indexmap.workspace = true
+mvs-data.workspace = true
+mvs-load.workspace = true
+mvs-material.workspace = true
+mvs-sim = { path = "../mvs-sim" }
+mvs-sim-trace = { path = "../mvs-sim-trace" }
+mvs-store.workspace = true
+mvs-trace.workspace = true
+mvs-vfx.workspace = true
+mvs-view.workspace = true
+png.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+windows = { workspace = true, features = [
+  "Win32_Foundation",
+  "Win32_Graphics_Direct3D",
+  "Win32_Graphics_Direct3D11",
+  "Win32_Graphics_Direct3D_Fxc",
+  "Win32_Graphics_Dxgi",
+  "Win32_Graphics_Dxgi_Common",
+  "Win32_System_Threading",
+] }

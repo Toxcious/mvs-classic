@@ -1,0 +1,13 @@
+[package]
+name = "mvs-load"
+description = "The loader's worker threads: loads built off the frame thread (a ticket the frame polls) and the parallel parts of a load (a decode per medium)."
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+rayon.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows = { workspace = true, features = ["Win32_System_Threading"] }

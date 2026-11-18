@@ -1,0 +1,16 @@
+[package]
+name = "mvs-freetype"
+description = "FreeType 2.10.0 built from its vendored source (freetype-2.10.0.tar.gz of the FreeType project, the build's own version: see README.md) with TrueType, the auto-hinter and the smooth renderer, and the safe calls the UI's text makes."
+edition.workspace = true
+version.workspace = true
+# Our code is the workspace's licence; the vendored FreeType is taken under the FreeType License (freetype/docs/FTL.TXT).
+license = "MIT AND FTL"
+publish.workspace = true
+build = "build.rs"
+links = "freetype"
+
+[dependencies]
+thiserror.workspace = true
+
+[build-dependencies]
+cc.workspace = true

@@ -1,0 +1,102 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.package]
+edition = "2024"
+version = "0.1.2"
+license = "MIT"
+publish = false
+
+[workspace.dependencies]
+mvs-math = { path = "crates/mvs-math" }
+trial-tape = { path = "crates/trial-tape" }
+mvs-store = { path = "crates/mvs-store" }
+mvs-load = { path = "crates/mvs-load" }
+mvs-data = { path = "crates/mvs-data" }
+mvs-audio = { path = "crates/mvs-audio" }
+mvs-trace = { path = "crates/mvs-trace" }
+indexmap = { version = "2", features = ["serde"] }
+zstd = "0.13"
+thiserror = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_path_to_error = "0.1"
+cc = "1"
+mvs-freetype = { path = "crates/mvs-freetype" }
+mvs-material = { path = "crates/mvs-material" }
+mvs-view = { path = "crates/mvs-view" }
+mvs-vfx = { path = "crates/mvs-vfx" }
+mvs-render = { path = "crates/mvs-render" }
+mvs-ui = { path = "crates/mvs-ui" }
+mvs-settings = { path = "crates/mvs-settings" }
+mvs-protocol = { path = "crates/mvs-protocol" }
+mvs-net = { path = "crates/mvs-net" }
+mvs-host = { path = "crates/mvs-host" }
+mvs-relay = { path = "crates/mvs-relay" }
+mvs-release = { path = "crates/mvs-release" }
+# the EOS SDK's DLL, loaded at run time (mvs-net backend/eos)
+libloading = "=0.9.0"
+# a chat message's graphemes (mvs-protocol chat)
+unicode-segmentation = "=1.13.3"
+# the relay handshake's Ed25519 keys and signatures (mvs-net, mvs-relay); key files in PKCS#8 PEM
+ed25519-dalek = { version = "=3.0.0", features = ["pkcs8", "pem"] }
+# the relay wire's key exchange: X25519 through its Montgomery points (mvs-protocol relay_seal)
+curve25519-dalek = { version = "=5.0.0", default-features = false }
+# the relay wire's sealed frames and datagrams; its keys from the exchange (mvs-protocol relay_seal)
+chacha20poly1305 = { version = "=0.10.1", default-features = false }
+hkdf = "=0.12.4"
+# the exchange's secrets and the wire's keys are wiped when dropped
+zeroize = "=1.9.1"
+# nonces, session tokens and the in-memory network's loss and jitter
+rand = "=0.10.3"
+# the relay's JSON fields of keys, nonces, signatures and tokens; mvs-dist's guard (the key as base64)
+base64 = "=0.23.1"
+# mvs-relay only: its sockets on a current-thread runtime (the game uses std sockets on a net thread)
+tokio = { version = "=1.53.3", default-features = false, features = ["rt", "net", "io-util", "time"] }
+# mvs-relay: a dual-stack listening socket (IPv6 with IPv4 too) and its UDP twins
+socket2 = "=0.6.5"
+png = "0.18.1"
+mvs-pak = { path = "crates/mvs-pak" }
+mvs-uasset = { path = "crates/mvs-uasset" }
+# zlib / deflate: the paks, the settings, mvs-dist's release zips
+flate2 = "1"
+aes = "0.8"
+sha1 = "0.10"
+# SHA-256: the paks' hashes, the relay, mvs-dist's latest.json
+sha2 = "0.10"
+# a player name's checks (mvs-protocol names): Unicode categories, the word patterns, NFKD
+regex = "=1.13.1"
+unicode-normalization = "=0.1.26"
+rayon = "1"
+ryu-js = "1"
+# Vorbis decode of the sound kind's packets (mvs-audio decode/)
+lewton = "=0.10.2"
+# the game / mixer command and note rings (mvs-audio)
+rtrb = "0.3"
+# the shader maps' LZ4 code blocks (mvs-uasset natives/frozen.rs)
+lz4_flex = { version = "0.11", default-features = false, features = ["safe-decode"] }
+# No features here: each crate names the ones it uses.
+windows = "0.62.2"
+# the COM objects the port implements (`#[implement]` names this crate: mvs-audio's device notifications)
+windows-core = "0.62.2"
+
+[profile.release]
+debug = "line-tables-only"
+
+# Debug builds and tests (which inherit dev) keep file and line for backtraces only: full debug info made the PDBs
+# most of target/ (28 of 40 GB in debug/deps).
+[profile.dev]
+debug = "line-tables-only"
+
+# The development loop's optimised build (sim-trace, the tests and probes a track runs while it works): release code,
+# rebuilt incrementally in many units, so an edit to one module recompiles minutes faster. Float results are the same
+# as release (no fast-math, no FMA contraction); the batch's full run proves it on every match.
+[profile.trace]
+inherits = "release"
+incremental = true
+codegen-units = 256
+
+# Tests replay tapes of millions of calls: optimised, with overflow checks kept.
+[profile.test]
+opt-level = 3

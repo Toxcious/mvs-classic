@@ -1,0 +1,21 @@
+[package]
+name = "mvs-sim"
+description = "The match simulation: the World, its fighters, actors, buffs and the match's flow, stepped once per tick from the players' inputs, checked against the oracle's per-tick trace."
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+mvs-math.workspace = true
+mvs-data.workspace = true
+mvs-anim = { path = "../mvs-anim" }
+mvs-collision = { path = "../mvs-collision" }
+mvs-sim-derive = { path = "../mvs-sim-derive" }
+indexmap.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+mvs-store.workspace = true
+serde_json.workspace = true

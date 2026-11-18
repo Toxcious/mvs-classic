@@ -1,0 +1,30 @@
+[package]
+name = "mvs-audio"
+description = "The game's sound: the Wwise interpreter over the store's soundbank kind (events, actions, the actor-mixer and music hierarchies, game syncs, positioning), the mixer (voices, the bus tree, the build's effects) and its output (WASAPI, or offline to a buffer)."
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+indexmap.workspace = true
+lewton.workspace = true
+mvs-data.workspace = true
+mvs-load.workspace = true
+mvs-math.workspace = true
+mvs-store.workspace = true
+rtrb.workspace = true
+serde.workspace = true
+serde_json = { workspace = true, features = ["float_roundtrip"] }
+thiserror.workspace = true
+windows-core.workspace = true
+windows = { workspace = true, features = [
+  "Win32_Foundation",
+  "Win32_Media_Audio",
+  "Win32_Security",
+  "Win32_System_Com",
+  "Win32_System_Com_StructuredStorage",
+  "Win32_System_SystemInformation",
+  "Win32_System_Threading",
+  "Win32_System_Variant",
+] }

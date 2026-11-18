@@ -1,0 +1,18 @@
+[package]
+name = "mvs-settings"
+description = "The player's settings file (`settings.json` in the data folder): the launcher's folders, the window, graphics, audio and interface settings and the profile name; read field by field (a bad field takes its default), written whole through a temporary file; and the stats file (`stats.mvs`: the match records, the totals, the badge counts, the arcade and tutorial records)."
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+flate2.workspace = true
+indexmap.workspace = true
+mvs-protocol.workspace = true
+mvs-release.workspace = true
+mvs-store.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+thiserror.workspace = true

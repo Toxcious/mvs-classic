@@ -1,0 +1,278 @@
+//! The user widget classes the menus have a controller for: the class's controller made by `make`.
+//! A class with no entry is a plain widget tree.
+
+use super::controller::{Controller, Cx};
+use super::widgets::common;
+use super::widgets::controls::interactor;
+
+/// A controller's constructor: the controller of the context's widget (`cx.w`), before its OnInitialized.
+pub type Make = fn(&mut Cx<'_>) -> Box<dyn Controller>;
+
+/// The controller constructor of user widget class `class` (None: the class has no controller).
+pub fn make(class: &str) -> Option<Make> {
+    match class {
+        "UI_Tooltip" => Some(super::widgets::controls::tooltip::Tooltip::make as Make),
+        "UI_TooltipTarget" => Some(super::widgets::controls::tooltip::TooltipTarget::make as Make),
+        "UI_CalloutTooltip" => Some(super::widgets::controls::tooltip::CalloutTooltip::make as Make),
+        "UI_SocialContextMenu" => Some(super::widgets::social_context_menu::SocialContextMenu::make as Make),
+        "UI_SocialInviteModal" => Some(super::widgets::social::SocialInviteModal::make as Make),
+        "UI_SocialPanel" => Some(super::widgets::social::SocialPanel::make as Make),
+        "UI_SocialList" => Some(super::widgets::social::SocialList::make as Make),
+        "UI_SocialPlayer" => Some(super::widgets::social::SocialPlayer::make as Make),
+        "UI_Spinner" => Some(super::widgets::dialogs::Spinner::make as Make),
+        "UI_Waiting" => Some(super::widgets::dialogs::WaitingCover::make as Make),
+        "UI_Dialog" => Some(super::widgets::dialogs::DialogBox::make as Make),
+        "UI_Notification" => Some(super::widgets::dialogs::NotificationToast::make as Make),
+        "UI_TextInput" => Some(super::widgets::dialogs::TextInput::make as Make),
+        "UI_ButtonCartoon" => Some(super::widgets::controls::buttons::ButtonCartoon::make as Make),
+        "UI_SetUsername" => Some(super::widgets::dialogs::SetUsername::make as Make),
+        "UI_Homescreen_v2" => Some(super::widgets::home::Homescreen::make as Make),
+        "UI_MainMenu" => Some(super::widgets::main_menu::MainMenu::make as Make),
+        "WBP_MainButtons" => Some(super::widgets::home::MainButton::make as Make),
+        "WBP_PlayOnline" => Some(super::widgets::play_online::PlayOnline::make as Make),
+        "UI_QuestTabs" => Some(super::widgets::quests::QuestTabs::make as Make),
+        "UI_QuestsContainer" => Some(super::widgets::quests::QuestsContainer::make as Make),
+        "UI_AccountLevel_XPBar" => Some(super::widgets::home::AccountLevelXPBar::make as Make),
+        "UI_PromoTickerSmall" => Some(super::widgets::promo::PromoTickerSmall::make as Make),
+        "UI_PromoTickerItemSmall" => Some(super::widgets::promo::PromoTickerItemSmall::make as Make),
+        "UI_PromoTickerLarge" => Some(super::widgets::promo::PromoTickerLarge::make as Make),
+        "UI_Promo_Cromulons" => Some(super::widgets::promo::PromoParent::make_cromulons as Make),
+        "UI_Promo_BatmanDay" => Some(super::widgets::promo::PromoParent::make_batman_day as Make),
+        "UI_ScoobyMansionEventPromo_Shaggy" => Some(super::widgets::promo::PromoParent::make_shaggy as Make),
+        "UI_PaginationPips" => Some(super::widgets::controls::pips::PaginationPips::make as Make),
+        "UI_PaginationPip" => Some(super::widgets::controls::pips::PaginationPip::make as Make),
+        "UI_ParallaxItems" => Some(super::widgets::controls::parallax_items::ParallaxItems::make as Make),
+        "UI_ToolbarIconButton" => Some(super::widgets::nav::ToolbarIconButton::make as Make),
+        "WBP_MainSectionButton" => Some(super::widgets::nav::MainSectionButton::make as Make),
+        "UI_PartyMemberSlot" => Some(super::widgets::nav::PartyMemberSlot::make as Make),
+        "WBP_3dClick" => Some(super::widgets::social_menu::SocialMenu::make as Make),
+        "WBP_PlayerDataNew" => Some(super::widgets::nav::PlayerDataNew::make as Make),
+        "WBP_GlobalNav" => Some(super::widgets::nav::GlobalNav::make as Make),
+        "UI_WelcomeScreen" => Some(super::widgets::welcome::WelcomeScreen::make as Make),
+        "WBP_Quadrilateral" => Some(common::Quadrilateral::make as Make),
+        "UI_Interactor" => Some(interactor::InteractorCtl::make as Make),
+        "UI_FocusedCommon" => Some(interactor::FocusedCommon::make as Make),
+        "UI_IconButton" => Some(super::widgets::controls::buttons::IconButton::make as Make),
+        "UI_ButtonSecondary" => Some(super::widgets::controls::buttons::ButtonSecondary::make as Make),
+        "UI_PlusMinusHorizontal" => Some(super::widgets::controls::buttons::PlusMinusHorizontal::make as Make),
+        "UI_SectionBar" => Some(super::widgets::section_bar::SectionBar::make as Make),
+        "UI_WWShop" => Some(super::widgets::shop::WWShop::make as Make),
+        "UI_SectionBar_Shop" => Some(super::widgets::shop::SectionBarShop::make as Make),
+        "WBP_MO_HorizontalButton_Shop" => Some(super::widgets::shop::MOHorizontalButtonShop::make as Make),
+        "UI_WWShopPage_Home" => Some(super::widgets::shop::ShopPageHome::make as Make),
+        "UI_WWShopPage_Standard" => Some(super::widgets::shop::ShopPageStandard::make as Make),
+        "UI_WWGetMoreButton" => Some(super::widgets::shop::WWGetMoreButton::make as Make),
+        "UI_WWQuadrilateral" => Some(super::widgets::shop_cells::WWQuad::make as Make),
+        "WW_CurrencyIcon" => Some(super::widgets::shop_cells::CurrencyIcon::make as Make),
+        "WW_ShopPriceLabel" => Some(super::widgets::shop_cells::PriceLabel::make as Make),
+        "WW_ShopItemCell" => Some(super::widgets::shop_cells::ShopItemCell::make as Make),
+        "UI_WW_GridHeader" => Some(super::widgets::shop_cells::GridHeader::make as Make),
+        "UI_WWShopProductGridGeneric" => Some(super::widgets::shop_cells::ProductGrid::make as Make),
+        "UI_WWFilterGrid" => Some(super::widgets::shop_cells::FilterGrid::make as Make),
+        "UI_WW_Toggle" => Some(super::widgets::shop_cells::WWToggle::make as Make),
+        "UI_WWCostCalculation" => Some(super::widgets::shop_details::CostCalculation::make as Make),
+        "UI_ContextualUnlockModalCharacter" => Some(super::widgets::shop_details::ItemDetails::make as Make),
+        "UI_WWContextualUnlockModalBundle" => Some(super::widgets::shop_details::BundleDetails::make as Make),
+        "UI_CurrencyShop" => Some(super::widgets::currency_shop::CurrencyShop::make as Make),
+        "UI_CurrencyShopPromo" => Some(super::widgets::currency_shop::CurrencyShopPromo::make as Make),
+        "UI_SectionBarVertMenusRework" => {
+            Some(super::widgets::controls::bar_buttons::SectionBarVertButton::make as Make)
+        }
+        "UI_SectionBarVertSubmenusRework" => {
+            Some(super::widgets::controls::bar_buttons::SectionBarVertButton::make_sub as Make)
+        }
+        "UI_SectionBarButtonMenuRework" => {
+            Some(super::widgets::controls::bar_buttons::SectionBarMenuButton::make as Make)
+        }
+        "UI_ToggleSwitchRework" => Some(super::widgets::controls::buttons::ToggleSwitch::make as Make),
+        "UI_DropMenuRework" => Some(super::widgets::controls::drop_menu::DropMenu::make as Make),
+        "UI_ContextMenu" => Some(super::widgets::controls::drop_menu::ContextMenu::make as Make),
+        "UI_ContextButton" => Some(super::widgets::controls::drop_menu::ContextButton::make as Make),
+        "WBP_GlobalSlideOut" => Some(super::widgets::nav::GlobalSlideOut::make as Make),
+        "UI_PreferencesRework" => Some(super::widgets::preferences::PreferencesRework::make as Make),
+        "UI_PreferencesPanelRework" => Some(super::widgets::preferences::PreferencesPanel::make as Make),
+        "UI_InputLabel" => Some(super::widgets::controls::input_label::InputLabel::make as Make),
+        "UI_InputBinding" => Some(super::widgets::controls::input_binding::InputBinding::make as Make),
+        "UI_InputBindingSet" => Some(super::widgets::controls::input_binding::InputBindingSet::make as Make),
+        "UI_PreferencesControlsRework" => {
+            Some(super::widgets::controls::input_binding::PreferencesControls::make as Make)
+        }
+        "UI_PreferencesControls-Toggles" => {
+            Some(super::widgets::controls::input_binding::PreferencesToggles::make as Make)
+        }
+        "UI_PreferencesGraphicsRework" => Some(super::widgets::preferences_graphics::PreferencesGraphics::make as Make),
+        "UI_PreferencesInterfaceRework" => {
+            Some(super::widgets::preferences_interface::PreferencesInterface::make as Make)
+        }
+        "UI_SectionBarHorizontalMenusRework" => {
+            Some(super::widgets::controls::bar_buttons::SectionBarHorizontalMenusButton::make as Make)
+        }
+        "UI_ColorPicker" => Some(super::widgets::controls::color_picker::ColorPicker::make as Make),
+        "UI_ColorButton" => Some(super::widgets::controls::color_picker::ColorButton::make as Make),
+        "UI_IGv3_LivePreview" => Some(super::widgets::preferences_interface::LivePreview::make as Make),
+        "UI_IGv3_LivePreview_Character" => {
+            Some(super::widgets::preferences_interface::LivePreviewCharacter::make as Make)
+        }
+        "UI_IGv3_LivePreview_HUDFixed" => {
+            Some(super::widgets::preferences_interface::LivePreviewHudFixed::make as Make)
+        }
+        "UI_IGv3_LivePreview_Scoreboard" => {
+            Some(super::widgets::preferences_interface::LivePreviewScoreboard::make as Make)
+        }
+        "UI_InputBindingModal" => Some(super::widgets::input_binding_modal::InputBindingModal::make as Make),
+        "UI_CapturePlayersFocus" => Some(super::widgets::input_binding_modal::CapturePlayersFocus::make as Make),
+        "WBP_MenuHeader" => Some(common::MenuHeader::make as Make),
+        "UI_ButtonMain" => Some(super::widgets::controls::buttons::ButtonMain::make as Make),
+        "UI_ButtonSecondary_Vertical" => Some(super::widgets::controls::buttons::ButtonSecondaryVertical::make as Make),
+        "WBP_CustomGame" => Some(super::widgets::custom_game::CustomGame::make as Make),
+        "WBP_CustomGameTeam" => Some(super::widgets::custom_game::CustomGameTeam::make as Make),
+        "WBP_CustomGamePlayer" => Some(super::widgets::custom_game::CustomGamePlayer::make as Make),
+        "WBP_CustomGameMapThumbnail" => Some(super::widgets::custom_game::CustomGameMapThumbnail::make as Make),
+        "UI_CanvasProgressionContainer" => Some(super::widgets::end_of_game::CanvasProgressionContainer::make as Make),
+        "UI_EOG_MatchResults" => Some(super::widgets::end_of_game::EOGMatchResults::make as Make),
+        "UI_SteppedNextButton" => Some(super::widgets::end_of_game::SteppedNextButton::make as Make),
+        "UI_EOG_StatSheet" => Some(super::widgets::end_of_game::EOGStatSheet::make as Make),
+        "UI_EOG_Nametag" => Some(super::widgets::end_of_game::EOGNametag::make as Make),
+        "UI_EOG_StatItem" => Some(super::widgets::end_of_game::EOGStatItem::make as Make),
+        "UI_ButtonYesNo" => Some(super::widgets::end_of_game::ButtonYesNo::make as Make),
+        "UI_EOG_RematchStatus" => Some(super::widgets::end_of_game::EOGRematchStatus::make as Make),
+        "UI_ArcadeEOGContinue" => Some(super::widgets::end_of_game::ArcadeEOGContinue::make as Make),
+        "UI_AXProgress" => Some(super::widgets::arcade_progress::AXProgress::make as Make),
+        "UI_AXProgressStage" => Some(super::widgets::arcade_progress::AXProgressStage::make as Make),
+        "UI_EOG_PlayAgain" => Some(super::widgets::end_of_game::EOGPlayAgain::make as Make),
+        "UI_EOG_PullToPreMatch" => Some(super::widgets::end_of_game::EOGPullToPreMatch::make as Make),
+        "UI_EOG_ToastButton" => Some(super::widgets::toast_button::EOGToastButton::make as Make),
+        "UI_ButtonToast" => Some(super::widgets::toast_button::ButtonToast::make as Make),
+        "WBP_MO_HorizontalButton" => Some(super::widgets::controls::bar_buttons::MOHorizontalButton::make as Make),
+        "UI_GlossaryTooltipText" => Some(super::widgets::glossary::GlossaryTooltipText::make as Make),
+        "UI_GlossaryTooltipContainer" => Some(super::widgets::glossary::GlossaryTooltipContainer::make as Make),
+        // a modal (the nav's collection)
+        "UI_CollectionsPanel" => Some(super::widgets::collection::CollectionsPanel::make as Make),
+        "UI_CollectionCharacters" => Some(super::widgets::collection::CollectionCharacters::make as Make),
+        "UI_CollectionCharacterCarousel" => Some(super::widgets::collection::CollectionCharacterCarousel::make as Make),
+        "UI_CollectionCharacterInfo" => Some(super::widgets::collection::CollectionCharacterInfo::make as Make),
+        "UI_CollectionCharacterRank" => Some(super::widgets::collection::CollectionCharacterRank::make as Make),
+        "UI_CollectionCharacterDetails" => Some(super::widgets::collection::CollectionCharacterDetails::make as Make),
+        "UI_CollectionBottomBtns" => Some(super::widgets::collection::CollectionBottomBtns::make as Make),
+        "UI_CollectionXPBoost" => Some(super::widgets::collection::CollectionXPBoost::make as Make),
+        "UI_CollectionBoostIcon" => Some(super::widgets::collection::CollectionBoostIcon::make as Make),
+        "UI_CollectionPerks" => Some(super::widgets::collection::CollectionPerks::make as Make),
+        "UI_CollectionStats" => Some(super::widgets::collection::CollectionStats::make as Make),
+        // (the EOG step "toast"; the Collection's stats page holds the same widget)
+        "UI_CollectionToasts" => Some(super::widgets::end_of_game::CollectionToasts::make as Make),
+        "UI_CollectionOverview" => Some(super::widgets::collection::CollectionOverview::make as Make),
+        "UI_CollectionChooser" => Some(super::widgets::collection_chooser::CollectionChooser::make as Make),
+        "UI_Perks_Trainer" => Some(super::widgets::collection::PerksTrainer::make as Make),
+        "UI_Perks_Sublist" => Some(super::widgets::perks::PerksSublist::make as Make),
+        "UI_Perks_Item" => Some(super::widgets::perks::PerkItem::make as Make),
+        "UI_Perks_Loadout" => Some(super::widgets::perks::PerksLoadout::make as Make),
+        "UI_Perks_Equipper" => Some(super::widgets::perks::PerksEquipper::make as Make),
+        "UI_Perks_AddButton" => Some(super::widgets::perks::PerksAddButton::make as Make),
+        "UI_Perks_StackedCallout" => Some(super::widgets::perks::PerksStackedCallout::make as Make),
+        "UI_PerkLockIndicator" => Some(super::widgets::perks::PerkLockIndicator::make as Make),
+        "UI_TooltipPerk_v2" => Some(super::widgets::perks::TooltipPerk::make as Make),
+        "WBP_StatBadge" => Some(super::widgets::badges::StatBadge::make as Make),
+        "WBP_RichTooltip" => Some(super::widgets::reward_tooltip::RewardTooltip::make_rich as Make),
+        "WBP_BadgeTooltip" => Some(super::widgets::reward_tooltip::RewardTooltip::make_badge as Make),
+        "WBP_VariantTooltip" => Some(super::widgets::reward_tooltip::RewardTooltip::make_variant as Make),
+        "WBP_TauntTooltip" => Some(super::widgets::reward_tooltip::RewardTooltip::make_taunt as Make),
+        "WBP_ProfileIconTooltip" => Some(super::widgets::reward_tooltip::RewardTooltip::make_profile_icon as Make),
+        "WBP_RingoutTooltip" => Some(super::widgets::reward_tooltip::RewardTooltip::make_ringout as Make),
+        "WBP_EmoteTooltip" => Some(super::widgets::reward_tooltip::RewardTooltip::make_emote as Make),
+        "WBP_AnnouncerTooltip" => Some(super::widgets::reward_tooltip::RewardTooltip::make_announcer as Make),
+        "WBP_CurrencyTooltip" => Some(super::widgets::reward_tooltip::RewardTooltip::make_currency as Make),
+        "WBP_PerkTooltip" => Some(super::widgets::reward_tooltip::RewardTooltip::make_perk as Make),
+        "WBP_BannerTooltip" => Some(super::widgets::reward_tooltip::RewardTooltip::make_banner as Make),
+        "UI_TooltipPerkDescription" => Some(super::widgets::perks::TooltipPerkDescription::make as Make),
+        "UI_PM_EditPerks" => Some(super::widgets::perks::PMEditPerks::make as Make),
+        "WBP_MatchOptions" => Some(super::widgets::match_options::MatchOptions::make as Make),
+        "WBP_GameModeCard" => Some(super::widgets::match_options::GameModeCard::make as Make),
+        "WBP_TextTag" => Some(super::widgets::text_tag::TextTag::make as Make),
+        "UI_SectionBarHorizontalMenusRework2" => {
+            Some(super::widgets::match_options::SectionBarHorizontalButton2::make as Make)
+        }
+        "WBP_SubOptionModal" => Some(super::widgets::match_options::SubOptionModal::make as Make),
+        "WBP_TutorialType" => Some(super::widgets::match_options::TutorialType::make as Make),
+        "UI_RankedTierOverview" => Some(super::widgets::match_options::RankedTierOverview::make as Make),
+        "UI_RankedExplanationModal" => Some(super::widgets::match_options::RankedExplanationModal::make as Make),
+        "UI_ServerSettingsPrompt" => Some(super::widgets::match_options::ServerSettingsPrompt::make as Make),
+        // a modal with no controller yet (the nav's battle pass: battle_pass.rs BattlePassRework, C3): not shown (modals.rs can_show_modal)
+        "UI_BattlePass_Rework" => Some(super::widgets::battle_pass::BattlePassRework::make as Make),
+        "WBP_RewardTrack" => Some(super::widgets::battle_pass::RewardTrack::make as Make),
+        "UI_ButtonRoundedTriangle_Secondary" => {
+            Some(super::widgets::battle_pass::ButtonRoundedTriangleSecondary::make as Make)
+        }
+        "WBP_BPass_Card" => Some(super::widgets::battle_pass::BPassCard::make as Make),
+        "WBP_GenericRT_Card" => Some(super::widgets::battle_pass::GenericRTCard::make as Make),
+        "WBP_CharMastery_Card" => Some(super::widgets::battle_pass::MasteryCard::make as Make),
+        "UI_BattlePass_Tokens" => Some(super::widgets::battle_pass::BattlePassTokens::make as Make),
+        "UI_BattlePass_PremiumUnlockButton" => Some(super::widgets::battle_pass::PremiumUnlockButton::make as Make),
+        "UI_BXP_Boost" => Some(super::widgets::battle_pass::BXPBoost::make as Make),
+        "UI_LocalPlay" => Some(super::widgets::local_play::LocalPlay::make as Make),
+        "UI_MatchSetup_Player" => Some(super::widgets::local_play::MatchSetupPlayer::make as Make),
+        "UI_LP_CharacterInfo" => Some(super::widgets::local_play::LPCharacterInfo::make as Make),
+        "UI_LP_Player_Vacant" => Some(super::widgets::local_play::LPPlayerVacant::make as Make),
+        "UI_LP_Player_Unavailable" => Some(super::widgets::local_play::LPPlayerUnavailable::make as Make),
+        "UI_LP_Player_Character" => Some(super::widgets::local_play::LPPlayerCharacter::make as Make),
+        "UI_LP_Player_Skin" => Some(super::widgets::local_play::LPPlayerSkin::make as Make),
+        "UI_LP_Player_SoftLocked" => Some(super::widgets::local_play::LPPlayerSoftLocked::make as Make),
+        "UI_LP_Player_Cosmetics" => Some(super::widgets::local_play_steps::LPPlayerCosmetics::make as Make),
+        "UI_LP_Player_Perks" => Some(super::widgets::local_play_steps::LPPlayerPerks::make as Make),
+        "UI_LP_Player_ConfirmReady" => Some(super::widgets::local_play_steps::LPPlayerConfirmReady::make as Make),
+        "UI_LP_Player_Ready" => Some(super::widgets::local_play_steps::LPPlayerReady::make as Make),
+        "UI_GlyphEntries" => Some(super::widgets::local_play_steps::GlyphEntries::make as Make),
+        "UI_GlyphEntry" => Some(super::widgets::local_play_steps::GlyphEntry::make as Make),
+        "UI_CurrencyLabel" => Some(super::widgets::nav::CurrencyLabel::make as Make),
+        "UI_Profile_v2" => Some(super::widgets::profile::ProfileV2::make as Make),
+        "UI_PauseMenu" => Some(super::widgets::pause_menu::PauseMenu::make as Make),
+        "TutorialIntroScreen" => Some(super::screens::tutorial::widgets::TutorialIntroScreen::make as Make),
+        "TutorialWidget" => Some(super::screens::tutorial::widgets::TutorialWidget::make as Make),
+        "TutorialTaskWidget" => Some(super::screens::tutorial::widgets::TutorialTaskWidget::make as Make),
+        "UI_MinigameScore_Row" => Some(super::screens::tutorial::widgets::MinigameScoreRow::make as Make),
+        "UI_TutorialEndScreen" => Some(super::screens::tutorial::widgets::TutorialEndScreen::make as Make),
+        "UI_QuickMatchSettings" => Some(super::widgets::quick_match_settings::QuickMatchSettings::make as Make),
+        "CustomGameBrowser" => Some(super::widgets::custom_browser::CustomGameBrowser::make as Make),
+        "CustomGameSettings" => Some(super::widgets::custom_settings::CustomGameSettings::make as Make),
+        "UI_ProfileStats" => Some(super::widgets::profile::ProfileStats::make as Make),
+        "UI_ProfileStat" => Some(super::widgets::profile::ProfileStat::make as Make),
+        "RankedLeaderboard" => Some(super::widgets::profile::RankedLeaderboard::make as Make),
+        "UI_MatchHistoryEntry" => Some(super::widgets::profile::MatchHistoryEntry::make as Make),
+        "UI_MatchBreakdown" => Some(super::widgets::profile::MatchBreakdown::make as Make),
+        "UI_MatchBreakdownPlayer" => Some(super::widgets::profile::MatchBreakdownPlayer::make as Make),
+        "UI_LAB_CharacterSelector" => Some(super::screens::lab_selectors::LabCharacterSelector::make as Make),
+        "UI_LAB_SkinSelector" => Some(super::screens::lab_selectors::LabSkinSelector::make as Make),
+        "UI_EquipperItem_V2" => Some(super::screens::lab_selectors::EquipperItem::make as Make),
+        "UI_GridItemList" => Some(super::screens::lab_selectors::GridItemList::make as Make),
+        "UI_Collection_CharacterItem" => Some(super::screens::lab_selectors::CollectionCharacterItem::make as Make),
+        "UI_PM_CharacterInfo_V2" => Some(super::screens::lab_selectors::PMCharacterInfo::make as Make),
+        "UI_CharacterTypeInfo" => Some(super::screens::lab_selectors::CharacterTypeInfo::make as Make),
+        "UI_LAB_PauseMenu" => Some(super::screens::lab::LabPauseMenu::make as Make),
+        "UI_LAB_Panel" => Some(super::screens::lab::LabPanel::make as Make),
+        "UI_LAB_MapInfo" => Some(super::screens::lab::LabMapInfo::make as Make),
+        "UI_LAB_MapSelector" => Some(super::screens::lab_selectors::LabMapSelector::make as Make),
+        "UI_LAB_MapItem" => Some(super::screens::lab_selectors::LabMapItem::make as Make),
+        "UI_LAB_PlayerCountLabel" => Some(super::screens::lab_selectors::LabPlayerCountLabel::make as Make),
+        "UI_LAB_PlayerPanel" => Some(super::screens::lab::LabPlayerPanel::make as Make),
+        "UI_LAB_PlayerPanel_Character" => Some(super::screens::lab::LabPlayerPanelCharacter::make as Make),
+        "UI_LAB_PlayerPanel_Perks" => Some(super::screens::lab::LabPlayerPanelPerks::make as Make),
+        "UI_PlusMinusVertical" => Some(super::screens::lab::PlusMinusVertical::make as Make),
+        "UI_CharacterMoveList" => Some(super::screens::move_list::CharacterMoveList::make as Make),
+        "UI_CharacterMoveRow" => Some(super::screens::move_list::CharacterMoveRow::make as Make),
+        "UI_CharacterPassiveMove" => Some(super::screens::move_list::CharacterPassiveMove::make as Make),
+        "UI_Lab_MatchmakingTimer" => Some(super::screens::lab_timer::LabMatchmakingTimer::make as Make),
+        "UI_LAB_Hotkeys" => Some(super::screens::lab_hotkeys::LabHotkeys::make as Make),
+        "UI_PreMatch" => Some(super::screens::pre_match::widget::PreMatch::make as Make),
+        "UI_PM_StateInfo" => Some(super::screens::pre_match::child_widgets::PMStateInfo::make as Make),
+        "UI_PM_PlayerInfo" => Some(super::screens::pre_match::child_widgets::PMPlayerInfo::make as Make),
+        "UI_PM_Confirm" => Some(super::screens::pre_match::child_widgets::PMConfirm::make as Make),
+        "UI_PM_EditEmotes" => Some(super::screens::pre_match::child_widgets::PMEditEmotes::make as Make),
+        "UI_PM_ModeLabel" => Some(super::screens::pre_match::child_widgets::PMModeLabel::make as Make),
+        "UI_PM_GameplayTips" => Some(super::screens::pre_match::child_widgets::PMGameplayTips::make as Make),
+        "UI_DetailedText_VS_PM" => Some(super::screens::pre_match::child_widgets::DetailedTextVSPM::make as Make),
+        "UI_PM_CharacterItem" => Some(super::screens::pre_match::child_widgets::PMCharacterItem::make as Make),
+        "UI_PM_SkinSelector" => Some(super::screens::pre_match::child_widgets::PMSkinSelector::make as Make),
+        "UI_InputLabelSet" => Some(super::screens::pre_match::child_widgets::InputLabelSet::make as Make),
+        "UI_InputLabelButton" => Some(super::screens::pre_match::child_widgets::InputLabelButton::make as Make),
+        _ => None,
+    }
+}

@@ -1,0 +1,7 @@
+# Text files are stored and checked out with LF; Windows batch files keep CRLF, which cmd needs.
+* text=auto eol=lf
+*.bat text eol=crlf
+*.ico binary
+*.png binary
+*.jpg binary
+*.ttf binary

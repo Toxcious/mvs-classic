@@ -1,0 +1,470 @@
+//! The custom lobby driven by the mouse and the keys as a player does: a click in the chat's box gives it the keys,
+//! the chat's hint goes while the box has them or holds text, and each of the lobby's modals opens after another one
+//! closed. Needs the dev store; without one each test says so and passes.
+
+use std::sync::Arc;
+
+use mvs_protocol::lobby_rules::{LobbyData, LobbyPlayer, LobbyRules};
+use mvs_protocol::messages::ServerMessage;
+use mvs_settings::Settings;
+use mvs_ui::Bundle;
+use mvs_ui::bindings::Bindings;
+use mvs_ui::element::ElementList;
+use mvs_ui::menu::controller::MenuRun;
+use mvs_ui::menu::input::Pointer;
+use mvs_ui::menu::online::{OnlineEvent, OnlineView, SessionView};
+use mvs_ui::menu::{Manager, MenuInput, MenuScreen, MenuView, NoSound};
+use mvs_ui::slate::{Vis, WidgetId};
+use mvs_ui::text::{Fonts, GameText};
+
+struct Env {
+    bundle: Arc<Bundle>,
+    text: Arc<GameText>,
+    fonts: Fonts,
+    prefs: Settings,
+    bindings: Bindings,
+    sink: NoSound,
+    pointer: Pointer,
+}
+
+fn env() -> Option<Env> {
+    let store = match mvs_store::Store::open(mvs_store::dev_store_dir()) {
+        Ok(s) if s.version("font").is_some() && s.version("ui").is_some() => s,
+        _ => {
+            eprintln!("no dev store with the font and ui kinds: skipped");
+            return None;
+        }
+    };
+    let bundle = match Bundle::load(&store, "menu") {
+        Ok(b) => b,
+        Err(e) => {
+            eprintln!("no menu bundle ({e}): skipped");
+            return None;
+        }
+    };
+    let fonts = Fonts::new(&store, &bundle).unwrap();
+    let text = GameText::load(&store).unwrap_or_default();
+    Some(Env {
+        bundle: Arc::new(bundle),
+        text: Arc::new(text),
+        fonts,
+        prefs: Settings::default(),
+        bindings: Bindings::default(),
+        sink: NoSound,
+        pointer: Pointer::default(),
+    })
+}
+
+impl Env {
+    fn run(&mut self) -> MenuRun<'_> {
+        MenuRun {
+            fonts: &mut self.fonts,
+            prefs: &mut self.prefs,
+            bindings: &mut self.bindings,
+            sink: &mut self.sink,
+            pointer: &mut self.pointer,
+            lab: None,
+            pause: None,
+            tutorial: None,
+        }
+    }
+}
+
+const SIZE: [u32; 2] = [1920, 1080];
+
+fn me() -> LobbyPlayer {
+    LobbyPlayer {
+        account_id: "local".into(),
+        username: "Tester".into(),
+        is_bot: false,
+        character: "shaggy".into(),
+        skin: String::new(),
+        difficulty: 0,
+        icon: String::new(),
+    }
+}
+
+/// The lobby a new session answers with: this player alone, its leader.
+fn started() -> OnlineEvent {
+    let data = LobbyData { leader_id: "local".into(), teams: vec![vec![me()], Vec::new()], ..LobbyRules::new().data() };
+    OnlineEvent::Server(Box::new(ServerMessage::LobbyState { id: "L1".into(), ev: "started".into(), data, who: None }))
+}
+
+fn online(events: Vec<OnlineEvent>) -> OnlineView {
+    let session =
+        SessionView { code: "L1".into(), me: "local".into(), host: false, chosen: true, lobby: None, queued: false };
+    OnlineView {
+        connected: true,
+        me: "local".into(),
+        name: "Tester".into(),
+        session: Some(session),
+        events,
+        ..OnlineView::default()
+    }
+}
+
+struct Lobby {
+    env: Env,
+    screen: MenuScreen,
+    out: ElementList,
+    n: u32,
+}
+
+impl Lobby {
+    /// The custom game over an online lobby (so it has its chat), a second of frames after it is up.
+    fn new(env: Option<Env>) -> Option<Lobby> {
+        let mut env = env?;
+        let view = MenuView::new(env.bundle.clone(), env.text.clone(), SIZE);
+        let mut screen = MenuScreen::new(view, &mut env.run());
+        screen.view.session.online = online(Vec::new());
+        screen.with_cx(&mut env.run(), |cx| Manager::show_modal(cx, "WBP_CustomGame", "customGame", "", ""));
+        let mut l = Lobby { env, screen, out: ElementList::default(), n: 0 };
+        l.screen.view.session.online = online(vec![OnlineEvent::Opened, started()]);
+        l.frames(60, &[]);
+        Some(l)
+    }
+
+    fn frames(&mut self, count: u32, input: &[MenuInput]) {
+        for i in 0..count {
+            self.n += 1;
+            let now = 1.0 + f64::from(self.n) / 60.0;
+            let input = if i == 0 { input } else { &[] };
+            self.screen.frame(&mut self.env.run(), input, now, &mut self.out);
+            // (the server's messages come once)
+            self.screen.view.session.online.events.clear();
+        }
+    }
+
+    /// The widget `name` under the modal `id`.
+    fn find(&self, id: &str, name: &str) -> WidgetId {
+        let v = &self.screen.view;
+        let m = v.manager.get_modal(id).unwrap_or_else(|| panic!("the modal {id} is up"));
+        v.tree().find_in(m, name)
+    }
+
+    /// The centre of `w` as last painted, in device pixels.
+    fn centre(&self, w: WidgetId) -> (f64, f64) {
+        let p = self.screen.view.tree().painted(w).expect("painted");
+        let (x, y) = (p.size[0] / 2.0, p.size[1] / 2.0);
+        let m = p.transform;
+        (m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5])
+    }
+
+    /// A left click at the centre of `w`: a move, the button down, the button up, a few frames apart.
+    fn click(&mut self, w: WidgetId) {
+        let (x, y) = self.centre(w);
+        self.frames(3, &[MenuInput::MouseMove { x, y }]);
+        self.frames(3, &[MenuInput::MouseButton { button: 0, down: true }]);
+        self.frames(10, &[MenuInput::MouseButton { button: 0, down: false }]);
+    }
+
+    fn key(&mut self, key: &'static str) {
+        self.frames(2, &[MenuInput::Key { key, down: true, repeat: false, player: 0 }]);
+        self.frames(10, &[MenuInput::Key { key, down: false, repeat: false, player: 0 }]);
+    }
+
+    fn up(&self, id: &str) -> bool {
+        self.screen.view.manager.get_modal(id).is_some()
+    }
+
+    fn chat_box(&self) -> WidgetId {
+        let input = self.screen.view.tree().find_in(self.find("customGame", "LobbyChatInputRow"), "UI_TextInput");
+        self.screen.view.tree().find_in(input, "TextBox")
+    }
+
+    fn typing(&self) -> bool {
+        self.screen.view.has_keyboard_focus(self.chat_box())
+    }
+
+    fn hint_shown(&self) -> bool {
+        self.screen.view.tree().widget(self.find("customGame", "LobbyChatHint")).vis != Vis::Collapsed
+    }
+}
+
+#[test]
+fn a_click_in_the_chat_box_gives_it_the_keys() {
+    let Some(mut l) = Lobby::new(env()) else { return };
+    assert!(!l.typing(), "the chat box starts without the keys");
+    let b = l.chat_box();
+    l.click(b);
+    assert!(l.typing(), "the clicked chat box has the keys");
+    assert!(!l.hint_shown(), "the hint goes with the click");
+    l.frames(5, &[MenuInput::Char('h'), MenuInput::Char('i')]);
+    let tb = l.chat_box();
+    let text = l.screen.view.tree().widget(tb).children[0];
+    assert_eq!(l.screen.view.tree().widget(text).text, "hi", "the keys typed go in the clicked box");
+}
+
+#[test]
+fn the_chat_hint_shows_only_on_an_empty_box_without_the_keys() {
+    let Some(mut l) = Lobby::new(env()) else { return };
+    assert!(l.hint_shown(), "the hint is up at first");
+    l.key("Enter");
+    assert!(l.typing(), "Enter opens the chat");
+    assert!(!l.hint_shown(), "the hint goes while the box has the keys");
+    l.frames(1, &[MenuInput::Char('h'), MenuInput::Char('i')]);
+    l.frames(5, &[]);
+    l.key("Escape");
+    assert!(!l.typing(), "Escape leaves the box");
+    assert!(!l.hint_shown(), "the hint stays off over the text");
+    l.key("Enter");
+    l.frames(1, &[MenuInput::Key { key: "BackSpace", down: true, repeat: false, player: 0 }]);
+    l.frames(1, &[MenuInput::Key { key: "BackSpace", down: false, repeat: false, player: 0 }]);
+    l.frames(1, &[MenuInput::Key { key: "BackSpace", down: true, repeat: false, player: 0 }]);
+    l.frames(5, &[MenuInput::Key { key: "BackSpace", down: false, repeat: false, player: 0 }]);
+    l.key("Escape");
+    assert!(!l.typing(), "Escape leaves the box");
+    assert!(l.hint_shown(), "the hint is back on the empty box without the keys");
+}
+
+#[test]
+fn a_click_on_the_social_tab_opens_the_panel() {
+    let Some(mut l) = Lobby::new(env()) else { return };
+    let panel = l.find("customGame", "UI_SocialPanel_CustomGame");
+    let (tab, small) = {
+        let t = l.screen.view.tree();
+        (t.find_in(panel, "hoverBox"), t.find_in(panel, "headerSmall"))
+    };
+    assert_ne!(l.screen.view.tree().widget(small).vis, Vis::Collapsed, "the panel starts small");
+    l.click(tab);
+    // (the page over the panel took this click while the slot's ZOrder 1 was not kept, and the panel had no context)
+    assert_eq!(l.screen.view.tree().widget(small).vis, Vis::Collapsed, "the clicked tab opens the panel");
+}
+
+#[test]
+fn each_lobby_modal_opens_after_another_closed() {
+    let Some(mut l) = Lobby::new(env()) else { return };
+    let close = |l: &mut Lobby, id: &str| {
+        let b = l.find(id, "buttonClose");
+        l.click(b);
+        assert!(!l.up(id), "{id} closed by its button");
+    };
+    let maps = |l: &mut Lobby| {
+        let b = l.find("customGame", "SelectMapsButton");
+        l.click(b);
+        assert!(l.up("mapSelector"), "Select Maps opens the map selector");
+        let b = l.find("mapSelector", "btn_Cancel");
+        l.click(b);
+        assert!(!l.up("mapSelector"), "the map selector closed by its Cancel");
+    };
+    // Experimental Settings, then Select Maps
+    let b = l.find("customGame", "ResetToDefaultsButton");
+    l.click(b);
+    assert!(l.up("customGameExperimental"), "the experimental settings open");
+    close(&mut l, "customGameExperimental");
+    maps(&mut l);
+    // Room Settings, then Select Maps, then Experimental Settings again
+    let b = l.find("customGame", "LobbySettingsButton");
+    l.click(b);
+    assert!(l.up("customGameSettings"), "the room settings open");
+    close(&mut l, "customGameSettings");
+    maps(&mut l);
+    let b = l.find("customGame", "ResetToDefaultsButton");
+    l.click(b);
+    assert!(l.up("customGameExperimental"), "the experimental settings open again");
+    close(&mut l, "customGameExperimental");
+    let b = l.find("customGame", "LobbySettingsButton");
+    l.click(b);
+    assert!(l.up("customGameSettings"), "the room settings open again");
+}
+
+/// Two profile icons of the catalogue that have a picture and are not the empty icon's stand-in (the gizmo icon
+/// SetDefaultProfileIcon replaces): their asset names and their pictures.
+fn two_icons(e: &Env) -> Option<[(String, String, String); 2]> {
+    let c = mvs_ui::menu::hydra::cosmetics_in(&e.bundle)?;
+    let mut it = c.profile_icon.iter().filter_map(|i| {
+        let tex = mvs_ui::menu::hydra::picture_name(i.icon.as_deref()?)?;
+        (!i.slug.eq_ignore_ascii_case("profile_icon_amb_gre_gizmo_1") && e.bundle.textures.contains_key(&tex))
+            .then(|| (i.slug.clone(), i.path.clone(), tex))
+    });
+    Some([it.next()?, it.nth(3)?])
+}
+
+/// The picture of the IconButton in the player row titled `name`.
+fn row_icon(l: &Lobby, name: &str) -> Option<String> {
+    let t = l.screen.view.tree();
+    let m = l.screen.view.manager.get_modal("customGame")?;
+    let title = t.post_order(m).into_iter().find(|&w| t.widget(w).name == "PlayerTitle" && t.widget(w).text == name)?;
+    let mut w = t.widget(title).parent;
+    while let Some(x) = w {
+        if let Some(b) = t.find_opt(x, "IconButton") {
+            return t.widget(t.find_in(b, "iconImage")).tex.clone();
+        }
+        w = t.widget(x).parent;
+    }
+    None
+}
+
+#[test]
+fn the_lobby_rows_show_the_players_profile_icons() {
+    let Some(mut e) = env() else { return };
+    let Some([(slug, path, mine), (_, other_path, other)]) = two_icons(&e) else {
+        eprintln!("no profile icon catalogue in the menu bundle: skipped");
+        return;
+    };
+    e.prefs.hydra.profile_icon = mvs_settings::AssetRef { slug, path };
+    let Some(mut l) = Lobby::new(Some(e)) else { return };
+    // another player joins with the icon the server hands on (its asset name)
+    let asset = mvs_ui::menu::lobby::loadout::asset_name(&other_path).to_string();
+    let velma = LobbyPlayer { account_id: "velma".into(), username: "Velma".into(), icon: asset, ..me() };
+    let data =
+        LobbyData { leader_id: "local".into(), teams: vec![vec![me()], vec![velma]], ..LobbyRules::new().data() };
+    l.screen.view.session.online.events = vec![OnlineEvent::Server(Box::new(ServerMessage::LobbyState {
+        id: "L1".into(),
+        ev: "teams".into(),
+        data,
+        who: None,
+    }))];
+    l.frames(30, &[]);
+    assert_eq!(row_icon(&l, "Tester").as_deref(), Some(mine.as_str()), "the own row shows the stored icon");
+    assert_eq!(row_icon(&l, "Velma").as_deref(), Some(other.as_str()), "another's row shows the icon it carries");
+}
+
+/// A line typed past the chat box's width stays in the box: the text is cut to the box and scrolled left so its end
+/// (the caret) is in view; the caret is drawn.
+#[test]
+fn a_long_chat_line_stays_in_its_box() {
+    let Some(mut l) = Lobby::new(env()) else { return };
+    l.key("Enter");
+    assert!(l.typing(), "Enter opens the chat");
+    let line = "W".repeat(80);
+    l.frames(2, &line.chars().map(MenuInput::Char).collect::<Vec<_>>());
+    let tb = l.chat_box();
+    let t = l.screen.view.tree();
+    let text = t.widget(tb).children[0];
+    assert_eq!(t.widget(text).caret, line.chars().count() as i32, "the caret is at the end of the text");
+    let boxp = t.painted(tb).expect("the box painted");
+    let textp = t.painted(text).expect("the text painted");
+    let left = boxp.transform[4];
+    let right = left + boxp.size[0] * boxp.transform[0];
+    assert!(textp.transform[4] < left, "the text is scrolled left");
+    // every element of the text is cut to the box
+    let cut: Vec<_> = l
+        .out
+        .elements
+        .iter()
+        .filter(|p| matches!(&p.element, mvs_ui::element::Element::Text(e) if e.geometry.transform[4] == textp.transform[4]))
+        .collect();
+    assert!(!cut.is_empty(), "the text is drawn");
+    for p in cut {
+        let c = p.clip.expect("a clip");
+        assert!(c[0] >= left - 0.5 && c[2] <= right + 0.5, "clip {c:?} in the box {left}..{right}");
+    }
+    l.key("Escape");
+    assert_eq!(l.screen.view.tree().widget(text).caret, -1, "no caret without the keys");
+}
+
+/// The lobby's chat drawn to a PNG for a look (`LOBBY_CHAT_SHOT=<file.png> cargo test --test custom_lobby_clicks --
+/// --ignored`): another player's line with emoji in the log and a long line with emoji being typed.
+#[test]
+#[ignore]
+fn draw_the_lobby_chat() {
+    use mvs_render::gpu::{Gpu, Subresource, TexDesc, TexKind, TexViews};
+    use windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_R8G8B8A8_UNORM;
+    let Some(mut l) = Lobby::new(env()) else { return };
+    let out = std::env::var("LOBBY_CHAT_SHOT").unwrap_or_else(|_| "lobby_chat.png".into());
+    let velma = LobbyPlayer { account_id: "velma".into(), username: "Velma".into(), ..me() };
+    let data =
+        LobbyData { leader_id: "local".into(), teams: vec![vec![me()], vec![velma]], ..LobbyRules::new().data() };
+    l.screen.view.session.online.events = vec![
+        OnlineEvent::Server(Box::new(ServerMessage::LobbyState {
+            id: "L1".into(),
+            ev: "teams".into(),
+            data,
+            who: None,
+        })),
+        OnlineEvent::Server(Box::new(ServerMessage::Chat {
+            from: "velma".into(),
+            to: mvs_protocol::messages::ChatTo::Lobby,
+            text: "gg \u{1F600}\u{1F525} one more? \u{1F44D}\u{1F3FD} \u{2764}\u{FE0F} \u{1F1FA}\u{1F1F8}".into(),
+        })),
+    ];
+    l.frames(30, &[]);
+    l.key("Enter");
+    let typed: Vec<MenuInput> =
+        "SURE \u{1F602} BUT THIS TIME I AM PICKING A FIGHTER YOU HAVE NEVER SEEN ME PLAY BEFORE \u{1F60E}"
+            .chars()
+            .map(MenuInput::Char)
+            .collect();
+    l.frames(2, &typed);
+    l.frames(1, &[]);
+    let gpu = Gpu::new(None, false).unwrap();
+    let store = mvs_store::Store::open(mvs_store::dev_store_dir()).unwrap();
+    let assets = mvs_render::Assets::open(store, &gpu).unwrap();
+    let [w, h] = SIZE;
+    let black = [0u8, 0, 0, 0xff].repeat((w * h) as usize);
+    let target = gpu
+        .texture(
+            &TexDesc {
+                kind: TexKind::D2,
+                size: [w, h, 1],
+                mips: 1,
+                format: DXGI_FORMAT_R8G8B8A8_UNORM,
+                views: TexViews { srv: true, rtv: true, ..Default::default() },
+            },
+            &[Subresource { data: &black, row_pitch: w * 4, slice_pitch: 0 }],
+        )
+        .unwrap();
+    let mut ui = mvs_ui::element::Ui::new(&gpu, &assets).unwrap();
+    ui.time = Some(1.0 + f64::from(l.n) / 60.0);
+    ui.draw(&gpu, &assets, &mut l.env.fonts, &l.out, &target).unwrap();
+    let px = gpu.read_texture(&target).unwrap();
+    mvs_render::image::write_png(std::path::Path::new(&out), w, h, &px).unwrap();
+    eprintln!("{} elements, {out}", l.out.elements.len());
+}
+
+impl Lobby {
+    /// The map selector's tiles, in grid order, and the text of its Accept button.
+    fn map_tiles(&self) -> Vec<WidgetId> {
+        let t = self.screen.view.tree();
+        let grid = t.find_in(self.find("mapSelector", "MapGrid"), "MapGrid");
+        let grid = if grid == WidgetId::default() { self.find("mapSelector", "MapGrid") } else { grid };
+        t.post_order(grid).into_iter().filter(|&w| t.user_class(w).is_some_and(|c| c.contains("Map"))).collect()
+    }
+
+    fn accept_text(&self) -> String {
+        let t = self.screen.view.tree();
+        let b = self.find("mapSelector", "buttonAccept");
+        t.post_order(b)
+            .into_iter()
+            .map(|w| t.widget(w).text.clone())
+            .find(|s| s.starts_with("Accept"))
+            .unwrap_or_default()
+    }
+}
+
+#[test]
+fn picked_maps_count_in_the_selectors_accept_button() {
+    let Some(mut l) = Lobby::new(env()) else { return };
+    let b = l.find("customGame", "SelectMapsButton");
+    l.click(b);
+    assert!(l.up("mapSelector"), "Select Maps opens the map selector");
+    l.frames(30, &[]);
+    let tiles = l.map_tiles();
+    eprintln!(
+        "tiles {}: {:?}",
+        tiles.len(),
+        tiles.iter().map(|&w| l.screen.view.tree().user_class(w).map(str::to_string)).collect::<Vec<_>>()
+    );
+    assert!(tiles.len() >= 2, "the grid has its tiles");
+    let c = l.find("mapSelector", "btn_Clear");
+    l.click(c);
+    assert!(l.accept_text().contains("(0 "), "Clear All counts none: {}", l.accept_text());
+    let before = l.accept_text();
+    l.click(tiles[0]);
+    let one = l.accept_text();
+    l.click(tiles[1]);
+    let two = l.accept_text();
+    eprintln!("{before} / {one} / {two}");
+    assert!(one.contains("(1 "), "one pick counts one: {one}");
+    assert!(two.contains("(2 "), "two picks count two: {two}");
+    // deselect the first
+    l.click(tiles[0]);
+    assert!(l.accept_text().contains("(1 "), "a second click deselects");
+    // Select All, then Clear All
+    let a = l.find("mapSelector", "btn_SelectAll");
+    l.click(a);
+    assert!(l.accept_text().contains("(16 "), "Select All: {}", l.accept_text());
+    l.click(c);
+    assert!(l.accept_text().contains("(0 "), "Clear All again: {}", l.accept_text());
+}

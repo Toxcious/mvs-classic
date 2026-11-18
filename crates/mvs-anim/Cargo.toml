@@ -1,0 +1,16 @@
+[package]
+name = "mvs-anim"
+description = "The clip decoder and pose sampler the sim's skeleton pose and montage player, bit for bit in the sim's own order of operations."
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+indexmap.workspace = true
+mvs-math.workspace = true
+mvs-data.workspace = true
+serde.workspace = true
+# float_roundtrip: a JSON number parses to the double JSON.parse gives (the default parser can be an ulp off)
+serde_json = { workspace = true, features = ["float_roundtrip"] }
+

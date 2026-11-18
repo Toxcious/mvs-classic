@@ -1,0 +1,14 @@
+Epic Online Services
+
+MVS Classic plays online through Epic Online Services. Its release includes the Epic Online Services SDK's
+runtime library (EOSSDK-Win64-Shipping.dll), which Epic Games, Inc. licenses to MVS Classic's makers for
+distribution with the game. That library is Epic Games' material: it is not part of MVS Classic's source and the
+MIT licence above does not cover it.
+
+Epic Games, Inc. and its affiliates give you no warranty of any kind for that library or for the services it
+reaches, express or implied, including any warranty of merchantability, fitness for a particular purpose or
+non-infringement, and they are not liable to you for any loss or damage, direct or indirect, that comes from your
+use of it or of those services.
+
+Epic, Epic Games and Epic Online Services are trademarks of Epic Games, Inc. MVS Classic is not made, endorsed or
+supported by Epic Games, Inc.

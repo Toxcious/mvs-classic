@@ -1,0 +1,15 @@
+[package]
+name = "mvs-sim-derive"
+description = "derive(State) for the sim's rollback state: a Clone whose clone_from copies field by field (a saved world reuses its allocations) and the desync hash's walk of the same fields."
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lib]
+proc-macro = true
+
+[dependencies]
+proc-macro2 = "1"
+quote = "1"
+syn = "2"

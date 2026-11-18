@@ -1,0 +1,10 @@
+[package]
+name = "mvs-math"
+description = "The sim's math, bit for bit as the oracle's sim computes it: the fdlibm ports, V8's hypot, det-math and JavaScript number semantics."
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dev-dependencies]
+trial-tape.workspace = true

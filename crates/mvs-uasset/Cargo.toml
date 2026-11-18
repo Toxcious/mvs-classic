@@ -1,0 +1,17 @@
+[package]
+name = "mvs-uasset"
+description = "UE 4.26 cooked packages of the beta: summary, imports resolved, tagged properties, the native classes it reads."
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+thiserror.workspace = true
+indexmap.workspace = true
+mvs-pak.workspace = true
+ryu-js.workspace = true
+lz4_flex.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

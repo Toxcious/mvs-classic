@@ -1,0 +1,21 @@
+# Cargo builds
+/target/
+
+# The developer's pak folder (local.json) and the dev store built from it (.store): the game's material, never
+# committed (AGENTS.md "Never commit the game's material")
+/content/
+
+# The data folder (settings, saves) of an exe run from the workspace
+/.dev/
+
+# Scratch files and pictures
+.scratch/
+/.shots/
+
+# The marker of a folder the export script writes
+/.split-export
+
+# OS / editor
+Thumbs.db
+.DS_Store
+*.log

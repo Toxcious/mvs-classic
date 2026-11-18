@@ -1,0 +1,15 @@
+[package]
+name = "mvs-host"
+description = "The host core: the rules of one online session (a custom lobby or a queue lobby, the pre-match, a queue set's votes and rematch, a match's start gate and its end), run by the player who hosts it. Sans-IO: players come as links, the time as the caller's clock."
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+mvs-protocol.workspace = true
+indexmap.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+# the system draws of SystemRand
+rand.workspace = true

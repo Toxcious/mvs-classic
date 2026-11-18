@@ -1,0 +1,15 @@
+[package]
+name = "mvs-math-check"
+description = "Long checks of mvs-math's float32 module, run on request: the CRT functions on every input against an arbitrary-precision reference, the Zen 4 estimate tables against the CPU, and the FMath ports against the beta exe's own routines."
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+mvs-math.workspace = true
+# the arbitrary-precision reference for the hard cases of the correctly rounded functions
+astro-float = { version = "=0.9.6", default-features = false, features = ["std"] }
+
+[target.'cfg(windows)'.dependencies]
+windows = { workspace = true, features = ["Win32_Foundation", "Win32_System_Memory", "Win32_System_LibraryLoader"] }

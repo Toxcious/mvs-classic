@@ -1,0 +1,21 @@
+[package]
+name = "mvs-sim-trace"
+description = "The Rust side of the per-tick trace: the World written as the trace's record (the oracle writer's bytes), a frame loaded back into a World, the round trip of the baseline and the sim's runs against it (sim-trace)."
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+mvs-sim = { path = "../mvs-sim" }
+mvs-trace.workspace = true
+mvs-data.workspace = true
+mvs-store.workspace = true
+mvs-anim = { path = "../mvs-anim" }
+mvs-collision = { path = "../mvs-collision" }
+indexmap.workspace = true
+serde_json.workspace = true
+
+# sim-trace's priority, its default jobs by the physical memory and its peak memory (machine.rs)
+[target.'cfg(windows)'.dependencies]
+windows = { workspace = true, features = ["Win32_System_ProcessStatus", "Win32_System_SystemInformation", "Win32_System_Threading"] }

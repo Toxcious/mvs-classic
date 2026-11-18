@@ -1,0 +1,77 @@
+[package]
+name = "mvs-app"
+description = "The game's program: the Win32 window and its swap chain, keyboard and pad input, the match loop (the sim's ticks, the views, the renderer, the HUD and the UI on one back buffer), the perf readouts; the `mvs` binary, and the launcher's (`mvs-launcher`) that starts it."
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "mvs"
+path = "src/bin/mvs.rs"
+
+[[bin]]
+name = "mvs-launcher"
+path = "src/bin/mvs-launcher.rs"
+
+[dependencies]
+mvs-audio.workspace = true
+mvs-data.workspace = true
+# the import worker (`mvs --import-worker`): the same library as the CLI
+mvs-import = { path = "../mvs-import" }
+# online play: the rollback session and the relay client
+mvs-net.workspace = true
+mvs-host.workspace = true
+mvs-protocol.workspace = true
+mvs-pak.workspace = true
+mvs-render.workspace = true
+mvs-release.workspace = true
+mvs-settings.workspace = true
+mvs-sim = { path = "../mvs-sim" }
+mvs-sim-trace = { path = "../mvs-sim-trace" }
+mvs-load.workspace = true
+mvs-store.workspace = true
+mvs-trace.workspace = true
+mvs-ui.workspace = true
+mvs-view.workspace = true
+mvs-vfx.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+unicode-segmentation.workspace = true
+thiserror.workspace = true
+indexmap.workspace = true
+png.workspace = true
+# the updater: the download's SHA-256
+sha2.workspace = true
+windows = { workspace = true, features = [
+    "Win32_Devices_DeviceAndDriverInstallation",
+    "Win32_Devices_HumanInterfaceDevice",
+    "Win32_Foundation",
+    "Win32_Graphics_Dwm",
+    "Win32_Graphics_Dxgi",
+    "Win32_Graphics_Gdi",
+    "Win32_Networking_WinHttp",
+    "Win32_Security",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Com",
+    "Win32_System_Console",
+    "Win32_System_DataExchange",
+    "Win32_System_IO",
+    "Win32_System_JobObjects",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Memory",
+    "Win32_System_Ole",
+    "Win32_System_ProcessStatus",
+    "Win32_System_Registry",
+    "Win32_System_Threading",
+    "Win32_UI_HiDpi",
+    "Win32_UI_Input",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_UI_Input_XboxController",
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
+] }
+
+[dev-dependencies]
+# the updater test's hand-written zip (deflate, CRC-32)
+flate2.workspace = true

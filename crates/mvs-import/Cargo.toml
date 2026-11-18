@@ -1,0 +1,38 @@
+[package]
+name = "mvs-import"
+description = "The import: the kinds built from the player's paks into the store, and the development CLI over them."
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+thiserror.workspace = true
+indexmap.workspace = true
+serde.workspace = true
+# float_roundtrip: the CLI's compare parses a JSON number to the double JSON.parse gives (the default parser can be an
+# ulp off)
+serde_json = { workspace = true, features = ["float_roundtrip"] }
+rayon.workspace = true
+ryu-js.workspace = true
+mvs-pak.workspace = true
+mvs-uasset.workspace = true
+mvs-store.workspace = true
+# the roster's keys (mvs-protocol roster)
+mvs-protocol.workspace = true
+# the shadermap kind's hashed names (hash.rs: hashed_name, city_hash64); the draw contexts and DrawRefs (draw.rs)
+mvs-material.workspace = true
+# the game kinds' stages: the store's gamedata kind as the sim reads it (no sim code)
+mvs-data.workspace = true
+# the sky kind's math: fdlibm ports and V8's hypot, bit for bit as V8's
+mvs-math.workspace = true
+# the blend space players the fighter kind writes (blend_space) and the clip sampler of the boxes bind
+mvs-anim = { path = "../mvs-anim" }
+
+# the CLI's peak memory readout, the machine lock's process check, the free memory a run starts with
+[target.'cfg(windows)'.dependencies]
+windows = { workspace = true, features = ["Win32_Foundation", "Win32_System_ProcessStatus", "Win32_System_SystemInformation", "Win32_System_Threading"] }
+
+[dev-dependencies]
+# the sound kind's decode check against vgmstream
+lewton.workspace = true

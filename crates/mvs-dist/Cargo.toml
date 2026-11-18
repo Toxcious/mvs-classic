@@ -1,0 +1,18 @@
+[package]
+name = "mvs-dist"
+description = "The developer's release tool: builds the game and the relay for a version, packs their zips, guards them against the build's material and the secrets, and serves a feed on 127.0.0.1 for the release check."
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "mvs-dist"
+path = "src/bin/mvs-dist.rs"
+
+[dependencies]
+mvs-release.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+base64.workspace = true

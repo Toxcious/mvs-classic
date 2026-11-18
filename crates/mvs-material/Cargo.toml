@@ -1,0 +1,19 @@
+[package]
+name = "mvs-material"
+description = "The material kind (a material's cooked shaders per vertex factory, its uniform expression set, parameters and textures), the global shader rows and the shader kind's DXBC entries, decoded for the D3D11 renderer."
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+indexmap.workspace = true
+mvs-math.workspace = true
+mvs-store.workspace = true
+serde.workspace = true
+# float_roundtrip: the entries' numbers (the uniform buffer's rows evaluated at import) parse to the bits written.
+serde_json = { workspace = true, features = ["float_roundtrip"] }
+thiserror.workspace = true
+
+[dev-dependencies]
+windows = { workspace = true, features = ["Win32_Foundation", "Win32_Graphics_Direct3D", "Win32_Graphics_Direct3D11", "Win32_Graphics_Dxgi"] }
