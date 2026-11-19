@@ -18,10 +18,14 @@ It doesn't include any of the game's files.
 - [Screenshots](#screenshots)
 - [What you need](#what-you-need)
 - [Install](#install)
-- [Online](#online): [how it works](#how-it-works), [host your own relay](#host-your-own-relay)
+- [Online](#online)
+  - [How it works](#how-it-works)
+  - [Host your own relay](#host-your-own-relay)
 - [Notes](#notes)
-- [For developers](#for-developers): [build from source](#build-from-source), [check a change](#check-a-change),
-  [make your own fork](#make-your-own-fork)
+- [For developers](#for-developers)
+  - [Build from source](#build-from-source)
+  - [Check a change](#check-a-change)
+  - [Make your own fork](#make-your-own-fork)
 - [About](#about)
 
 ## What's in it
