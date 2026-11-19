@@ -26,7 +26,8 @@ It doesn't include any of the game's files.
   - [Build from source](#build-from-source)
   - [Check a change](#check-a-change)
   - [Make your own fork](#make-your-own-fork)
-- [About](#about)
+- [Disclaimer](#disclaimer)
+- [Licence](#licence)
 
 ## What's in it
 
@@ -205,10 +206,12 @@ For day-to-day work, `play.bat` builds both and opens the launcher on your dev s
   players don't meet players of this one. Epic Online Services needs credentials of your own; without them it stays
   off and the relay and LAN still work.
 
-## About
+## Disclaimer
 
 MVS Classic is not affiliated with or endorsed by Warner Bros. Games or Player First Games. MultiVersus and its
 characters are trademarks of their owners.
+
+## Licence
 
 The code is under the [MIT licence](LICENSE). Third-party code keeps its own licence: see the `NOTICE` and `LICENSE`
 files in the crates that hold it.
