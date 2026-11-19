@@ -3,9 +3,26 @@
 A fan-made port of the 2023 MultiVersus open beta, rewritten from scratch as one native Windows program in Rust.
 It plays like the beta did: the same characters, moves, stages and menus, read from your own copy of the beta.
 It doesn't include any of the game's files.
+
+<p>
+  <a href="https://github.com/Toxcious/mvs-classic/releases/latest"><img src="https://img.shields.io/github/v/release/Toxcious/mvs-classic?label=Download&style=for-the-badge" alt="Download the latest release"></a>
+</p>
+
 > [!IMPORTANT]
 > MVS Classic contains nothing from the original game. To play, you need your own copy of the 2023 MultiVersus
 > open beta, which the launcher builds the game from. The [install guide](#install) shows how to download it.
+
+## Contents
+
+- [What's in it](#whats-in-it)
+- [Screenshots](#screenshots)
+- [What you need](#what-you-need)
+- [Install](#install)
+- [Online](#online): [how it works](#how-it-works), [host your own relay](#host-your-own-relay)
+- [Notes](#notes)
+- [For developers](#for-developers): [build from source](#build-from-source), [check a change](#check-a-change),
+  [make your own fork](#make-your-own-fork)
+- [About](#about)
 
 ## What's in it
 
@@ -66,7 +83,8 @@ The port also has a few features of its own. None of them change the characters 
 
 ## Install
 
-1. **Download MVS Classic.** Download the zip from the latest release and unzip it into the folder where you want
+1. **Download MVS Classic.** Download the zip from the
+   [latest release](https://github.com/Toxcious/mvs-classic/releases/latest) and unzip it into the folder where you want
    the game.
 2. **Download the open beta.** It's still on Steam and is downloaded through the Steam console, about 8 GB. The
    launcher shows these steps too.
@@ -126,17 +144,6 @@ Whoever runs a relay can read the traffic that passes through it and sees the ad
 [docs/relay.md](docs/relay.md) has the full guide: running it as a Linux service, the config, backing up the key and
 what players' games check.
 
-## Build from source
-
-You need Rust (stable) and the Visual Studio C++ build tools.
-
-```
-cargo build --release -p mvs-app
-```
-
-This builds `target\release\mvs-launcher.exe`, the launcher that builds the game from your copy of the beta, and
-`target\release\mvs.exe`, the game. A release names them `MVSC Launcher.exe` and `game\MVS Classic.exe`.
-
 ## Notes
 
 MVS Classic started out as a browser game written in TypeScript with three.js, later wrapped in Electron as a
@@ -148,6 +155,51 @@ of hardware, lower-end PCs included.
 The TypeScript version is not published. While porting, it served as the reference: the Rust sim was checked
 against its recorded matches tick by tick until they matched exactly. That's what code comments mean when they
 mention "the TS" or "the oracle". [crates/README.md](crates/README.md) has more.
+
+## For developers
+
+Everything is one Cargo workspace in [`crates/`](crates/README.md): the game, the launcher and importer, the
+renderer, the UI, audio, the online code and the relay. Where to read first:
+
+- [docs/development.md](docs/development.md): building, importing your beta into a dev store, running and checking
+  a change
+- [crates/README.md](crates/README.md): what each crate does and the rules the match code follows
+- [AGENTS.md](AGENTS.md): the rules for any change, by hand or with an AI agent
+- [docs/code-style.md](docs/code-style.md): how code and comments are written
+- [docs/experimental.md](docs/experimental.md): the opt-in custom lobby rules, the place for rules of your own
+
+### Build from source
+
+You need Rust (stable) and the Visual Studio C++ build tools.
+
+```
+cargo build --release -p mvs-app
+```
+
+This builds `target\release\mvs-launcher.exe`, the launcher that builds the game from your copy of the beta, and
+`target\release\mvs.exe`, the game. A release names them `MVSC Launcher.exe` and `game\MVS Classic.exe`.
+For day-to-day work, `play.bat` builds both and opens the launcher on your dev store.
+
+### Check a change
+
+- `cargo fmt --check` and `cargo clippy --release --all-targets` with no new warning, and the tests of the crates
+  you touched.
+- The match is deterministic: the same inputs give the same match on every machine, which rollback relies on. Match
+  code does its math through `mvs-math`, with no platform float routines, no std `HashMap` and no `unsafe`.
+- A change to the match code is checked with `sim-trace`, which records matches from your own store and replays them
+  tick by tick. A change not meant to change how a match plays leaves every match `same`.
+
+### Make your own fork
+
+- **Never commit the game's files.** Assets, data tables, decoded dumps, text and keys from the beta stay out of the
+  repo; players bring their own copy and the importer reads it. `content/` is ignored by git for this reason.
+- **Updates.** A build checks for updates only when `MVS_UPDATE_FEED` is set at build time, to the GitHub API
+  address of a repository's latest release (`https://api.github.com/repos/<owner>/<repo>/releases/latest`). Point
+  it at your fork's releases, or leave it unset and the build never checks.
+- **Online.** [`online.json`](online.json) holds the relay the game connects to by default and the id of its key.
+  Change it to your own relay ([docs/relay.md](docs/relay.md)) if your fork plays differently online, so its
+  players don't meet players of this one. Epic Online Services needs credentials of your own; without them it stays
+  off and the relay and LAN still work.
 
 ## About
 
