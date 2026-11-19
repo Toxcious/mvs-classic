@@ -590,3 +590,20 @@ pub fn bots_for(spec: &serde_json::Value, w: &World) -> Vec<Option<BtBot>> {
         })
         .collect()
 }
+
+/// The Expert bot's lead by name, for the arena and `expert-data`: `x4` the hand-made shortlist, `net` the network
+/// (the built-in weights, or the weights file `net`).
+pub fn expert_lead(s: &str, net: Option<&str>) -> Result<mvs_sim::ai::expert::Lead, String> {
+    use mvs_sim::ai::expert::{Lead, net::Net, net::built_in};
+    match s {
+        "x4" => Ok(Lead::Shortlist),
+        "net" => Ok(Lead::Net(match net {
+            None => built_in(),
+            Some(f) => {
+                let b = std::fs::read(f).map_err(|e| format!("{f}: {e}"))?;
+                std::sync::Arc::new(Net::from_bytes(&b).map_err(|e| format!("{f}: {e}"))?)
+            }
+        })),
+        _ => Err(format!("an Expert lead is x4 or net, not {s}")),
+    }
+}

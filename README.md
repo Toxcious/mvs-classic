@@ -51,10 +51,10 @@ The port also has a few features of its own. None of them change the characters 
   <a href="docs/images/lab-fighters.jpg"><img src="docs/images/lab-fighters.jpg" alt="Lab Tools fighter options" width="24%"></a>
 </p>
 <p>
-  <a href="docs/images/custom-lobby.jpg"><img src="docs/images/custom-lobby.jpg" alt="A custom game lobby" width="25.2%"></a>
-  <a href="docs/images/launcher.jpg"><img src="docs/images/launcher.jpg" alt="The launcher" width="23.6%"></a>
-  <a href="docs/images/launcher-setup.jpg"><img src="docs/images/launcher-setup.jpg" alt="Locating the open beta" width="23.6%"></a>
-  <a href="docs/images/launcher-build.jpg"><img src="docs/images/launcher-build.jpg" alt="Building the game" width="23.6%"></a>
+  <a href="docs/images/custom-lobby.jpg"><img src="docs/images/custom-lobby.jpg" alt="A custom game lobby" width="24%"></a>
+  <a href="docs/images/launcher.jpg"><img src="docs/images/launcher.jpg" alt="The launcher" width="24%"></a>
+  <a href="docs/images/launcher-setup.jpg"><img src="docs/images/launcher-setup.jpg" alt="Locating the open beta" width="24%"></a>
+  <a href="docs/images/launcher-build.jpg"><img src="docs/images/launcher-build.jpg" alt="Building the game" width="24%"></a>
 </p>
 
 ## What you need

@@ -846,7 +846,7 @@ impl Controller for LabPlayerPanel {
         Self::set_menu(cx, "menuBehavior", "recovery");
         // (the port's own) the fight menu's Expert, after Hard
         let fight = find(cx, "menuBehaviorFight");
-        DropMenu::offer_own_item(cx, fight, custom_text::EXPERT, FIGHT_EXPERT, true);
+        DropMenu::offer_own_item(cx, fight, custom_text::EXPERT, FIGHT_EXPERT);
         let me = cx.w;
         for n in ["btn_InvitePlayer", "btn_InviteBot"] {
             let b = find(cx, n);

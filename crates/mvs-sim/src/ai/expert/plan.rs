@@ -10,14 +10,14 @@ use crate::math;
 use crate::world::World;
 
 /// The ticks a "what the tree does" plan lasts.
-const TREE_LEN: i32 = 8;
+pub(super) const TREE_LEN: i32 = 8;
 /// The ticks an attack plan lasts: the gap, the press and the neutral stick while the move plays.
-const ATTACK_LEN: i32 = 10;
+pub(super) const ATTACK_LEN: i32 = 10;
 /// The ticks a move plan holds the stick.
-const MOVE_LEN: i32 = 8;
+pub(super) const MOVE_LEN: i32 = 8;
 /// The ticks a jump plan lasts, and the ticks a full jump holds the button (a short hop holds it one).
 const JUMP_LEN: i32 = 8;
-const FULL_JUMP_HOLD: i32 = 7;
+pub(super) const FULL_JUMP_HOLD: i32 = 7;
 /// The ticks a dodge plan lasts.
 const DODGE_LEN: i32 = 8;
 /// The ticks a fast fall holds the stick down.
@@ -122,27 +122,27 @@ pub(super) fn attack(x: Real, y: Real, btn: Btn) -> Plan {
 }
 
 /// A special pressed with the stick (`x`, `y`), then drifting toward `drift` (an up special back to the stage).
-fn special_drift(x: Real, y: Real, drift: Real) -> Plan {
+pub(super) fn special_drift(x: Real, y: Real, drift: Real) -> Plan {
     Plan::Script(Script { x, y, stick: 2, drift, btn: Some(Btn::Special), hold: 1, len: ATTACK_LEN })
 }
 
 /// The stick held toward `x`.
-fn walk(x: Real) -> Plan {
+pub(super) fn walk(x: Real) -> Plan {
     Plan::Script(Script { x, y: 0.0, stick: MOVE_LEN, drift: 0.0, btn: None, hold: 0, len: MOVE_LEN })
 }
 
 /// A jump drifting toward `x`, the button held `hold` ticks.
-fn jump(x: Real, hold: i32) -> Plan {
+pub(super) fn jump(x: Real, hold: i32) -> Plan {
     Plan::Script(Script { x, y: 0.0, stick: JUMP_LEN, drift: 0.0, btn: Some(Btn::Jump), hold, len: JUMP_LEN })
 }
 
 /// A dodge with the stick (`x`, `y`).
-fn dodge(x: Real, y: Real) -> Plan {
+pub(super) fn dodge(x: Real, y: Real) -> Plan {
     Plan::Script(Script { x, y, stick: 2, drift: 0.0, btn: Some(Btn::Dodge), hold: 1, len: DODGE_LEN })
 }
 
 /// The stick down: a fast fall.
-fn fast_fall() -> Plan {
+pub(super) fn fast_fall() -> Plan {
     Plan::Script(Script { x: 0.0, y: -1.0, stick: FAST_FALL_LEN, drift: 0.0, btn: None, hold: 0, len: FAST_FALL_LEN })
 }
 
@@ -172,15 +172,22 @@ pub fn off_stage(w: &World, f: FighterId) -> bool {
 }
 
 /// `-1` or `1`: the sign of `d`, `fallback` at 0.
-fn side(d: Real, fallback: Real) -> Real {
+pub(super) fn side(d: Real, fallback: Real) -> Real {
     if d > 0.0 || (d == 0.0 && fallback >= 0.0) { 1.0 } else { -1.0 }
 }
 
-/// The decision's shortlist into `out` (cleared first): "what the tree does" first, then the situation's scripts
-/// with the fighter's add-ons in place, at most `max` in all.
-pub fn shortlist(w: &World, me: FighterId, max: usize, out: &mut Vec<Plan>) {
-    out.clear();
-    out.push(Plan::Tree { len: TREE_LEN });
+/// What a decision is made from: the side of the stage's centre and of the target (-1 or 1), the target, and the
+/// situation.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct View {
+    pub s: Real,
+    pub t: Real,
+    pub target: Option<FighterId>,
+    pub situation: Situation,
+}
+
+/// The view of fighter `me` in `w`.
+pub fn view(w: &World, me: FighterId) -> View {
     let m = w.fighter(me);
     let (mx, my) = (m.body.x, m.body.y);
     let g = &w.stage.ground;
@@ -206,6 +213,16 @@ pub fn shortlist(w: &World, me: FighterId, max: usize, out: &mut Vec<Plan>) {
     } else {
         Situation::Air
     };
+    View { s, t, target: e, situation }
+}
+
+/// The decision's shortlist into `out` (cleared first): "what the tree does" first, then the situation's scripts
+/// with the fighter's add-ons in place, at most `max` in all.
+pub fn shortlist(w: &World, me: FighterId, max: usize, out: &mut Vec<Plan>) {
+    out.clear();
+    out.push(Plan::Tree { len: TREE_LEN });
+    let View { s, t, situation, .. } = view(w, me);
+    let m = w.fighter(me);
     let list: &[Plan] = match situation {
         Situation::Hitstun => &[walk(s), dodge(s, 1.0)],
         Situation::OffStage => {

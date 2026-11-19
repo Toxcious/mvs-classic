@@ -12,6 +12,7 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use common::Masher;
+use mvs_sim::ai::expert::Workers;
 use mvs_sim::rng::Rng;
 use mvs_sim::snapshot::SnapshotRing;
 use mvs_sim::state::hash_of;
@@ -20,11 +21,13 @@ use mvs_sim_trace::run::{Filter, baseline};
 use mvs_sim_trace::{Book, bots_for, frame_of, input_of, world_for};
 use mvs_trace::{Field, Trace};
 
-/// The matches of the default run: one per kind of match (combat, bots, items, minions, mutators, stages, modes).
+/// The matches of the default run: one per kind of match (combat, bots, the Expert bot, items, minions, mutators,
+/// stages, modes).
 const SAMPLE: &[&str] = &[
     "m5-combat",
     "m4-flow",
     "bot-lvl3",
+    "bot-expert",
     "bot-ffa-a",
     "ffa-items-a",
     "velma-police-combat",
@@ -71,13 +74,18 @@ impl Line {
 /// The fuzz of one match: `Err` with the first tick that differs, else its counts.
 fn fuzz(name: &str, store: &mvs_store::Store, until: usize) -> Result<String, String> {
     let trace = Trace::read(&default_traces().join(format!("{name}.trace"))).map_err(|e| format!("{name}: {e}"))?;
-    let line = || -> Result<(Line, Book), String> {
+    // (the run's Expert bots decide on workers, the reference's inline)
+    static WORKERS: std::sync::OnceLock<std::sync::Arc<Workers>> = std::sync::OnceLock::new();
+    let line = |workers: Option<&std::sync::Arc<Workers>>| -> Result<(Line, Book), String> {
         let (w, book) = world_for(&trace.header, store)?;
-        let bots = bots_for(&trace.header.spec, &w);
+        let mut bots = bots_for(&trace.header.spec, &w);
+        for b in bots.iter_mut().flatten() {
+            b.set_workers(workers);
+        }
         Ok((Line { w, bots }, book))
     };
-    let (mut reference, _) = line()?;
-    let (mut run, book) = line()?;
+    let (mut reference, _) = line(None)?;
+    let (mut run, book) = line(Some(WORKERS.get_or_init(|| std::sync::Arc::new(Workers::new(2)))))?;
     let players = run.w.players.len();
     let mut ring = SnapshotRing::new(1, &run.w);
     let mut wrong: Vec<Masher> = (0..players).map(|i| Masher::new(900 + i32::try_from(i).expect("a slot"))).collect();

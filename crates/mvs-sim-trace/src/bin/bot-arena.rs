@@ -3,9 +3,12 @@
 //! look-ahead's budget is sized from the costs it prints.
 //!
 //!   bot-arena --a <fighter|all> --b <fighter|all> [--level-a <0..4>] [--level-b <0..4>] [--stage <key>]
-//!             [--games <n>] [--kos <n>] [--jobs <n>] [--seed <n>]
+//!             [--games <n>] [--kos <n>] [--jobs <n>] [--seed <n>] [--lead-a x4|net] [--lead-b x4|net] [--net <file>]
 //!
-//! Level 4 is Expert (`mvs_sim::ai::expert`): its think column then holds the look-ahead's cost.
+//! Level 4 is Expert (`mvs_sim::ai::expert`): its think column then holds the look-ahead's cost. An Expert's lead
+//! (`--lead-a`, `--lead-b`) is the level's own by default, else the hand-made shortlist (`x4`) or the network
+//! (`net`: the built-in weights or `--net`'s file), so the two can meet head to head; a run with a network lead
+//! first prints the network's cost per decision.
 //! A game is a 1v1 custom match (intro and countdown included) to `--kos` ring-outs (2 by default), capped at its
 //! 420 s clock. Even games put A in slot 0, odd games in slot 1, so neither side's start decides the rate. Each game
 //! has its own World and bot seeds. Per pairing it prints A's wins, B's wins and the games that ran out of time, the
@@ -25,7 +28,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Instant;
 
 const USAGE: &str = "usage: bot-arena --a <fighter|all> --b <fighter|all> [--level-a <0..4>] [--level-b <0..4>] \
-                     [--stage <key>] [--games <n>] [--kos <n>] [--jobs <n>] [--seed <n>]";
+                     [--stage <key>] [--games <n>] [--kos <n>] [--jobs <n>] [--seed <n>] \
+                     [--lead-a x4|net] [--lead-b x4|net] [--net <file>]";
 
 /// The match clock in seconds; a game is cut 30 s past it.
 const DURATION: f64 = 420.0;
@@ -42,6 +46,8 @@ struct Args {
     kos: f64,
     jobs: usize,
     seed: i32,
+    /// The Experts' leads, A's and B's (`None`: the level's own).
+    leads: [Option<mvs_sim::ai::expert::Lead>; 2],
 }
 
 /// One game's outcome and its timings (microseconds).
@@ -80,7 +86,10 @@ fn args() -> Result<Args, String> {
         kos: 2.0,
         jobs: std::thread::available_parallelism().map_or(2, |n| (n.get() / 2).max(1)),
         seed: 1,
+        leads: [None, None],
     };
+    let mut lead: [Option<String>; 2] = [None, None];
+    let mut net: Option<String> = None;
     let mut it = std::env::args().skip(1);
     while let Some(s) = it.next() {
         let mut val = || it.next().ok_or(format!("{s} needs a value"));
@@ -96,11 +105,19 @@ fn args() -> Result<Args, String> {
             "--kos" => a.kos = num(val()?)? as f64,
             "--jobs" => a.jobs = usize::try_from(num(val()?)?).map_err(|e| e.to_string())?.max(1),
             "--seed" => a.seed = i32::try_from(num(val()?)?).map_err(|e| e.to_string())?,
+            "--lead-a" => lead[0] = Some(val()?),
+            "--lead-b" => lead[1] = Some(val()?),
+            "--net" => net = Some(val()?),
             _ => return Err(USAGE.to_owned()),
         }
     }
     if a.a.is_empty() || a.b.is_empty() {
         return Err(USAGE.to_owned());
+    }
+    for (l, s) in a.leads.iter_mut().zip(&lead) {
+        if let Some(s) = s {
+            *l = Some(mvs_sim_trace::expert_lead(s, net.as_deref())?);
+        }
     }
     Ok(a)
 }
@@ -119,6 +136,11 @@ fn main_() -> Result<(), String> {
         "bot-arena: level {} vs level {}, {} games a pairing to {} ring-outs on {}, {} at once",
         args.level_a, args.level_b, args.games, args.kos, args.stage, args.jobs
     );
+    for (side, l) in ["A", "B"].iter().zip(&args.leads) {
+        if let Some(mvs_sim::ai::expert::Lead::Net(net)) = l {
+            println!("{side} is network-led: the network costs {:.1} us a decision", net_cost(net));
+        }
+    }
     println!(
         "{:<28} {:>5} {:>5} {:>5} {:>5} {:>9} {:>7} | {:>14} {:>14} {:>14} {:>14}",
         "A vs B", "A", "B", "time", "crash", "ko A:B", "secs", "step us", "think A us", "think B us", "clone us"
@@ -324,8 +346,16 @@ fn play(data: &Arc<mvs_data::GameData>, args: &Args, a: &str, b: &str, g: usize)
     let mut w = World::new(data.clone(), seed, &setup).map_err(|e| format!("{a} vs {b}: the bind: {e:?}"))?;
     let trees = Arc::new(data.bot_trees.clone());
     w.bot_trees = Some(trees.clone());
-    let mut bots: Vec<BtBot> =
-        (0..2).map(|i| BtBot::match_bot(seed.wrapping_mul(31).wrapping_add(i), &trees, levels[i as usize])).collect();
+    let leads = if a_slot == 0 { [&args.leads[0], &args.leads[1]] } else { [&args.leads[1], &args.leads[0]] };
+    let mut bots: Vec<BtBot> = (0..2)
+        .map(|i| {
+            let mut b = BtBot::match_bot(seed.wrapping_mul(31).wrapping_add(i), &trees, levels[i as usize]);
+            if let (Some(e), Some(l)) = (&mut b.expert, leads[i as usize]) {
+                e.set_lead(l.clone());
+            }
+            b
+        })
+        .collect();
     let mut scratch = w.clone();
     let mut game = Game::default();
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
@@ -362,6 +392,22 @@ fn play(data: &Arc<mvs_data::GameData>, args: &Args, a: &str, b: &str, g: usize)
         1
     };
     Ok(game)
+}
+
+/// The network's mean cost of one run in microseconds, over inputs of the right count.
+fn net_cost(net: &mvs_sim::ai::expert::net::Net) -> f64 {
+    const RUNS: u32 = 20_000;
+    #[allow(clippy::cast_precision_loss)]
+    let x: Vec<f32> = (0..net.inputs()).map(|i| if i % 3 == 0 { 0.0 } else { (i % 7) as f32 * 0.1 - 0.3 }).collect();
+    let (mut out, mut scratch) = (Vec::new(), Vec::new());
+    let at = Instant::now();
+    let mut sum = 0.0;
+    for _ in 0..RUNS {
+        net.run(std::hint::black_box(&x), &mut out, &mut scratch);
+        sum += out[0];
+    }
+    std::hint::black_box(sum);
+    at.elapsed().as_secs_f64() * 1e6 / f64::from(RUNS)
 }
 
 #[allow(clippy::cast_possible_truncation)]

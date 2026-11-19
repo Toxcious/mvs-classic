@@ -2,7 +2,9 @@
 //! handlers). The messages are named after the native calls of the build's lobby: "lobby.<call>". Every change goes
 //! to all members as "lobby.state" { id, ev, data }: the whole lobby and the event it stands for.
 
-use mvs_protocol::lobby_rules::{LobbyPlayer, LobbyRules, OptionKey, OptionValue, bot_name};
+use mvs_protocol::lobby_rules::{
+    BOT_DIFFICULTY_EXPERT, BOT_DIFFICULTY_MIN, LobbyPlayer, LobbyRules, OptionKey, OptionValue, bot_name,
+};
 use mvs_protocol::messages::{HostWhy, LobbyErrorWhy, LobbyRefusedWhy, RefusedWhy, ServerMessage};
 use mvs_protocol::names::clean_name;
 use mvs_protocol::online::{PmKind, QueuePlayer, SEED_MAX, app_of, compat_note, compat_of};
@@ -57,6 +59,13 @@ pub(crate) fn base36(mut n: u64) -> String {
 /// The UTF-16 length of a string (JavaScript's .length).
 pub(crate) fn js_len(s: &str) -> usize {
     s.encode_utf16().count()
+}
+
+/// A bot's difficulty of a lobby.addBot / lobby.updateSettingsForBot: Very Easy (2) to the port's own Expert (6),
+/// Medium (4) when it has none.
+fn bot_difficulty(m: &Map<String, Value>) -> i32 {
+    i32::try_from(int(m.get("difficulty"), BOT_DIFFICULTY_MIN.into(), BOT_DIFFICULTY_EXPERT.into(), 4))
+        .expect("clamped")
 }
 
 /// The lobby's match set-up on the wire (LobbyRules.matchSetup's MatchSetupWire).
@@ -510,7 +519,7 @@ impl Core {
         let character = asset_name(m.get("character"));
         let skin = asset_name(m.get("skin"));
         let team = usize::try_from(int(m.get("team"), 0, 1, 0)).expect("clamped");
-        let difficulty = i32::try_from(int(m.get("difficulty"), 2, 5, 4)).expect("clamped");
+        let difficulty = bot_difficulty(m);
         self.lobby_change(k, "teams", |r| {
             if let (Some(c), Some(s)) = (character, skin) {
                 r.add_bot(team, &c, &s, difficulty);
@@ -525,7 +534,7 @@ impl Core {
         let character = asset_name(m.get("character"));
         let skin = asset_name(m.get("skin"));
         let id = text(m.get("id"), 64);
-        let difficulty = i32::try_from(int(m.get("difficulty"), 2, 5, 4)).expect("clamped");
+        let difficulty = bot_difficulty(m);
         self.lobby_change(k, "teams", |r| {
             if let (Some(c), Some(s)) = (character, skin) {
                 r.update_settings_for_bot(&id, &c, difficulty, &s);

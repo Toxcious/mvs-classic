@@ -1,12 +1,13 @@
 //! A decision as a resumable job: made from the world of tick `t`, advanced by each think from `t` on by at most
 //! [`STEPS_PER_THINK`] simulated ticks, so it is done by the think of `t + REACTION - 1` and no think carries the
 //! whole budget. The job holds everything it reads (its worlds, its trees, the plans queued over its delay, its
-//! random stream), so it could run on a worker thread; it runs inline, and how far each think takes it is a count of
+//! random stream), so it runs on a worker thread as well as inline (`worker`); how far each think takes it is a count of
 //! ticks, never a clock.
 
 use super::plan::{self, Plan, Queued};
 use super::score;
-use super::{BUDGET, HORIZON, MAX_CANDIDATES, REACTION, copy_bot, copy_bots, copy_world, queued_input, step};
+use super::{BUDGET, HORIZON, Lead, MAX_CANDIDATES, REACTION, copy_bot, copy_bots, copy_world, queued_input, step};
+use super::{actions, features};
 use crate::Real;
 use crate::ai::bt::BtBot;
 use crate::fighter::FighterId;
@@ -60,6 +61,21 @@ pub struct Job {
     before: score::Before,
     best: Option<(Real, Plan)>,
     pub rng: Rng,
+    /// Who picks the candidates.
+    lead: Lead,
+    /// The simulated ticks a think advances the job by.
+    limit: i32,
+    /// Each candidate's score, without the tie noise, as they are scored.
+    pub scores: Vec<Real>,
+    /// Set: at the base, the job is copied into `taught` for the teacher (`Expert::teach`).
+    teach: bool,
+    pub taught: Option<Box<Job>>,
+    /// The network's input and outputs at the base (net-led), and its scratch.
+    pub features: Vec<Real>,
+    net_out: Vec<Real>,
+    net_scratch: Vec<Real>,
+    /// The view at the base.
+    pub view: Option<plan::View>,
 }
 
 impl std::fmt::Debug for Job {
@@ -88,6 +104,15 @@ impl Job {
             before: score::Before::default(),
             best: None,
             rng: Rng::new(0),
+            lead: Lead::Shortlist,
+            limit: STEPS_PER_THINK,
+            scores: Vec::new(),
+            teach: false,
+            taught: None,
+            features: Vec::new(),
+            net_out: Vec::new(),
+            net_scratch: Vec::new(),
+            view: None,
         }
     }
 
@@ -104,6 +129,8 @@ impl Job {
         stand_ins: &[Option<BtBot>],
         queue: &[Queued],
         rng: &Rng,
+        lead: &Lead,
+        teach: bool,
     ) {
         self.t = t;
         self.slot = slot;
@@ -118,6 +145,47 @@ impl Job {
         copy_bots(&mut self.others, stand_ins);
         self.best = None;
         self.rng = Rng::new(rng.s);
+        self.lead.clone_from(lead);
+        self.limit = STEPS_PER_THINK;
+        self.scores.clear();
+        self.teach = teach;
+        self.taught = None;
+        self.view = None;
+    }
+
+    /// The job's candidates from the base on made every action of the list (`actions::ACTIONS`), each played once
+    /// (an action whose plan another before it has is not played again), with no budget: the teacher's run. Called
+    /// on a job copied at its base (`taught`); `run` then plays it to its end.
+    pub fn teach_all(&mut self) {
+        let v = self.view.expect("at the base");
+        actions::plans(v.t, v.s, &mut self.cands);
+        let mut distinct: Vec<Plan> = Vec::with_capacity(self.cands.len());
+        for p in &self.cands {
+            if !distinct.contains(p) {
+                distinct.push(*p);
+            }
+        }
+        self.cands = distinct;
+        self.scores.clear();
+        self.limit = i32::MAX;
+        self.teach = false;
+        self.best = None;
+    }
+
+    /// The hand-made shortlist at the base into `out`.
+    pub fn shortlist_at_base(&self, out: &mut Vec<Plan>) {
+        plan::shortlist(self.base.as_ref().expect("at the base"), self.me.expect("started"), MAX_CANDIDATES, out);
+    }
+
+    /// The candidates played (`teach_all`'s distinct plans, or the decision's).
+    pub fn cands(&self) -> &[Plan] {
+        &self.cands
+    }
+
+    /// Advanced to its end with no budget.
+    pub fn run(&mut self) {
+        self.limit = i32::MAX;
+        self.advance();
     }
 
     pub fn done(&self) -> bool {
@@ -142,7 +210,7 @@ impl Job {
                         self.at_base();
                         continue;
                     }
-                    if steps >= STEPS_PER_THINK {
+                    if steps >= self.limit {
                         return;
                     }
                     if k == 0 {
@@ -160,7 +228,9 @@ impl Job {
                 Phase::Candidate { c, k } => {
                     let w = self.world.as_mut().expect("started");
                     if k >= HORIZON || w.flow.match_over {
-                        let s = score::score(w, &self.before, self.slot) + self.rng.next() * TIE_NOISE;
+                        let raw = score::score(w, &self.before, self.slot);
+                        self.scores.push(raw);
+                        let s = raw + self.rng.next() * TIE_NOISE;
                         if self.best.is_none_or(|(b, _)| s > b) {
                             self.best = Some((s, self.cands[c]));
                         }
@@ -174,7 +244,7 @@ impl Job {
                         }
                         continue;
                     }
-                    if steps >= STEPS_PER_THINK {
+                    if steps >= self.limit {
                         return;
                     }
                     let mine = self.mine.as_mut().expect("started");
@@ -194,8 +264,44 @@ impl Job {
         copy_world(&mut self.base, w);
         copy_bot(&mut self.base_mine, self.mine.as_ref());
         copy_bots(&mut self.base_others, &self.others);
-        plan::shortlist(w, self.me.expect("started"), MAX_CANDIDATES, &mut self.cands);
+        let me = self.me.expect("started");
+        let v = plan::view(w, me);
+        self.view = Some(v);
+        if self.teach || matches!(self.lead, Lead::Net(_)) {
+            features::features(w, me, &v, &mut self.features);
+        }
+        match &self.lead {
+            Lead::Shortlist => plan::shortlist(w, me, MAX_CANDIDATES, &mut self.cands),
+            Lead::Net(net) => {
+                net.run(&self.features, &mut self.net_out, &mut self.net_scratch);
+                net_shortlist(&self.net_out, v.t, v.s, MAX_CANDIDATES, &mut self.cands);
+            }
+        }
         self.before.take(w);
         self.phase = Phase::Candidate { c: 0, k: 0 };
+        if self.teach {
+            let mut t = Box::new(self.clone());
+            t.teach = false;
+            self.taught = Some(t);
+        }
+    }
+}
+
+/// The network-led shortlist into `out` (cleared first): "what the tree does" first, then the actions the network
+/// (`scores`, by action) rates best, best first (the lower index on a tie), each plan once, at most `max` in all.
+pub fn net_shortlist(scores: &[Real], t: Real, s: Real, max: usize, out: &mut Vec<Plan>) {
+    out.clear();
+    let tree = actions::plan_of(actions::Action::Tree, t, s);
+    out.push(tree);
+    let mut order: Vec<usize> = (0..actions::COUNT.min(scores.len())).collect();
+    order.sort_by(|&a, &b| scores[b].total_cmp(&scores[a]).then(a.cmp(&b)));
+    for i in order {
+        if out.len() >= max {
+            break;
+        }
+        let p = actions::plan_of(actions::ACTIONS[i], t, s);
+        if !out.contains(&p) {
+            out.push(p);
+        }
     }
 }

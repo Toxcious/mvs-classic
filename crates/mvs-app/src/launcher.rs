@@ -124,6 +124,8 @@ pub struct Launcher {
     checking: bool,
     updating: bool,
     update_asked: bool,
+    /// The answer to the menu's check, on Home's detail line while it is ready ("" none): the log is not drawn.
+    update_note: String,
     /// "Update & play" brought this version: the boot plays (launcher.ts playAfterUpdate).
     play_after_update: bool,
 }
@@ -176,6 +178,7 @@ impl Launcher {
             update,
             checking: false,
             update_asked: false,
+            update_note: String::new(),
             play_after_update: false,
         };
         l.log(w::LAUNCHER_OPENED, Tone::Plain, w::EM_STARTED);
@@ -212,6 +215,14 @@ impl Launcher {
         if self.m.log.len() > LOG_KEEP {
             let over = self.m.log.len() - LOG_KEEP;
             self.m.log.drain(..over);
+        }
+    }
+
+    /// The menu's update check said this: Home's detail line shows it, Home drawn again when it is up.
+    fn note_update(&mut self, host: &mut Host, note: String) {
+        self.update_note = note;
+        if self.m.screen == Screen::Home {
+            self.home(host);
         }
     }
 
@@ -609,7 +620,7 @@ impl Launcher {
                 if s.new_build { w::REBUILT_FIRST.into() } else { w::parts_rebuilt_first(s.stale.len()) },
             ),
             // Deviation: no version after "Ready to play" (launcher.ts's status line).
-            HomeState::Ready => (Tone::Plain, w::READY_TO_PLAY.into(), String::new()),
+            HomeState::Ready => (Tone::Plain, w::READY_TO_PLAY.into(), self.update_note.clone()),
             HomeState::Rebuild => (Tone::Warn, w::BUILDING_STATUS.into(), w::STARTS_AFTER.into()),
             HomeState::Update => (Tone::Warn, w::is_out(&version), w::INSTALLS_SOON.into()),
             HomeState::Updating => (Tone::Warn, w::UPDATING_STATUS.into(), w::STARTS_AGAIN.into()),
@@ -775,11 +786,13 @@ impl Launcher {
                     self.checking = false;
                     self.update_asked = false;
                     self.log(&w::is_out(&v), Tone::Ok, w::EM_UPDATE);
+                    self.note_update(host, String::new());
                 }
                 UpdateEvent::None => {
                     self.checking = false;
                     if std::mem::take(&mut self.update_asked) {
                         self.log(w::UP_TO_DATE, Tone::Ok, w::EM_UPDATE);
+                        self.note_update(host, w::UP_TO_DATE.to_owned());
                     }
                 }
                 UpdateEvent::Progress(pc) => self.m.home.percent = f64::from(pc),
@@ -796,9 +809,11 @@ impl Launcher {
                     }
                 }
                 UpdateEvent::CheckError(m) => {
-                    self.update_asked = false;
                     self.checking = false;
                     self.log(&w::check_unfinished(&m), Tone::Warn, "");
+                    if std::mem::take(&mut self.update_asked) {
+                        self.note_update(host, w::check_unfinished(&m));
+                    }
                 }
                 UpdateEvent::DownloadError(m) => self.update_failed(host, &m),
             }
@@ -935,6 +950,7 @@ impl Launcher {
                 if !self.updating {
                     self.update_asked = true;
                     self.log(w::CHECKING_UPDATES, Tone::Plain, "");
+                    self.note_update(host, format!("{}\u{2026}", w::CHECKING_UPDATES));
                     self.update.check(mvs_release::VERSION);
                 }
             }

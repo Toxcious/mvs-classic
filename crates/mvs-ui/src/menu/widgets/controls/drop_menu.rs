@@ -506,19 +506,15 @@ impl DropMenu {
         wd(cx, l).text = t;
     }
 
-    /// (the port's own) An item of the port's own (`label`, `id`) at the end of the row `menu`'s Items when `offer`,
-    /// out of them when not: a choice the build's list has no row for. The row is initialized again with the new
-    /// list and keeps its selection; nothing changes when the list already is so.
-    pub fn offer_own_item(cx: &mut Cx<'_>, menu: WidgetId, label: &str, id: &str, offer: bool) {
+    /// (the port's own) An item of the port's own (`label`, `id`) at the end of the row `menu`'s Items: a choice the
+    /// build's list has no row for. The row is initialized again with the new list and keeps its selection; nothing
+    /// changes when the list has it already.
+    pub fn offer_own_item(cx: &mut Cx<'_>, menu: WidgetId, label: &str, id: &str) {
         let mut items = cx.view.tree().props(menu).get("Items").and_then(Value::as_array).cloned().unwrap_or_default();
-        let at = usize::try_from(index_of_id(&items, id)).ok();
-        match (at, offer) {
-            (None, true) => items.push(own_item(label, id)),
-            (Some(i), false) => {
-                items.remove(i);
-            }
-            _ => return,
+        if index_of_id(&items, id) >= 0 {
+            return;
         }
+        items.push(own_item(label, id));
         cx.view.tree_mut().set_prop(menu, "Items", Value::Array(items));
         cx.visit::<DropMenu, _>(menu, |m, cx| {
             let selected = m.current_selected_id.clone();

@@ -46,10 +46,15 @@ pub fn data() -> Option<Arc<GameData>> {
     .clone()
 }
 
-/// `versus(n, bots)`: n players; with bots every second one is a bot (two bots alone in a 1v1 never approach each
-/// other).
-pub fn versus(n: usize, bots: bool) -> serde_json::Value {
-    let players: Vec<_> = (0..n).map(|i| serde_json::json!({ "bot": bots && i % 2 == 1, "difficulty": 3 })).collect();
+/// The beta's Hard bot level.
+pub const HARD: i32 = 3;
+
+/// `versus(n, bots)`: n players; with a bot level every second one is a bot of that level (two bots alone in a 1v1
+/// never approach each other).
+pub fn versus(n: usize, bots: Option<i32>) -> serde_json::Value {
+    let players: Vec<_> = (0..n)
+        .map(|i| serde_json::json!({ "bot": bots.is_some() && i % 2 == 1, "difficulty": bots.unwrap_or(HARD) }))
+        .collect();
     serde_json::json!({
         "teamStyle": if n == 2 { 0 } else { 1 },
         "players": players,
@@ -71,7 +76,7 @@ pub fn world(data: &Arc<GameData>, setup: &MatchSetup) -> World {
     w
 }
 
-/// The match bots (seed 300 + slot, level 3), one slot per player.
+/// The match bots (seed 300 + slot, the set-up's level), one slot per player.
 pub fn bots(w: &World) -> Vec<Option<BtBot>> {
     w.setup
         .players
@@ -79,9 +84,26 @@ pub fn bots(w: &World) -> Vec<Option<BtBot>> {
         .enumerate()
         .map(|(i, p)| {
             let trees = w.bot_trees.as_ref()?;
-            p.bot.then(|| BtBot::match_bot(300 + i32::try_from(i).expect("a slot"), trees, 3))
+            #[allow(clippy::cast_possible_truncation, reason = "a level 0..4")]
+            let level = p.difficulty.map_or(HARD, |d| d as i32);
+            p.bot.then(|| BtBot::match_bot(300 + i32::try_from(i).expect("a slot"), trees, level))
         })
         .collect()
+}
+
+/// `bots` with an Expert bot's decisions on the tests' workers (two threads, shared by every test of the binary):
+/// the peers' bots, against the reference run's inline ones. `MVS_NET_INLINE=1` keeps them inline (a cost run's).
+pub fn bots_on_workers(w: &World) -> Vec<Option<BtBot>> {
+    static WORKERS: OnceLock<Arc<mvs_sim::ai::expert::Workers>> = OnceLock::new();
+    let mut b = bots(w);
+    if std::env::var_os("MVS_NET_INLINE").is_some() {
+        return b;
+    }
+    let workers = WORKERS.get_or_init(|| Arc::new(mvs_sim::ai::expert::Workers::new(2)));
+    for bot in b.iter_mut().flatten() {
+        bot.set_workers(Some(workers));
+    }
+    b
 }
 
 pub use mvs_sim_trace::inputs::Masher;
@@ -149,6 +171,8 @@ struct Peer {
     /// When it stopped as the match ended (a gone slot).
     ended: Option<f64>,
     intro: BTreeMap<(bool, i32), u32>,
+    /// Per frame: the wall time of its advance (ms), the ticks it confirmed and the World steps it ran.
+    frames: Vec<(f64, u32, u64)>,
 }
 
 /// What a session check found: `Err` with the first thing wrong, else its summary.
@@ -209,7 +233,7 @@ pub fn session_test(setup: &MatchSetup, ticks: u32, net: &Net) -> Option<Outcome
         let w = world(&data, setup);
         let cfg = SessionConfig { keep_behind: 0, ..SessionConfig::new(slots_of(humans[p])) };
         let s = Session::new(&w, cfg, ms(now)).expect("a session");
-        let b = bots(&w);
+        let b = bots_on_workers(&w);
         (s, w, b)
     });
     let mut twin_frames = 0;
@@ -231,7 +255,7 @@ pub fn session_test(setup: &MatchSetup, ticks: u32, net: &Net) -> Option<Outcome
                 let wait = if ping <= 2.0 * go_ms { go_ms - ping / 2.0 } else { 0.0 };
                 first += now + lat[p] + wait / TICK_MS;
             }
-            let bots = bots(&w);
+            let bots = bots_on_workers(&w);
             Peer {
                 s,
                 w,
@@ -248,6 +272,7 @@ pub fn session_test(setup: &MatchSetup, ticks: u32, net: &Net) -> Option<Outcome
                 level: net.drop.iter().filter(|h| h.peer == p).map(|h| (h.to, -1.0)).collect(),
                 ended: None,
                 intro: BTreeMap::new(),
+                frames: Vec::new(),
             }
         })
         .collect();
@@ -266,6 +291,11 @@ pub fn session_test(setup: &MatchSetup, ticks: u32, net: &Net) -> Option<Outcome
     let step = 1.0 / 16.0;
     let mut pump_at = -net.go;
     let tickf = f64::from(ticks);
+    // (a cost run's: MVS_NET_THROTTLE=k stretches each advance k times by a spin, as the game's --throttle;
+    // MVS_NET_REAL_PACE=1 runs the simulated clock at the real one, so the Expert's workers have a frame's time)
+    let throttle: f64 = std::env::var("MVS_NET_THROTTLE").ok().and_then(|v| v.parse().ok()).unwrap_or(1.0);
+    let real_pace = std::env::var_os("MVS_NET_REAL_PACE").is_some();
+    let (wall0, now0) = (std::time::Instant::now(), now);
     while now < tickf * 4.0 && peers.iter().any(|p| !p.stopped && p.s.confirmed() < ticks) {
         for x in &mut steps {
             if x.1 >= 0.0 && now >= x.1 {
@@ -386,7 +416,15 @@ pub fn session_test(setup: &MatchSetup, ticks: u32, net: &Net) -> Option<Outcome
             // (a game that stood still owes a quarter second of ticks at the most: the loop's limit)
             p.next = p.next.max(now - 15.0) + p.pace;
             let input = p.m.at(p.s.frame() as usize);
+            let (t0, c0, s0) = (std::time::Instant::now(), p.s.confirmed(), p.s.stats().steps);
             let res = p.s.advance(&mut p.w, &mut p.bots, input, ms(now));
+            if throttle > 1.0 {
+                let until = std::time::Instant::now() + t0.elapsed().mul_f64(throttle - 1.0);
+                while std::time::Instant::now() < until {
+                    std::hint::spin_loop();
+                }
+            }
+            p.frames.push((t0.elapsed().as_secs_f64() * 1000.0, p.s.confirmed() - c0, p.s.stats().steps - s0));
             let sent: Vec<Vec<u8>> = p.s.packets().collect();
             for b in &sent {
                 if usize::from(b[1]) != p.slot {
@@ -457,6 +495,10 @@ pub fn session_test(setup: &MatchSetup, ticks: u32, net: &Net) -> Option<Outcome
             }
         }
         now += step;
+        if real_pace {
+            let at = wall0 + std::time::Duration::from_secs_f64((now - now0) * TICK_MS / 1000.0);
+            std::thread::sleep(at.saturating_duration_since(std::time::Instant::now()));
+        }
     }
     // (a match a gone slot ended: checked up to its end)
     let ticks = match gone.and_then(|g| ends.get(&g)) {
@@ -486,6 +528,8 @@ pub fn session_test(setup: &MatchSetup, ticks: u32, net: &Net) -> Option<Outcome
         })
         .collect();
     let mut want = BTreeMap::new();
+    // (each bot's think of the reference run, ms)
+    let mut thinks: Vec<f64> = Vec::new();
     if let Some(k) = humans.iter().enumerate().position(|(k, &h)| stream[k].len() < ticks.min(end_of(h)) as usize) {
         fail(&mut bad, format!("the referee ruled only {} ticks of slot {}", stream[k].len(), humans[k]));
     }
@@ -497,7 +541,10 @@ pub fn session_test(setup: &MatchSetup, ticks: u32, net: &Net) -> Option<Outcome
                 .map(|i| match b[i].as_mut() {
                     Some(bot) => {
                         let me = w.players[i];
-                        bot.think(&mut w, me)
+                        let t0 = std::time::Instant::now();
+                        let input = bot.think(&mut w, me);
+                        thinks.push(t0.elapsed().as_secs_f64() * 1000.0);
+                        input
                     }
                     None if t >= end_of(i) => NO_INPUT,
                     None => stream[humans.iter().position(|&h| h == i).expect("a human")][t as usize],
@@ -695,8 +742,9 @@ pub fn session_test(setup: &MatchSetup, ticks: u32, net: &Net) -> Option<Outcome
     let st: Vec<_> = peers.iter().map(|p| p.s.stats().clone()).collect();
     let rollbacks: u64 = st.iter().map(|x| x.rollbacks).sum();
     let summary = format!(
-        "{ticks} ticks, {} peers, {sums} hashes equal, {rollbacks} rollbacks (deepest {}), waits {:?}, skips {:?}, catch-ups {:?}, substituted {:?}, the most behind the clock {:?}, delays {:?} (missed {:?}), {packets} packets (largest {most} bytes), {shown} events shown; {}",
+        "{ticks} ticks, {} peers, {}, {sums} hashes equal, {rollbacks} rollbacks (deepest {}), waits {:?}, skips {:?}, catch-ups {:?}, substituted {:?}, the most behind the clock {:?}, delays {:?} (missed {:?}), {packets} packets (largest {most} bytes), {shown} events shown; {}",
         peers.len(),
+        frame_cost(&peers, &thinks),
         st.iter().map(|x| x.deepest).max().unwrap_or(0),
         st.iter().map(|x| x.stalls).collect::<Vec<_>>(),
         st.iter().map(|x| x.skips).collect::<Vec<_>>(),
@@ -708,6 +756,40 @@ pub fn session_test(setup: &MatchSetup, ticks: u32, net: &Net) -> Option<Outcome
         notes.join("; ")
     );
     Some(if bad.is_empty() { Ok(summary) } else { Err(bad) })
+}
+
+/// Wall times' mean / p99 / max, in ms.
+fn spread(ms: &[f64]) -> String {
+    if ms.is_empty() {
+        return "none".to_owned();
+    }
+    let mut ms = ms.to_vec();
+    ms.sort_by(f64::total_cmp);
+    #[allow(clippy::cast_precision_loss, reason = "a count of frames")]
+    let mean = ms.iter().sum::<f64>() / ms.len() as f64;
+    let p99 = ms[(ms.len() * 99 / 100).min(ms.len() - 1)];
+    format!("{mean:.3} / {p99:.3} / {:.3} ms (mean / p99 / max)", ms[ms.len() - 1])
+}
+
+/// The peers' frames' cost: the wall time of an advance over every frame of every peer, the ticks a frame confirmed
+/// (each of them a think of every bot) and the World steps it ran (p99 / max), and the wall time of a bot's think in
+/// the reference run.
+fn frame_cost(peers: &[Peer], thinks: &[f64]) -> String {
+    let ms: Vec<f64> = peers.iter().flat_map(|p| p.frames.iter().map(|f| f.0)).collect();
+    let mut confirmed: Vec<u64> = peers.iter().flat_map(|p| p.frames.iter().map(|f| u64::from(f.1))).collect();
+    let mut steps: Vec<u64> = peers.iter().flat_map(|p| p.frames.iter().map(|f| f.2)).collect();
+    let top = |v: &mut Vec<u64>| {
+        v.sort_unstable();
+        let p99 = v.get((v.len() * 99 / 100).min(v.len().saturating_sub(1))).copied().unwrap_or(0);
+        format!("{p99} / {}", v.last().copied().unwrap_or(0))
+    };
+    format!(
+        "frames {}, ticks confirmed in one {} and steps {} (p99 / max), a bot's think {}",
+        spread(&ms),
+        top(&mut confirmed),
+        top(&mut steps),
+        spread(thinks)
+    )
 }
 
 /// Runs a session check and fails the test on what it found (prints the summary either way).

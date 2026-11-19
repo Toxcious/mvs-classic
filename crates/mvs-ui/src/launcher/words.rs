@@ -538,7 +538,7 @@ pub const UPDATE: &str = "UPDATE";
 pub const UPDATING: &str = "UPDATING";
 pub const EM_UPDATE: &str = "Update";
 pub const UP_TO_DATE: &str = "MVS Classic is up to date";
-pub const INSTALLS_SOON: &str = "Installing shortly";
+pub const INSTALLS_SOON: &str = "Press UPDATE to install it, or play without updating from the menu";
 pub const UPDATING_STATUS: &str = "Updating";
 pub const STARTS_AGAIN: &str = "The launcher will restart when the update is complete";
 pub fn is_out(v: &str) -> String {

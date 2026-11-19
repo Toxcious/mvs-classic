@@ -120,9 +120,10 @@ fn splash(c: &mut Canvas, m: &Model, stars: &[Star]) {
 }
 
 /// The amber bar's fill (.bar > i: its gradient flowing).
-fn bar_fill(c: &mut Canvas, r: [f32; 4], stops: &[(f32, Rgba)], radius: f32) {
+/// `moving`: the gradient sweeps along (a bar that shows work going on), else it stands still.
+fn bar_fill(c: &mut Canvas, r: [f32; 4], stops: &[(f32, Rgba)], radius: f32, moving: bool) {
     let grad = c.p.gradient(stops);
-    let shift = (c.t / 2.4).fract() as f32 * 2.0;
+    let shift = if moving { (c.t / 2.4).fract() as f32 * 2.0 } else { 0.0 };
     let fill = Fill::Linear { grad, from: [r[0], 0.0], to: [r[0] + 2.0 * r[2].max(1.0), 0.0], repeat: true, shift };
     c.rect(r, fill, radius);
 }
@@ -131,8 +132,8 @@ fn amber() -> [(f32, Rgba); 5] {
     [(0.0, hex(0xd98a38, 1.0)), (0.25, GOLD), (0.5, hex(0xfff0c4, 1.0)), (0.75, GOLD), (1.0, hex(0xd98a38, 1.0))]
 }
 
-/// A bar of `frac` (.bar): its track and its fill.
-fn bar(c: &mut Canvas, r: [f32; 4], frac: f32, stops: &[(f32, Rgba)]) {
+/// A bar of `frac` (.bar): its track and its fill, swept along when `moving`.
+fn bar(c: &mut Canvas, r: [f32; 4], frac: f32, stops: &[(f32, Rgba)], moving: bool) {
     c.solid(r, rgba(160, 190, 240, 0.12), r[3]);
     if frac > 0.0 {
         let fr = [r[0], r[1], r[2] * frac.min(1.0), r[3]];
@@ -141,7 +142,7 @@ fn bar(c: &mut Canvas, r: [f32; 4], frac: f32, stops: &[(f32, Rgba)]) {
         let mut clip = c.p.clip;
         clip = [clip[0].max(pc[0]), clip[1].max(pc[1]), clip[2].min(pc[2]), clip[3].min(pc[3])];
         c.p.clip = clip;
-        bar_fill(c, fr, stops, r[3]);
+        bar_fill(c, fr, stops, r[3], moving);
         c.p.clip = pc;
     }
 }
@@ -156,7 +157,7 @@ fn indeterminate(c: &mut Canvas, r: [f32; 4]) {
     let x = r[0] + (-1.0 + 3.9 * q) * iw;
     let pc = c.p.clip;
     c.clip(Some(r));
-    bar_fill(c, [x, r[1], iw, r[3]], &amber(), r[3]);
+    bar_fill(c, [x, r[1], iw, r[3]], &amber(), r[3], true);
     c.p.clip = pc;
 }
 
@@ -840,7 +841,7 @@ fn build(c: &mut Canvas, m: &Model, st: &mut PageState, r: [f32; 4], out: &mut V
         (0.75, rgba(169, 198, 255, 0.7)),
         (1.0, rgba(169, 198, 255, 0.45)),
     ];
-    bar(c, [r[0], y, r[2], 8.0], f, &blue);
+    bar(c, [r[0], y, r[2], 8.0], f, &blue, true);
     y += 8.0 + 10.0;
     c.text_cut(Face::Body, 13.5, r[0], y, 19.6, &b.place, FAINT, r[2]);
     y += 19.6 + 18.0;
@@ -1244,10 +1245,11 @@ fn play_zone(c: &mut Canvas, m: &Model, st: &mut PageState, out: &mut Vec<Action
     let red = [(0.0, rgba(255, 84, 112, 0.5)), (1.0, rgba(255, 84, 112, 0.7))];
     let by = top + 50.0;
     match (&progress, h.state) {
-        (Some((_, _, frac)), _) => bar(c, [lx, by, lw, 8.0], *frac as f32, &amber()),
-        (None, HomeState::Ready | HomeState::Running) => bar(c, [lx, by, lw, 8.0], 1.0, &green),
-        (None, HomeState::Problem) => bar(c, [lx, by, lw, 8.0], 1.0, &red),
-        _ => bar(c, [lx, by, lw, 8.0], 0.0, &green),
+        (Some((_, _, frac)), _) => bar(c, [lx, by, lw, 8.0], *frac as f32, &amber(), true),
+        // (the ready and problem bars stand still: a sweep there looks like work going on)
+        (None, HomeState::Ready | HomeState::Running) => bar(c, [lx, by, lw, 8.0], 1.0, &green, false),
+        (None, HomeState::Problem) => bar(c, [lx, by, lw, 8.0], 1.0, &red, false),
+        _ => bar(c, [lx, by, lw, 8.0], 0.0, &green, false),
     }
     let dy = by + 8.0 + 8.0;
     let detail = progress.as_ref().map_or(rest.as_str(), |p| p.0);

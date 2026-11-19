@@ -14,7 +14,7 @@ use mvs_render::fx::surfaces::level_surfaces;
 use mvs_render::scenery::{SceneryMatch, level_emitters};
 use mvs_render::warm::WarmLists;
 use mvs_sim::ai::bt::{BtBot, LAB_BOTS};
-use mvs_sim::ai::expert::EXPERT_LEVEL;
+use mvs_sim::ai::expert::{EXPERT_LEVEL, Workers};
 use mvs_sim::events::EndPhase;
 use mvs_sim::input::NO_INPUT;
 use mvs_sim::setup::{MatchPlayer, Rules, TeamStyle};
@@ -367,6 +367,16 @@ pub(crate) fn view_prefs(u: &mvs_settings::UiSettings) -> mvs_view::skins::ViewP
             me: u.world_show_my_outline,
         },
         colors: mvs_ui::menu::prefs::color_rows(u).map(str::to_owned),
+    }
+}
+
+/// An Expert bot's decisions put on the program's Expert workers: made at the first Expert bot, sized to the PC
+/// (`Workers::for_this_pc`; none on one core, where they run inline) and kept for the program's life. The bot gives
+/// the same inputs either way; the frame's thread only waits where a decision is due and its worker is not done.
+fn with_workers(bot: &mut BtBot) {
+    static WORKERS: std::sync::OnceLock<Option<Arc<Workers>>> = std::sync::OnceLock::new();
+    if bot.expert.is_some() {
+        bot.set_workers(WORKERS.get_or_init(|| Workers::for_this_pc().map(Arc::new)).as_ref());
     }
 }
 
@@ -986,6 +996,7 @@ impl MatchLoop {
                     }
                 };
                 bot.idle = carry.is_some_and(|c| c.bot_idle);
+                with_workers(&mut bot);
                 Some(bot)
             })
             .collect();
@@ -1785,6 +1796,7 @@ impl MatchLoop {
                 continue;
             }
             let mut new = Self::lab_bot_of(&trees, want);
+            with_workers(&mut new);
             new.idle = old.idle;
             new.ticks = old.ticks;
             new.now = old.now;

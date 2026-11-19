@@ -30,7 +30,7 @@ fn think(w: &mut World, bots: &mut [Option<BtBot>]) -> Vec<InputState> {
 
 fn minion_rollback(lag: usize) {
     let Some(data) = common::data() else { return };
-    let mut setup = common::setup(&common::versus(2, true));
+    let mut setup = common::setup(&common::versus(2, Some(common::HARD)));
     setup.players[0] = MatchPlayer { bot: false, character: Some("velma".to_owned()), ..setup.players[0].clone() };
     setup.players[1] = MatchPlayer { bot: true, character: Some("shaggy".to_owned()), ..setup.players[1].clone() };
     let mk = || {

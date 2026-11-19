@@ -379,6 +379,40 @@ fn no_room_refuses_a_lobby_start() {
     assert_eq!(a.of("pm.begin").len(), 1, "{:?}", a.got());
 }
 
+/// A lobby bot's difficulty runs from Very Easy (2) to the port's own Expert (6), past it clamped; the match's level
+/// is difficulty - 2, Expert's 4.
+#[test]
+fn a_lobby_bot_takes_the_expert_difficulty() {
+    let mut r = session(SessionKind::Custom, "p0");
+    let a = r.player(0);
+    let bot = |a: &Player| a.of("lobby.state").last().expect("a lobby state")["data"]["teams"][1][0].clone();
+    r.send(&a, &json!({ "t": "lobby.enter", "compat": "c1" }));
+    r.send(&a, &json!({ "t": "lobby.setTeamStyle", "style": 0 }));
+    r.send(&a, &json!({ "t": "lobby.addBot", "team": 1, "character": "shaggy", "skin": "", "difficulty": 9 }));
+    assert_eq!(bot(&a)["difficulty"], 6, "{:?}", a.got());
+    let id = bot(&a)["accountId"].clone();
+    let update = |d: i32| {
+        let mut m = json!({ "t": "lobby.updateSettingsForBot", "id": id, "character": "shaggy", "skin": "" });
+        m["difficulty"] = json!(d);
+        m
+    };
+    r.send(&a, &update(5));
+    assert_eq!(bot(&a)["difficulty"], 5);
+    r.send(&a, &update(6));
+    assert_eq!(bot(&a)["difficulty"], 6);
+    r.send(&a, &update(1));
+    assert_eq!(bot(&a)["difficulty"], 2);
+    r.send(&a, &update(6));
+    r.send(&a, &json!({ "t": "lobby.setReady", "on": true }));
+    r.send(&a, &json!({ "t": "lobby.startMatch" }));
+    r.send(&a, &json!({ "t": "pm.lock", "character": "", "skin": "" }));
+    // (the bot locks its pick when the pick's time is up)
+    r.advance(60_000.0);
+    r.play(&[&a]);
+    let start = &a.of("match.start")[0];
+    assert_eq!(start["setup"]["players"][1]["difficulty"], 4, "{start}");
+}
+
 /// The queue lobby of a host as before: its host's leave still ends it.
 #[test]
 fn a_queue_lobby_still_ends_with_its_host() {

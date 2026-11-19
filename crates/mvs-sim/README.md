@@ -64,6 +64,9 @@ heal.
   `&'static Registry` before the call (a hook takes `&mut World`).
 - A deferred call kept in the state is a command enum, one per site: `world::TimerCmd` (the game mode's timers),
   `fighter::tick::OnTurn`, `fighter::match_side::FfaDamage`, `chars::shaggy::shockwave::Then`.
+- The sim starts no thread of its own. The one work it runs off the calling thread, the Expert bot's decisions,
+  goes to the threads a caller hands it (`ai::expert::Workers`) and is taken back at a fixed think, never at a time
+  (`ai/expert/worker.rs`); without them it runs inline, with the same result.
 - `#[state(skip)]` marks what is not rollback state: the events, the scratch, the set-up's fixed tables, the data,
   the registry, the game mode's hooks. A skipped field is neither copied by a save nor hashed.
 - The class data an object reads (an actor's properties, its components, a projectile's boxes, the box samplers) is

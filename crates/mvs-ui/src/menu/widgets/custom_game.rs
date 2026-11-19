@@ -15,7 +15,7 @@
 
 use std::any::Any;
 
-use mvs_protocol::lobby_rules::{LobbyPlayer, STYLE_FFA, TEAM_STYLE_IDS};
+use mvs_protocol::lobby_rules::{BOT_DIFFICULTY_EXPERT, LobbyPlayer, STYLE_FFA, TEAM_STYLE_IDS};
 use serde_json::json;
 
 use super::super::screens::lab_selectors::{LabCharacterSelector, LabMapSelector, LabSkinSelector};
@@ -48,9 +48,10 @@ use crate::slate::{HAlign, Margin, VAlign, Vis, WidgetId};
 /// (the port's own) the space between the two columns of the free-for-all grid (CustomGameTeam.asGrid).
 const GRID_GAP: f64 = 40.0;
 
-/// (the port's own) The lobby's difficulty of the Expert bot, after EBotDifficulty's Hard (5): its match level is
-/// the Expert level (4, lobby_rules' difficulty - 2). An offline lobby's choice only: the online one has no Expert yet.
-const EXPERT_DIFFICULTY: i32 = 6;
+/// (the port's own) The lobby's difficulty of the Expert bot, after EBotDifficulty's Hard (5), offline and online:
+/// its match level is the Expert level (lobby_rules' difficulty - 2).
+const EXPERT_DIFFICULTY: i32 = BOT_DIFFICULTY_EXPERT;
+const _: () = assert!(EXPERT_DIFFICULTY - 2 == mvs_sim::ai::expert::EXPERT_LEVEL);
 /// The difficulty drop's Expert id.
 const EXPERT_ID: &str = "expert";
 
@@ -88,8 +89,6 @@ pub struct Facts {
     pub ready: Vec<String>,
     /// The lobby has a READY button (an online one): the rows show their ready tags.
     pub ready_button: bool,
-    /// An online lobby: its bots' difficulty drop offers no Expert.
-    pub online: bool,
 }
 
 impl Facts {
@@ -347,8 +346,8 @@ impl CustomGamePlayer {
             set_vis(cx, "IsLeaderContainer", Vis::Collapsed);
             set_vis(cx, "dropdownBotDifficulty", Vis::SelfHitTestInvisible);
             wd(cx, kick_image).tex = Some("ui_icons_x".into());
-            // (the port's own) Expert after Hard, offline only
-            DropMenu::offer_own_item(cx, diff, custom_text::EXPERT_DIFFICULTY, EXPERT_ID, !self.facts.online);
+            // (the port's own) Expert after Hard
+            DropMenu::offer_own_item(cx, diff, custom_text::EXPERT_DIFFICULTY, EXPERT_ID);
             let id = bot_difficulty_id(p.difficulty);
             cx.visit::<DropMenu, _>(diff, |d, cx| d.set_active_by_id(cx, id));
             // UpdateBotPortrait @2929 -> OnCharacterLoaded @3708: "{DisplayName} (Bot)" of the CharacterData;
@@ -975,7 +974,6 @@ impl CustomGame {
             am_leader: l.am_i_leader(),
             ready: l.players().iter().filter(|p| l.is_ready(&p.account_id)).map(|p| p.account_id.clone()).collect(),
             ready_button: l.has_ready_button(),
-            online: l.online(),
         }
     }
 

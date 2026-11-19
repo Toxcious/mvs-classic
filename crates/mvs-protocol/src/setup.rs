@@ -9,7 +9,7 @@ use serde_json::Value;
 pub type TeamStyle = u8;
 
 /// A player of the match. `difficulty`: a bot's lobby choice, 0 VeryEasy .. 3 Hard (MatchPlayerData BotBehavior
-/// 2..5); `character` a roster name (absent: the default one); `team`, `start` and `starting_damage` the Lab's slots'
+/// 2..5), 4 the port's own Expert; `character` a roster name (absent: the default one); `team`, `start` and `starting_damage` the Lab's slots'
 /// own values (TrainGameMode.PopulateMatchPlayerData); `perks` MatchPlayerData.AssignPerks' SelectedPerks in slot
 /// order; `taunts` the taunt slots 0-3 by TauntData / EmoteData asset name; `ring_out` the RingOutVfxData asset name
 /// (absent: ROV_Default); `banner` the BannerData slug; `skin` the SkinData asset name; `input` the fight-read

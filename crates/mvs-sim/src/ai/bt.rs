@@ -260,6 +260,13 @@ impl BtBot {
         bot
     }
 
+    /// An Expert bot's decisions run on `workers` (`ai::expert::Workers`; `None`: inline); nothing for another level.
+    pub fn set_workers(&mut self, workers: Option<&Arc<crate::ai::expert::Workers>>) {
+        if let Some(e) = &mut self.expert {
+            e.set_workers(workers.cloned());
+        }
+    }
+
     /// `controllerBot`: a bot of a controller class a game mode spawns itself (the tutorial's bags: TutorialActor
     /// SpawnPunchingBag, its demo controllers' Idle_AIController), after BPI_SetDifficultyLevel(2): BotDifficulty
     /// VeryEasy, NumericDifficulty the class default 0. Base_AIController is the Lab's fight/veryeasy entry (Min =

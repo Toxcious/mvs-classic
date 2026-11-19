@@ -91,3 +91,79 @@ fn a_cloned_expert_plans_as_the_original() {
         assert_eq!(hash_of(&w), hash_of(&w2), "tick {t}: the World");
     }
 }
+
+/// A network-led Expert match played twice gives the same inputs and the same World every tick, and a bot taking the
+/// teacher's samples plays as one that does not.
+#[test]
+fn a_network_led_match_is_the_same_twice() {
+    use mvs_sim::ai::expert::{Lead, net};
+    let Some((w0, trees)) = world([4.0, 4.0]) else {
+        eprintln!("note: no dev store; nothing checked");
+        return;
+    };
+    let bots = |teach: u32| {
+        let mut b = vec![BtBot::match_bot(5, &trees, 4), BtBot::match_bot(6, &trees, 4)];
+        let e = b[0].expert.as_mut().expect("an Expert");
+        e.set_lead(Lead::Net(net::built_in()));
+        e.teach(teach);
+        b
+    };
+    let (mut wa, mut wb) = (w0.clone(), w0);
+    let (mut ba, mut bb) = (bots(0), bots(3));
+    let mut samples = 0;
+    for t in 0..1500 {
+        let a = tick(&mut wa, &mut ba);
+        let b = tick(&mut wb, &mut bb);
+        samples += bb[0].expert.as_mut().expect("an Expert").take_samples().len();
+        assert_eq!(a, b, "tick {t}: the inputs");
+        assert_eq!(hash_of(&wa), hash_of(&wb), "tick {t}: the World");
+    }
+    assert!(samples > 0, "the teacher took no sample");
+}
+
+/// The built-in network reads the Expert's input and scores its whole action list.
+#[test]
+fn the_built_in_network_fits_the_action_list() {
+    use mvs_sim::ai::expert::{ACTIONS, FEATURES, net};
+    let n = net::built_in();
+    assert_eq!((n.inputs(), n.outputs()), (FEATURES, ACTIONS));
+}
+
+/// A whole Expert match with its decisions on workers gives the same inputs and the same World every tick as the
+/// inline match: a decision is taken back at the think the inline path finishes it, whatever the worker's pace. One
+/// worker for both bots (a decision waits for the other's), then two; a clone taken mid-match, with a decision on a
+/// worker, plays on as the original.
+#[test]
+fn the_workers_give_the_inline_match() {
+    use mvs_sim::ai::expert::Workers;
+    let Some((w0, trees)) = world([4.0, 4.0]) else {
+        eprintln!("note: no dev store; nothing checked");
+        return;
+    };
+    for threads in [1, 2] {
+        let workers = Arc::new(Workers::new(threads));
+        let (mut wa, mut wb) = (w0.clone(), w0.clone());
+        let mut ba = vec![BtBot::match_bot(5, &trees, 4), BtBot::match_bot(6, &trees, 4)];
+        let mut bb = ba.clone();
+        for b in &mut bb {
+            b.set_workers(Some(&workers));
+        }
+        let mut cloned: Option<(World, Vec<BtBot>)> = None;
+        let mut t = 0;
+        while !wa.flow.match_over && t < 30_000 {
+            let a = tick(&mut wa, &mut ba);
+            let b = tick(&mut wb, &mut bb);
+            assert_eq!(a, b, "{threads} workers, tick {t}: the inputs");
+            assert_eq!(hash_of(&wa), hash_of(&wb), "{threads} workers, tick {t}: the World");
+            if let Some((wc, bc)) = &mut cloned {
+                let c = tick(wc, bc);
+                assert_eq!(a, c, "{threads} workers, tick {t}: the clone's inputs");
+            } else if t == 700 {
+                cloned = Some((wb.clone(), bb.clone()));
+            }
+            t += 1;
+        }
+        assert!(wa.flow.match_over, "the match ended by tick {t}");
+        eprintln!("{threads} workers: the same over {t} ticks");
+    }
+}

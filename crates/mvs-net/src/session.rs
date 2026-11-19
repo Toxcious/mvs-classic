@@ -338,6 +338,9 @@ impl Session {
         while size <= cfg.max_prediction {
             size *= 2;
         }
+        // With a bot the snapshot is always the confirmed line's, so a bot thinks once per confirmed tick and no
+        // rollback goes back past a think: the bots' state (an Expert's scratch worlds and decision under way with
+        // it) stays out of the snapshot and is never restored.
         let keep_behind = if cfg.slots.contains(&SlotKind::Bot) { 0 } else { cfg.keep_behind };
         Ok(Session {
             local,

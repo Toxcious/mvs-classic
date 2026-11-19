@@ -13,6 +13,12 @@ pub const TEAM_STYLE_IDS: [&str; 3] = ["1v1", "2v2", "ffa"];
 /// The Free For All style's value.
 pub const STYLE_FFA: u8 = 2;
 
+/// EBotDifficulty of a lobby's bot: Very Easy, the lowest.
+pub const BOT_DIFFICULTY_MIN: i32 = 2;
+/// (the port's own) The lobby's difficulty of the Expert bot, after EBotDifficulty's Hard (5), the highest a lobby's
+/// bot takes: its match level is difficulty - 2, the Expert level (4). A host core older than it clamps it to Hard.
+pub const BOT_DIFFICULTY_EXPERT: i32 = 6;
+
 /// A lobby row (LobbyPlayer).
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -24,7 +30,7 @@ pub struct LobbyPlayer {
     pub character: String,
     /// Bots: the skin's SkinData asset name, '' the default.
     pub skin: String,
-    /// EBotDifficulty (2 very easy .. 5 hard); 0 for a human.
+    /// EBotDifficulty (2 very easy .. 5 hard, 6 the port's own Expert); 0 for a human.
     pub difficulty: i32,
     /// A human's ProfileIconPath as its ProfileIconData asset name, '' none (absent on the wire: a bot, or none).
     /// Every empty icon is left out, which a reader (`icon ?? ''`) takes the same.
@@ -149,7 +155,7 @@ pub fn bot_name(character: &str) -> String {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SetupPlayer {
     pub bot: bool,
-    /// EBotDifficulty - 2 (level 0..3) of a bot; 0 of a human.
+    /// EBotDifficulty - 2 (level 0..3, 4 Expert) of a bot; 0 of a human.
     pub difficulty: i32,
     pub character: Option<String>,
 }
@@ -504,9 +510,10 @@ impl LobbyRules {
     /// player is PlayerIndex % team count (AssignPlayerAndTeamIndex), so the two teams' players alternate; Free
     /// For All keeps the lobby order.
     /// Unverified: the native order of the player indexes is not decoded. FreeForAll has no ring-out count
-    /// ("Highest Score Wins"). A bot's EBotDifficulty 2..5 is level 0..3. AllowHazards goes into the set-up
-    /// (MatchSetup.allowHazards: the stage's create hook reads it). A bot takes its lobby character; its skin goes
-    /// to the pre-match screen with its row and from that screen's lock into the match (MatchPlayer.skin).
+    /// ("Highest Score Wins"). A bot's EBotDifficulty 2..5 is level 0..3, the port's own BOT_DIFFICULTY_EXPERT (6)
+    /// level 4. AllowHazards goes into the set-up (MatchSetup.allowHazards: the stage's create hook reads it). A bot
+    /// takes its lobby character; its skin goes to the pre-match screen with its row and from that screen's lock
+    /// into the match (MatchPlayer.skin).
     pub fn match_setup(&self) -> StartedMatch {
         let ffa = self.team_style == STYLE_FFA;
         let stocks = self.options.stocks;
@@ -583,13 +590,13 @@ mod tests {
         let mut r = lobby();
         r.add_bot(0, "shaggy", "", 3);
         r.add_bot(1, "batman", "", 5);
-        r.add_bot(1, "finn", "", 2);
+        r.add_bot(1, "finn", "", BOT_DIFFICULTY_EXPERT);
         assert!(r.can_start_match());
         let m = r.match_setup();
         assert_eq!(m.ids, vec!["local", "bot-2", "bot-1", "bot-3"]);
         assert_eq!(m.usernames, vec!["Me", "Batman", "Shaggy", "Finn"]);
         assert_eq!(m.setup.players[1].difficulty, 3);
-        assert_eq!(m.setup.players[3].difficulty, 0);
+        assert_eq!(m.setup.players[3].difficulty, 4, "Expert's level");
         assert_eq!(m.setup.rules, SetupRules { knockouts_to_win: 4, duration: 420, stocks: false });
     }
 
