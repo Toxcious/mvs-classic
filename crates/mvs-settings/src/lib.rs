@@ -66,8 +66,6 @@ pub struct LauncherSettings {
     pub data_root: Option<PathBuf>,
     /// The beta's folder the player picked last (setup's step 1); None before setup.
     pub beta_dir: Option<PathBuf>,
-    /// "Update & play" asked for this version: its first start plays.
-    pub play_after_update: Option<String>,
 }
 
 /// The window's modes (the build's EWindowMode less its exclusive full screen).
@@ -300,7 +298,6 @@ impl Settings {
         let launcher = LauncherSettings {
             data_root: take(s, "data_root", d.launcher.data_root, any),
             beta_dir: take(s, "beta_dir", d.launcher.beta_dir, any),
-            play_after_update: take(s, "play_after_update", d.launcher.play_after_update, any),
         };
         let s = section(root, "window", &empty);
         let window = WindowSettings {
@@ -510,7 +507,6 @@ mod tests {
         let mut s = Settings::default();
         s.launcher.data_root = Some(PathBuf::from("D:/MVS Classic"));
         s.launcher.beta_dir = Some(PathBuf::from("E:/beta"));
-        s.launcher.play_after_update = Some("0.1.2".into());
         s.window = WindowSettings {
             mode: WindowMode::WindowedFullscreen,
             width: 1600,

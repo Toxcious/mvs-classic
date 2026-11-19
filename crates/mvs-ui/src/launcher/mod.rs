@@ -148,7 +148,7 @@ pub struct Build {
 pub enum HomeState {
     #[default]
     Ready,
-    /// A newer release is out: PLAY updates, then plays.
+    /// A newer release is out: PLAY updates; the new version starts on Home.
     Update,
     /// The release is being downloaded; the launcher starts again as the new version.
     Updating,

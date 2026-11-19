@@ -126,8 +126,6 @@ pub struct Launcher {
     update_asked: bool,
     /// The answer to the menu's check, on Home's detail line while it is ready ("" none): the log is not drawn.
     update_note: String,
-    /// "Update & play" brought this version: the boot plays (launcher.ts playAfterUpdate).
-    play_after_update: bool,
 }
 
 impl std::fmt::Debug for Launcher {
@@ -179,7 +177,6 @@ impl Launcher {
             checking: false,
             update_asked: false,
             update_note: String::new(),
-            play_after_update: false,
         };
         l.log(w::LAUNCHER_OPENED, Tone::Plain, w::EM_STARTED);
         l.m.app_problem = setup_os::app_problem().map(str::to_string);
@@ -200,7 +197,6 @@ impl Launcher {
         {
             l.log(&w::link_not_registered(&e), Tone::Warn, "");
         }
-        l.after_update(host);
         l.ask_state(host, Then::Boot);
         Ok(l)
     }
@@ -742,11 +738,6 @@ impl Launcher {
         }
     }
 
-    /// Setup holds and no run goes on: Play works, through a rebuild when one is needed.
-    fn ready_or_stale(&self) -> bool {
-        self.run.is_none() && self.state.as_ref().is_some_and(|s| s.setup)
-    }
-
     /// The game's end taken in (launcher.ts's `ended` game event): its line, the state asked again, Home.
     fn game_events(&mut self, host: &mut Host) {
         let Some(g) = &mut self.game else { return };
@@ -764,15 +755,7 @@ impl Launcher {
     }
 
     // -----------------------------------------------------------------------------------------------------------
-    // Updates (launcher.ts onUpdate, startUpdate, updateFailed, playAfterUpdate)
-
-    /// At the boot: whether "Update & play" brought this version.
-    fn after_update(&mut self, host: &mut Host) {
-        if let Some(v) = host.settings.launcher.play_after_update.take() {
-            self.play_after_update = v == mvs_release::VERSION;
-            self.save(host);
-        }
-    }
+    // Updates (launcher.ts onUpdate, startUpdate, updateFailed)
 
     /// The updater's events (launcher.ts onUpdate); `Next::Quit` once the release downloaded is handed over to.
     fn update_events(&mut self, host: &mut Host) -> Next {
@@ -825,8 +808,9 @@ impl Launcher {
         Next::Stay
     }
 
-    /// The download of the release offered (launcher.ts startUpdate); `then_play`: its first start plays.
-    fn start_update(&mut self, host: &mut Host, then_play: bool) {
+    /// The download of the release offered (launcher.ts startUpdate). The new version starts on Home.
+    // Deviation: launcher.ts played the game at the new version's first start; here the player presses PLAY.
+    fn start_update(&mut self, host: &mut Host) {
         let Some(v) = self.update.available().map(str::to_owned) else { return };
         if self.updating {
             return;
@@ -840,11 +824,6 @@ impl Launcher {
         self.updating = true;
         self.m.home.percent = 0.0;
         self.log(&w::downloading(&v), Tone::Plain, w::EM_UPDATE);
-        // Deviation: kept in the settings (launcher.ts in the page's localStorage).
-        if then_play {
-            host.settings.launcher.play_after_update = Some(v);
-            self.save(host);
-        }
         self.update.download();
         self.home(host);
     }
@@ -852,9 +831,6 @@ impl Launcher {
     /// A download or its hand-over that failed (launcher.ts updateFailed).
     fn update_failed(&mut self, host: &mut Host, message: &str) {
         self.updating = false;
-        if host.settings.launcher.play_after_update.take().is_some() {
-            self.save(host);
-        }
         self.log(&w::update_unfinished(message), Tone::Warn, "");
         if self.m.screen == Screen::Home {
             self.home(host);
@@ -934,7 +910,7 @@ impl Launcher {
                 HomeState::Ready => {
                     self.play_or_rebuild(host);
                 }
-                HomeState::Update => self.start_update(host, true),
+                HomeState::Update => self.start_update(host),
                 HomeState::Problem => self.step_beta(host),
                 // (the game's window brought forward)
                 HomeState::Running => {
@@ -1108,14 +1084,9 @@ impl Launcher {
             match then {
                 // window.ts openWindow: `--play` opens the game alone when the store is ready
                 Then::Boot if host.play && !offer && self.ready() => {
-                    self.play_after_update = false;
                     if self.play(host) {
                         return Next::Quit;
                     }
-                }
-                Then::Boot if !offer && std::mem::take(&mut self.play_after_update) && self.ready_or_stale() => {
-                    self.route(host);
-                    self.play_or_rebuild(host);
                 }
                 Then::Ended { .. } => {
                     self.play(host);
