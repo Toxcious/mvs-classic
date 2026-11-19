@@ -1298,7 +1298,8 @@ fn play_zone(c: &mut Canvas, m: &Model, st: &mut PageState, out: &mut Vec<Action
             c.solid([r[0] + 12.0, r[1], r[2] - 24.0, 2.0], rgba(255, 240, 210, 0.55), 1.0);
             (w::PLAY, 46.0, hex(0xfff8ea, 1.0), Some(hex(0x8a5220, 1.0)))
         }
-        // .home[data-state="update"] .playbtn: gold; (the port's own) UPDATE in PLAY's white
+        // Deviation: the page's update button is gold; here it is a sky blue of the night palette, apart from PLAY's orange.
+        // (the port's own) UPDATE in PLAY's white
         HomeState::Update => {
             let ledge = if lift > 0.0 {
                 2.0
@@ -1307,16 +1308,17 @@ fn play_zone(c: &mut Canvas, m: &Model, st: &mut PageState, out: &mut Vec<Action
             } else {
                 6.0
             };
-            c.shadow([r[0], r[1] + 12.0, r[2], r[3]], rgba(244, 207, 122, if hover { 0.24 } else { 0.16 }), 14.0, 28.0);
-            c.solid([r[0], r[1] + ledge, r[2], r[3]], hex(0x7d5a1c, 1.0), 14.0);
+            c.shadow([r[0], r[1] + 12.0, r[2], r[3]], rgba(90, 160, 255, if hover { 0.30 } else { 0.20 }), 14.0, 28.0);
+            c.solid([r[0], r[1] + ledge, r[2], r[3]], hex(0x173a7a, 1.0), 14.0);
             // (the page's hover is brightness(1.05) over the same gradient)
             let k = if hover { 1.05 } else { 1.0 };
             let lit = |c: Rgba| [(c[0] * k).min(1.0), (c[1] * k).min(1.0), (c[2] * k).min(1.0), c[3]];
-            let stops = [(0.0, lit(hex(0xfbe6ad, 1.0))), (0.5, lit(GOLD)), (1.0, lit(hex(0xd9a24a, 1.0)))];
+            let stops =
+                [(0.0, lit(hex(0x9fd4ff, 1.0))), (0.5, lit(hex(0x4f9cf5, 1.0))), (1.0, lit(hex(0x2f6fd6, 1.0)))];
             let f = c.down(&stops, r);
             c.rect(r, f, 14.0);
-            c.solid([r[0] + 12.0, r[1], r[2] - 24.0, 2.0], rgba(255, 255, 255, 0.6), 1.0);
-            (w::UPDATE, 46.0, hex(0xfff8ea, 1.0), Some(hex(0x8a6420, 1.0)))
+            c.solid([r[0] + 12.0, r[1], r[2] - 24.0, 2.0], rgba(225, 242, 255, 0.6), 1.0);
+            (w::UPDATE, 46.0, hex(0xf4f9ff, 1.0), Some(hex(0x1d4a96, 1.0)))
         }
         HomeState::Rebuild | HomeState::Updating => {
             c.framed(r, Fill::Solid(rgba(255, 255, 255, 0.1)), 1.0, rgba(255, 255, 255, 0.16), 14.0);
