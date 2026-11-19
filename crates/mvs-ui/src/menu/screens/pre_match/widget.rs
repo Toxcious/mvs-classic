@@ -2728,7 +2728,12 @@ impl PreMatch {
                 } else if let Some(icon) = bot_icon {
                     BannerIconOf::Asset(icon)
                 } else if let Some(c) = &p.net_cosmetics {
-                    BannerIconOf::Asset(&c.icon.asset)
+                    // (a bot's drawn from its seed carries the slug alone: cosmetics_of_loadout)
+                    if c.icon.asset.is_empty() {
+                        BannerIconOf::Slug(&c.icon.slug)
+                    } else {
+                        BannerIconOf::Asset(&c.icon.asset)
+                    }
                 } else {
                     BannerIconOf::Slug(p.cosmetics.as_ref().map_or("", |c| c.icon.as_str()))
                 };
@@ -3894,6 +3899,13 @@ mod tests {
                 "{icon} not in the catalogue"
             );
         }
+        // every icon a custom game's bot can draw (a slug) finds its picture
+        let pool = crate::menu::lobby::loadout::BotPool::of(c);
+        assert!(!pool.icons.is_empty());
+        let texture = |name: &str| bundle.textures.get(name).map(|t| t.entry().to_string());
+        let blank: Vec<&String> =
+            pool.icons.iter().filter(|s| banner_icon_texture(c, BannerIconOf::Slug(s), texture).is_none()).collect();
+        assert!(blank.is_empty(), "bot icons with no picture: {blank:?}");
         let tips = &bundle.menu.as_ref().expect("the menu data").gameplay_tips;
         assert_eq!(tips.len(), 25);
         assert!(tips.iter().all(|k| text.get("", k).is_some_and(|t| !t.is_empty())));
