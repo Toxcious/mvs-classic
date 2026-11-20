@@ -82,7 +82,8 @@ pub struct HudPlayer {
 /// The match's HUD setup.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct HudSetup {
-    /// The HUD's context mode (ContextMode: 1 to 3 a versus match by its team style, 4 the Lab, 5 a tutorial).
+    /// The HUD's context mode (ContextMode: 1 to 3 a versus match by its team style, 4 the Lab, 5 a tutorial; the
+    /// port's own `MODE_WAVES`).
     pub mode: u8,
     /// The local player's index.
     pub me: usize,
@@ -617,6 +618,15 @@ fn abilities_of(w: &World, fid: FighterId, res: &Res) -> Vec<HudAbility> {
     (0..n).filter_map(|k| ability_row(w, fid, k)).map(|r| HudAbility::of(w, &r, |s| res.brush(s))).collect()
 }
 
+/// A HUD pawn's entry of a per-pawn list: the place `k` given again, or the next one.
+fn put<T>(v: &mut Vec<T>, k: usize, x: T) {
+    if k < v.len() {
+        v[k] = x;
+    } else {
+        v.push(x);
+    }
+}
+
 /// A pawn's AttachedBottom: with its pawn's custom UI for a local human (custom_ui.rs), else the plain one.
 #[allow(clippy::too_many_arguments)]
 fn bottom_for(
@@ -761,7 +771,8 @@ impl Hud {
             pops: PopTexts::new(proto(b, "UI_PopText", "PopText")),
             inputs: InputLabels::new(proto(b, "UI_PopInputLabel", "InputUI")),
             countdown,
-            countdown_finished: false,
+            // (the port's own Waves context has no countdown card: its controllers may pause from the start)
+            countdown_finished: setup.mode == MODE_WAVES,
             victory: None,
             victories,
             actors: vec![None; n],
@@ -814,14 +825,14 @@ impl Hud {
         self.scoreboard.pause_hold(player, value)
     }
 
-    /// What the input labels read of the players' input: `menu`, the bundle with
-    /// InputButtonIconsTable (the menu's table and its textures are the HUD's data); `players`, each
-    /// player index's input. Until it is given, every label is the keyboard form with the default keys.
     /// (the port's own) The Waves run's counter for the frames that follow (context `MODE_WAVES`).
     pub fn set_waves(&mut self, w: Option<WavesHud>) {
         self.waves = w;
     }
 
+    /// What the input labels read of the players' input: `menu`, the bundle with
+    /// InputButtonIconsTable (the menu's table and its textures are the HUD's data); `players`, each
+    /// player index's input. Until it is given, every label is the keyboard form with the default keys.
     pub fn set_label_input(&mut self, menu: &Bundle, players: Vec<LabelInput>) {
         let icons = menu.input_icons.keys().filter_map(|k| Some((k.clone(), menu.input_icon(k)?.to_owned()))).collect();
         let names = self.res.labels.names().clone();
@@ -837,37 +848,59 @@ impl Hud {
     /// A mode pawn's PlayerDataReadyServer (the sim's slotBound): the pawn's two attached widgets, made on its slot's
     /// broker (UI_IGv3_AttachedBottom / Top with that player index) and added to the screen layer as a new pawn's
     /// components are (bottom then top, after the slots there are). A pawn bound again takes the new slot.
+    /// Many pawns may share a slot (the Waves enemies). A new pawn takes the first place a detached one left, so the
+    /// HUD's per-pawn lists hold no more places than pawns attached at once.
     pub fn attach(&mut self, w: &World, pawn: Fid, slot: usize) {
         let (Some(b), Some(fid)) = (self.players.get(slot).cloned(), w.by_id(pawn)) else { return };
-        if self.k_of(pawn).is_some_and(|k| k < self.players.len()) {
+        let n = self.players.len();
+        let waves = self.setup.mode == MODE_WAVES;
+        // (a Waves pawn the HUD already attached to that slot, by the sweep of `observe`, keeps its place)
+        if self.k_of(pawn).is_some_and(|k| k < n || waves && self.slot_of[k] == slot) {
             return;
         }
         self.detach(pawn);
         let abilities = abilities_of(w, fid, &self.res);
         let character = w.names.str(w.fighter(fid).ch);
         let c = self.bottom_custom.as_ref();
-        let k = self.huds.len();
+        // (the port's own) In a Waves run the local player's fighter is a mode pawn: it takes its slot's own place,
+        // so what reads a player index (the character parts' labels, the attached pop texts) finds it there.
+        let k = if waves && slot == self.setup.me {
+            // (its scoreboard slot was made with no abilities: a mode World has no players)
+            self.scoreboard.set_abilities(slot, &b, &abilities, &self.ui);
+            slot
+        } else {
+            (n..self.pawns.len()).find(|&k| self.pawns[k].is_none()).unwrap_or(self.pawns.len())
+        };
         let (ui, ctx5) = (&self.ui, self.ctx5);
-        self.huds.push(bottom_for(&self.bottom, c, character, &b, &abilities, ui, ctx5, &self.names, &self.res));
-        self.tops.push(AttachedTop::new(&self.top, &b, k));
-        self.pawns.push(Some(pawn));
-        self.slot_of.push(slot);
-        self.sent.push(Sent::fresh());
-        self.facing_left.push(false);
-        self.actors.push(None);
-        self.pop_queues.push(VecDeque::new());
-        self.dodge_pops.push(Vec::new());
-        self.backstab_at.push(None);
+        let hud = bottom_for(&self.bottom, c, character, &b, &abilities, ui, ctx5, &self.names, &self.res);
+        put(&mut self.huds, k, hud);
+        put(&mut self.tops, k, AttachedTop::new(&self.top, &b, k));
+        put(&mut self.pawns, k, Some(pawn));
+        put(&mut self.slot_of, k, slot);
+        put(&mut self.sent, k, Sent::fresh());
+        put(&mut self.facing_left, k, false);
+        put(&mut self.actors, k, None);
+        put(&mut self.pop_queues, k, VecDeque::new());
+        put(&mut self.dodge_pops, k, Vec::new());
+        put(&mut self.backstab_at, k, None);
     }
 
     /// The pawn is destroyed (by `observe`, for a mode pawn the
     /// World no longer holds): its widget components go with it. A label it holds (the rage callout) stays, where
-    /// it was last placed.
+    /// it was last placed, as its pop texts do; what the HUD kept of it by its id goes.
     pub fn detach(&mut self, pawn: Fid) {
         let Some(k) = self.k_of(pawn).filter(|&k| k >= self.players.len()) else { return };
         self.pawns[k] = None;
         self.pop_queues[k].clear();
+        self.dodge_pops[k].clear();
         self.actors[k] = None;
+        // (its place is free for the next pawn attached: the widgets still on it let go of it)
+        self.pops.release(k);
+        self.inputs.release(k);
+        self.snacks.remove(&pawn);
+        self.passes.remove(&pawn);
+        self.juggle_pops.remove(&pawn);
+        self.hitstun_pops.remove(&pawn);
     }
 
     /// The sim ids of the HUD's pawns, in the order of HudFrame's anchors (None: a detached pawn's place).
@@ -888,6 +921,15 @@ impl Hud {
     /// The player index of a sim fighter id (None: a minion or a mode pawn).
     fn player(&self, fighter: i32) -> Option<usize> {
         usize::try_from(fighter).ok().filter(|&i| i < self.players.len())
+    }
+
+    /// The player index a fighter's item labels go by: `player`'s; (the port's own) in a Waves run, where the
+    /// player's fighter is a mode pawn too, an attached pawn's slot.
+    fn item_player(&self, fighter: i32) -> Option<usize> {
+        if self.setup.mode == MODE_WAVES {
+            return self.k_of(fighter).map(|k| self.slot_of[k]);
+        }
+        self.player(fighter)
     }
 
     /// UI_Functions PopText with a level actor as the attach actor (a stage block's
@@ -927,17 +969,29 @@ impl Hud {
     pub fn observe(&mut self, w: &World, events: &[Event], hud_time: f64, real: f64) {
         let now = hud_time;
         let n = self.players.len();
-        // (a mode pawn the World no longer holds is detached)
+        // (a mode pawn the World no longer holds is detached; so is one whose id another fighter took since, as the
+        // pawns' counter wraps over a long Waves run: a fighter not bound to the pawn's slot)
         for k in n..self.pawns.len() {
-            if let Some(id) = self.pawns[k]
-                && w.by_id(id).is_none()
-            {
+            let Some(id) = self.pawns[k] else { continue };
+            let slot = i32::try_from(self.slot_of[k]).ok();
+            if w.by_id(id).is_none_or(|f| w.fighter(f).life.is_minion || w.fighter(f).life.slot != slot) {
                 self.detach(id);
             }
         }
         // (a pawn record's op lists go with the pawn)
         self.ui_ops.retain(|&id, _| w.by_id(id).is_some());
         self.ability_ops.retain(|&id, _| w.by_id(id).is_some());
+        // (the port's own) A Waves run binds its player's pawn while the World is made, before the app's first step
+        // clears the events: every bound pawn with no place yet is attached, ahead of this step's events.
+        if self.setup.mode == MODE_WAVES {
+            for f in w.all_ids() {
+                let x = w.fighter(f);
+                let Some(slot) = x.life.slot.and_then(|s| usize::try_from(s).ok()) else { continue };
+                if !x.life.is_minion && self.k_of(x.id).is_none() {
+                    self.attach(w, x.id, slot);
+                }
+            }
+        }
         for e in events {
             self.event(w, e, now, real);
         }
@@ -981,10 +1035,12 @@ impl Hud {
             }
             true
         });
-        // (the pawns attached by this step's events too: the op lists are the pawn record's)
+        // (the pawns attached by this step's events too: the op lists are the pawn record's; in a Waves run the
+        // player's place holds its mode pawn, `attach`)
+        let waves = self.setup.mode == MODE_WAVES;
         for k in 0..self.pawns.len() {
             let Some(id) = self.pawns[k] else { continue };
-            let fid = if k < n { w.players.get(k).copied() } else { w.by_id(id) };
+            let fid = if k < n && !waves { w.players.get(k).copied() } else { w.by_id(id) };
             let Some(fid) = fid else { continue };
             let f = w.fighter(fid);
             self.actors[k] = Some([0.0, f64::from(-f.body.x), f64::from(f.body.y)]);
@@ -1090,7 +1146,7 @@ impl Hud {
             }
         }
         self.dash_targets.observe(w, &self.players, &self.setup);
-        self.indicators.observe(w, &self.players, now);
+        self.indicators.observe(w, &self.players, common::PlayerMap::of(&self.setup), now);
         for c in &mut self.chars {
             c.observe(w, now, real, &mut self.inputs, &mut self.pops, &self.texts.jumps_reset, &mut self.order);
         }
@@ -1225,8 +1281,8 @@ impl Hud {
         if !self.broker(k).is_some_and(|b| b.is_local && !b.is_bot) {
             return;
         }
-        // (the label's key and PlayerIndex are the pawn's id: a player's index)
-        let pawn = usize::try_from(w.fighter(fid).id).unwrap_or(usize::MAX);
+        // (the label's key and PlayerIndex are the pawn's player index: its id, or its slot's in a Waves run)
+        let pawn = common::PlayerMap::of(&self.setup).index(w, fid).unwrap_or(usize::MAX);
         let want = g.is_max_rage && !dead && mvs_sim::fighter::grounded(w, fid);
         let s = &mut self.sent[k];
         if want == s.callout {
@@ -1273,7 +1329,7 @@ impl Hud {
             }
             Event::ItemUiCreate { item, fighter, action, on_ground, actor } => {
                 if !*actor && self.item_ui_for(Some(*fighter), 0, *action) {
-                    let i = self.player(*fighter).unwrap_or(0);
+                    let i = self.item_player(*fighter).unwrap_or(0);
                     let src = &self.res.labels;
                     // Deviation: the item manager's tick makes a reachable item's label with action 0 (Attack) where
                     // its owner is local (standalone: the Lab, Local Play); the port's labels always read the player's
@@ -1284,7 +1340,7 @@ impl Hud {
             }
             Event::ItemUi { item, fighter, hide, on_ground, actor } => {
                 if !*actor && self.item_ui_for(Some(*fighter), 1, 0) {
-                    let i = self.player(*fighter).unwrap_or(0);
+                    let i = self.item_player(*fighter).unwrap_or(0);
                     let key = i64::from(*item);
                     let src = &self.res.labels;
                     self.inputs.create(key, pickup_item_action(i, src), *on_ground, real, &mut self.order, src);
@@ -1405,7 +1461,8 @@ impl Hud {
         } else if self.setup.local_play {
             kind != 1 || self.player(f).is_some_and(|i| !self.players[i].is_bot)
         } else {
-            f == me && (kind != 0 || action == 10)
+            // (a Waves run: as a custom game, the player's pawn by its slot)
+            self.item_player(f) == Some(self.setup.me) && (kind != 0 || action == 10)
         }
     }
 
@@ -1847,6 +1904,12 @@ impl Hud {
         self.drawn.extend(self.indicators.draw(fonts, out, dpi, now, real, &proj).into_iter().map(Part::Indicator));
         // Deviation: UI_Game's first child, UI_ConnectionState (the connection icon in the top right corner), is not
         // drawn: the user's choice.
+        if self.setup.mode == MODE_WAVES
+            && let Some(r) = self.waves
+        {
+            let counter = custom_text::waves_counter(r.ring_outs, r.target);
+            self.scoreboard.waves(&counter, &custom_text::waves_clock(r.seconds, r.target.is_some()));
+        }
         self.scoreboard.tick(&self.res, now, real, f.round_time_remaining, &mut self.sounds);
         if self.scoreboard.draw(fonts, out, size[0], size[1], dpi) {
             self.drawn.push(Part::Scoreboard);
@@ -1999,6 +2062,207 @@ mod tests {
         assert_eq!(t.teleport, "Teleport");
         assert_eq!(t.solve_mystery, "Solve the Mystery!");
         assert_eq!(t.down_prefix, "DOWN + ");
+    }
+
+    /// A Waves run's words: the counter with and without a target, the clock with hundredths against the clock.
+    #[test]
+    fn waves_words() {
+        assert_eq!(custom_text::waves_counter(12, Some(100)), "RING-OUTS 12 / 100");
+        assert_eq!(custom_text::waves_counter(0, None), "RING-OUTS 0");
+        assert_eq!(custom_text::waves_clock(65.256, true), "1:05.25");
+        assert_eq!(custom_text::waves_clock(65.999, false), "1:05");
+        assert_eq!(custom_text::waves_clock(3599.999, true), "59:59.99");
+        assert_eq!(custom_text::waves_clock(-1.0, true), "0:00.00");
+        assert_eq!(custom_text::waves_clock(f64::NAN, false), "0:00");
+    }
+
+    /// The match's World and a Waves HUD over it: the player and the enemies' slot, a bot (needs the dev store).
+    fn waves_hud() -> Option<(mvs_sim_trace::harness::Harness, Hud, Bundle)> {
+        use mvs_sim::setup::{MatchPlayer, MatchSetup};
+        let Ok(store) = mvs_store::Store::open(mvs_store::dev_store_dir()) else {
+            eprintln!("note: no store at {}; nothing checked", mvs_store::dev_store_dir().display());
+            return None;
+        };
+        let player = |c: &str| MatchPlayer { character: Some(c.to_owned()), ..MatchPlayer::default() };
+        let ms = MatchSetup { players: vec![player("shaggy"), player("shaggy")], ..MatchSetup::default() };
+        let h = mvs_sim_trace::harness::fresh(&ms, 1)?;
+        let bundle = Bundle::load(&store, "hud").expect("the hud bundle");
+        let text = GameText::load(&store).expect("the game text");
+        let mut s = setup(MODE_WAVES, &[0, 1], &[false, true]);
+        s.max_score = -1;
+        let hud = Hud::new(&bundle, &text, &h.w, &s).expect("the HUD");
+        Some((h, hud, bundle))
+    }
+
+    /// Context 6: no versus card (pausing from the start), the scoreboard with the player's slot alone, the run's
+    /// counter in modeLabel and its clock in the clock, by variant (needs the dev store).
+    #[test]
+    fn a_waves_hud_shows_the_player_alone_and_the_run() {
+        let Some((h, mut hud, bundle)) = waves_hud() else { return };
+        let Ok(store) = mvs_store::Store::open(mvs_store::dev_store_dir()) else { return };
+        let mut fonts = Fonts::new(&store, &bundle).expect("the fonts");
+        assert!(hud.countdown.is_none() && hud.countdown_finished());
+        let id: mvs_view::M4 = std::array::from_fn(|r| std::array::from_fn(|c| f64::from(u8::from(r == c))));
+        let cam = Camera { origin: [0.0; 3], translated_world_to_view: id, view_to_clip: id };
+        let mut draw = |hud: &mut Hud, t: f64| {
+            let f = HudFrame {
+                size: [1920, 1080],
+                hud_time: t,
+                real: t,
+                bottom: &[],
+                top: &[],
+                camera: &cam,
+                items: &[],
+                skillshots: &[],
+                round_time_remaining: 0.0,
+                hold: false,
+            };
+            hud.draw(&f, &mut fonts, &mut ElementList::default());
+        };
+        hud.observe(&h.w, &[], 2.0, 2.0);
+        hud.set_waves(Some(WavesHud { ring_outs: 12, target: Some(100), seconds: 65.256 }));
+        draw(&mut hud, 2.0);
+        draw(&mut hud, 2.1);
+        let text = |hud: &Hud, under: &str, name: &str| {
+            let t = &hud.scoreboard.t;
+            t.widget(t.find_in(t.find(under), name)).text.clone()
+        };
+        let (mode, clock) = (("UI_IGv3_MatchInfo", "modeLabel"), ("UI_IGv3_Clock", "timeLabel"));
+        assert_eq!(text(&hud, mode.0, mode.1), "RING-OUTS 12 / 100");
+        assert_eq!(text(&hud, clock.0, clock.1), "1:05.25");
+        assert!(hud.slot_rect(0).is_some(), "the player's slot is painted");
+        assert!(hud.slot_rect(1).is_none(), "the enemies' slot has none");
+        hud.set_waves(Some(WavesHud { ring_outs: 3, target: None, seconds: 65.9 }));
+        draw(&mut hud, 2.2);
+        assert_eq!(text(&hud, mode.0, mode.1), "RING-OUTS 3");
+        assert_eq!(text(&hud, clock.0, clock.1), "1:05");
+    }
+
+    /// Hundreds of enemies bound to one slot, coming and going (six alive at most, the pawns' ids wrapping): each
+    /// live one has its damage readout on the slot's broker, and the HUD's per-pawn lists keep no place for the gone
+    /// (needs the dev store).
+    #[test]
+    fn waves_enemies_attach_and_detach_on_one_slot() {
+        use mvs_sim::modes::waves::ENEMY_SLOT;
+        use mvs_sim::world::pawns::{self, FirstTicks, PawnSpawn};
+        let Some((mut h, mut hud, _)) = waves_hud() else { return };
+        let ch = h.w.fighter(h.fighter(1)).ch;
+        let mut alive = VecDeque::new();
+        let mut t = 1.0;
+        for i in 0..1000 {
+            let at = PawnSpawn { character: ch, x: 0.0, y: 0.0, facing_left: false, at: FirstTicks::Leftover };
+            let m = pawns::spawn_pawn(&mut h.w, at);
+            pawns::bind_slot(&mut h.w, m, ENEMY_SLOT);
+            h.w.fighter_mut(m).stats.damage = 37.0;
+            alive.push_back(m);
+            if alive.len() > 6 {
+                let gone = alive.pop_front().expect("a pawn");
+                pawns::despawn_pawn(&mut h.w, gone, false);
+            }
+            let events = std::mem::take(&mut h.w.events);
+            t += 0.1;
+            hud.observe(&h.w, &events, t, t);
+            let n = hud.players.len();
+            let live: Vec<_> = (n..hud.pawns.len()).filter(|&k| hud.pawns[k].is_some()).collect();
+            assert_eq!(live.len(), alive.len(), "spawn {i}");
+            for &m in &alive {
+                let k = hud.k_of(h.w.fighter(m).id).expect("an attached enemy");
+                assert_eq!(hud.slot_of[k], 1);
+                let t = &hud.huds[k].t;
+                let digit = t.find_in(t.find("UI_IGv3_Percentage"), "digit1");
+                assert_eq!(t.widget(digit).text, "7", "its damage readout");
+            }
+        }
+        assert!(hud.pawns.len() <= hud.players.len() + 7, "{} places", hud.pawns.len());
+        assert_eq!(hud.huds.len(), hud.pawns.len());
+        assert_eq!(hud.sent.len(), hud.pawns.len());
+        assert!(hud.snacks.is_empty() && hud.passes.is_empty());
+        // (the two players' and the live enemies' at most)
+        assert!(hud.ui_ops.len() <= 8 && hud.ability_ops.len() <= 8);
+    }
+
+    /// A Waves run's player is a mode pawn bound to slot 0: it takes the player's own place, and the parts that look a
+    /// player up (`PlayerMap`) find it by its slot; the enemies' slot stands for none of them. Outside Waves the
+    /// players are found by their ids (needs the dev store).
+    #[test]
+    fn waves_player_found_by_its_slot() {
+        use common::PlayerMap;
+        use mvs_sim::world::pawns::{self, FirstTicks, PawnSpawn};
+        let Some((mut h, mut hud, _)) = waves_hud() else { return };
+        let ch = h.w.fighter(h.fighter(0)).ch;
+        let spawn = |h: &mut mvs_sim_trace::harness::Harness, slot: i32| {
+            let at = PawnSpawn { character: ch, x: 0.0, y: 0.0, facing_left: false, at: FirstTicks::Leftover };
+            let m = pawns::spawn_pawn(&mut h.w, at);
+            pawns::bind_slot(&mut h.w, m, slot);
+            m
+        };
+        let me = spawn(&mut h, 0);
+        let enemy = spawn(&mut h, 1);
+        h.w.fighter_mut(me).body.x = 120.0;
+        let events = std::mem::take(&mut h.w.events);
+        hud.observe(&h.w, &events, 1.0, 1.0);
+        let me_id = h.w.fighter(me).id;
+        assert_eq!(hud.pawns()[0], Some(me_id), "the player's place");
+        assert_eq!(hud.actors[0], Some([0.0, -120.0, f64::from(h.w.fighter(me).body.y)]));
+        assert_eq!(hud.item_player(me_id), Some(0));
+        assert_eq!(hud.item_player(h.w.fighter(enemy).id), Some(1));
+        let waves = PlayerMap::of(&hud.setup);
+        assert_eq!(waves.fighter(&h.w, 0), Some(me));
+        assert_eq!(waves.fighter(&h.w, 1), None, "the enemies' slot");
+        assert_eq!((waves.index(&h.w, me), waves.index(&h.w, enemy)), (Some(0), Some(1)));
+        let versus = PlayerMap::of(&setup(1, &[0, 1], &[false, true]));
+        assert_eq!(versus.fighter(&h.w, 1), Some(h.fighter(1)));
+        assert_eq!(versus.index(&h.w, h.fighter(1)), Some(1));
+        assert_eq!(versus.index(&h.w, me), usize::try_from(me_id).ok(), "a pawn's id, as before");
+    }
+
+    /// A Waves run's World binds its player while it is made and the app clears those events before the first step:
+    /// the HUD still attaches the player at its place, with its damage on its readout and the scoreboard and its
+    /// abilities on the scoreboard's cooldowns, and the director's enemies on their slot (needs the dev store).
+    #[test]
+    fn a_waves_run_attaches_its_player_from_the_start() {
+        use mvs_sim::setup::WavesVariant;
+        use mvs_sim_trace::waves as run;
+        let Ok(store) = mvs_store::Store::open(mvs_store::dev_store_dir()) else {
+            eprintln!("note: no store at {}; nothing checked", mvs_store::dev_store_dir().display());
+            return;
+        };
+        let cast = ["shaggy", "batman", "superman", "wonderwoman", "taz"].map(String::from).into();
+        let ws = run::bot_setup(WavesVariant::Endless, "superman", 3, cast);
+        let data = run::data_for(&store, &ws, "trainingroomsmall").expect("the data");
+        let mut w = run::world(&data, &ws, 11).expect("the World");
+        w.events.clear();
+        let bundle = Bundle::load(&store, "hud").expect("the hud bundle");
+        let text = GameText::load(&store).expect("the game text");
+        let mut s = setup(MODE_WAVES, &[0, 1], &[false, true]);
+        s.max_score = -1;
+        let mut hud = Hud::new(&bundle, &text, &w, &s).expect("the HUD");
+        let player = w.waves.as_ref().and_then(|r| r.player).expect("the player");
+        let n = hud.players.len();
+        let mut t = 0.0;
+        let mut step = |w: &mut World, hud: &mut Hud| {
+            run::step(w);
+            let events = std::mem::take(&mut w.events);
+            t += 1.0 / 60.0;
+            hud.observe(w, &events, t, t);
+        };
+        for _ in 0..240 {
+            step(&mut w, &mut hud);
+        }
+        assert_eq!(hud.pawns()[0], Some(w.fighter(player).id), "the player's place");
+        assert!(hud.pawns()[n..].iter().any(Option::is_some), "an enemy attached");
+        let (slot, cooldowns) = hud.scoreboard.slot_parts(0).expect("the player's slot");
+        assert_eq!(cooldowns, abilities_of(&w, player, &hud.res).len());
+        assert!(cooldowns > 0, "the player's abilities on the scoreboard");
+        // (set after the step: no hit moves it before the HUD reads it)
+        w.fighter_mut(player).stats.damage = 37.0;
+        hud.observe(&w, &[], t + 0.1, t + 0.1);
+        let readout = &hud.huds[0].t;
+        let digit = readout.find_in(readout.find("UI_IGv3_Percentage"), "digit1");
+        assert_eq!(readout.widget(digit).text, "7", "the player's damage readout");
+        let sb = &hud.scoreboard.t;
+        let digit = sb.find_in(sb.find_in(slot, "UI_IGv3_Percentage"), "digit1");
+        assert_eq!(sb.widget(digit).text, "7", "the player's scoreboard percentage");
     }
 
     #[test]

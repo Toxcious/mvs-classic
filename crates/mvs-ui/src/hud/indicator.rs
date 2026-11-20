@@ -8,7 +8,7 @@ use mvs_sim::World;
 use mvs_sim::actors::ActorRef;
 use mvs_sim::actors::world_actor::WorldActorState;
 
-use super::common::{Anim, BrokerPlayer, brush_path};
+use super::common::{Anim, BrokerPlayer, PlayerMap, brush_path};
 use crate::bundle::{Bundle, Rgba};
 use crate::element::ElementList;
 use crate::slate::{Geometry, Tree, Vis, WidgetId, instantiate, layout, measure_tree, paint};
@@ -163,7 +163,7 @@ impl ItemIndicators {
     /// an overlap takes the fighter out and shows the component while the list is not empty. So the component is
     /// visible while a locally controlled fighter of the tunnel's team stands in its Box.
     // Unverified: a bot's pawn is locally controlled offline, as the Jumps Reset text takes it.
-    pub fn observe(&mut self, w: &World, players: &[BrokerPlayer], now: f64) {
+    pub fn observe(&mut self, w: &World, players: &[BrokerPlayer], map: PlayerMap, now: f64) {
         let Some(proto) = &self.proto else { return };
         let mut seen: Vec<(i32, [f64; 3], bool)> = Vec::new();
         for f in w.all_ids() {
@@ -174,9 +174,8 @@ impl ItemIndicators {
                     continue;
                 }
                 let WorldActorState::Tunnel(t) = &act.state else { continue };
-                let shown = t.allies.iter().any(|&g| {
-                    players.get(usize::try_from(w.fighter(g).id).unwrap_or(usize::MAX)).is_some_and(|p| p.is_local)
-                });
+                let shown =
+                    t.allies.iter().any(|&g| map.index(w, g).and_then(|i| players.get(i)).is_some_and(|p| p.is_local));
                 seen.push((act.seq, [0.0, f64::from(-t.x), f64::from(t.y)], shown));
             }
         }

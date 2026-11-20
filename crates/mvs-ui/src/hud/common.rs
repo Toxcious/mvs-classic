@@ -1,6 +1,9 @@
 //! What the HUD's widgets share: the broker's player data, the UI preferences, the palette and the widget
 //! animations' clocks.
 
+use mvs_sim::World;
+use mvs_sim::fighter::FighterId;
+
 use crate::bundle::{AnimData, Bundle, Rgba};
 use crate::slate::{Tree, Vis, WidgetId, apply_anim};
 use crate::text::GameText;
@@ -25,6 +28,36 @@ pub struct BrokerPlayer {
     pub portrait: Option<String>,
     /// The widgets' Player Index (the broker's: the fighter's).
     pub index: usize,
+}
+
+/// How a HUD part finds a player index's fighter and a fighter's player index: a player's index is its fighter id.
+/// (The port's own Waves run, where every fighter is a mode pawn: by the pawns' bound slots, and only the local
+/// player's slot stands for one fighter; the enemies share the other slot and none of them stands for it.)
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct PlayerMap {
+    /// A Waves run: the local player's index.
+    waves: Option<usize>,
+}
+
+impl PlayerMap {
+    pub(crate) fn of(setup: &super::HudSetup) -> PlayerMap {
+        PlayerMap { waves: (setup.mode == super::MODE_WAVES).then_some(setup.me) }
+    }
+
+    /// The fighter of player index `i` (None: none stands for it).
+    pub(crate) fn fighter(self, w: &World, i: usize) -> Option<FighterId> {
+        let Some(me) = self.waves else { return w.players.get(i).copied() };
+        let slot = i32::try_from(i).ok().filter(|_| i == me)?;
+        w.all_ids().into_iter().find(|&f| w.fighter(f).life.slot == Some(slot))
+    }
+
+    /// The player index of a fighter (None: a minion, an unbound pawn).
+    pub(crate) fn index(self, w: &World, f: FighterId) -> Option<usize> {
+        if self.waves.is_some() {
+            return usize::try_from(mvs_sim::world::pawns::slot_of(w, f)).ok();
+        }
+        usize::try_from(w.fighter(f).id).ok()
+    }
 }
 
 /// Struct_Preferences_UI: the fields the match widgets' RespondToPreferences read.

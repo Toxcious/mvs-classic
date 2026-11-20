@@ -9,7 +9,7 @@ use mvs_sim::fighter::{actor_y, facing};
 use crate::bundle::{Bundle, Rgba};
 use crate::element::ElementList;
 use crate::hud::attached::draw_box;
-use crate::hud::common::{Anim, BrokerPlayer};
+use crate::hud::common::{Anim, BrokerPlayer, PlayerMap};
 use crate::hud::input_label::InputLabels;
 use crate::slate::{Geometry, Tree, WidgetId, instantiate, layout_widget, paint_widget};
 use crate::text::Fonts;
@@ -134,6 +134,7 @@ struct Pointer {
 pub(crate) struct TomJerryHud {
     corks: Vec<Option<CorkCount>>,
     pointers: Vec<Option<Pointer>>,
+    map: PlayerMap,
     /// The cork widget's tree and Update animation, when the bundle has the class.
     proto: Option<(Tree, Anim)>,
     colors: Vec<Rgba>,
@@ -143,7 +144,7 @@ pub(crate) struct TomJerryHud {
 
 impl TomJerryHud {
     /// tj: per fighter, whether it is a Tom and Jerry (the match's characters).
-    pub(crate) fn new(b: &Bundle, players: &[BrokerPlayer], tj: &[bool]) -> TomJerryHud {
+    pub(crate) fn new(b: &Bundle, players: &[BrokerPlayer], tj: &[bool], map: PlayerMap) -> TomJerryHud {
         let pointer_tex = b.textures.get(POINTER_TEX).map(|t| t.entry().to_string());
         let pointers = tj
             .iter()
@@ -167,13 +168,13 @@ impl TomJerryHud {
         let colors = (0..tj.len())
             .map(|i| players.get(i).map_or([1.0; 4], |p| if p.is_me { p.focus } else { p.team }))
             .collect();
-        TomJerryHud { corks: tj.iter().map(|_| None).collect(), pointers, proto, colors, pointer_tex }
+        TomJerryHud { corks: tj.iter().map(|_| None).collect(), pointers, proto, colors, pointer_tex, map }
     }
 
     /// After each World step.
     pub(crate) fn observe(&mut self, w: &World, _now: f64, real: f64, _inputs: &mut InputLabels, _order: &mut u64) {
         for i in 0..self.pointers.len() {
-            let (Some(pt), Some(&f)) = (self.pointers[i].as_mut(), w.players.get(i)) else { continue };
+            let (Some(pt), Some(f)) = (self.pointers[i].as_mut(), self.map.fighter(w, i)) else { continue };
             let Some(s) = tj_of(w, f) else { continue };
             let fx = w.fighter(f).body.x;
             let fy = actor_y(w, f);

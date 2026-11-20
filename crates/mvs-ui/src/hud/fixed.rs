@@ -8,9 +8,9 @@ use crate::element::ElementList;
 use crate::slate::{Geometry, HAlign, Margin, Tree, VAlign, Vis, WidgetId, layout, paint};
 use crate::text::Fonts;
 
-use super::Res;
 use super::attached::{Cooldowns, DodgeMeter, Flame, HudAbility, HudAbilityOp, Percentage};
 use super::common::{Anim, BrokerPlayer, LOCATION_FIXED, PlayerNumbers, Prefs, vis_if};
+use super::{MODE_WAVES, Res};
 
 /// (the stock rule) the opacity of a slot whose player is out of lives
 const OUT_OPACITY: f64 = 0.4;
@@ -542,8 +542,9 @@ impl Clock {
 
     /// UpdateMatchTime, every widget tick. remaining = the game state's RoundTimeRemaining.
     fn tick(&mut self, t: &mut Tree, a: &Res, remaining: f64, real: f64, sounds: &mut Vec<String>) {
-        // Contexts 4 and 5 write the infinity sign (@428 -> @564) and leave the warning alone.
-        if self.mode == 4 || self.mode == 5 {
+        // Contexts 4 and 5 write the infinity sign (@428 -> @564) and leave the warning alone. (The port's own Waves
+        // context writes the run's clock instead: Scoreboard::waves.)
+        if self.mode == 4 || self.mode == 5 || self.mode == MODE_WAVES {
             return;
         }
         let r = remaining.max(0.0);
@@ -607,6 +608,8 @@ pub struct Scoreboard {
     exit_start: f64,
     pips: [ScorePips; 2],
     clock: Clock,
+    /// UI_IGv3_MatchInfo's modeLabel.
+    mode_label: WidgetId,
     /// By Player Index.
     slots: [Option<Fixed>; 4],
     /// UI_IGv3_PauseHold: its widget, Meter and its Pause Hold Value.
@@ -686,6 +689,7 @@ impl Scoreboard {
                 put(t_, left, slot_w(1), 1);
             }
         } else if mode != 5 {
+            // (the port's own Waves context: the player's slot alone, FixedA on the left, as the Lab's one player)
             put(t_, left, Some(fa), 1);
             if four {
                 put(t_, left, Some(fb), 1);
@@ -704,7 +708,7 @@ impl Scoreboard {
             } else {
                 put(t_, right, slot_w(1), 2);
             }
-        } else if mode != 5 {
+        } else if mode != 5 && mode != MODE_WAVES {
             put(t_, right, Some(fc), 2);
             if four {
                 put(t_, right, Some(fd), 2);
@@ -769,6 +773,10 @@ impl Scoreboard {
         t_.widget_mut(label).text = setup.mode_label.clone();
         if mode == 4 {
             t_.widget_mut(mi).vis = Vis::SelfHitTestInvisible;
+        } else if mode == MODE_WAVES {
+            // (the port's own) the run's counter, written each frame by `waves`, where an arcade round has its
+            // stage line
+            t_.widget_mut(label).vis = Vis::SelfHitTestInvisible;
         } else if let (true, Some(s)) = ((1..4).contains(&mode), &setup.stage_label) {
             // In arcade (IsArcadeModeActive @387): modeLabel = "Stage {Number} of {NumRounds}" (@978, @1084),
             // SelfHitTestInvisible (@1129).
@@ -794,9 +802,9 @@ impl Scoreboard {
         t_.dynamic_material(meter);
         t_.widget_mut(pause_hold_w).opacity = 0.0;
         // Enter: contexts 1 to 3 wait 8.0 s, context 4 1.0 s, context 5 2.0 s (the delay table @1258) on a world
-        // timer, then AnimateIn.
+        // timer, then AnimateIn. (The port's own Waves context has no versus card: the Lab's delay.)
         let enter_at = now
-            + if mode == 4 {
+            + if mode == 4 || mode == MODE_WAVES {
                 1.0
             } else if mode == 5 {
                 2.0
@@ -812,6 +820,7 @@ impl Scoreboard {
             exit_start: -1.0,
             pips,
             clock,
+            mode_label: label,
             slots,
             pause_hold_w,
             pause_hold_meter: meter,
@@ -822,6 +831,10 @@ impl Scoreboard {
     /// Broker SetScoreForTeam (1v1, 2v2) or SetScoreForPlayer(team index used as the player index, Free For All).
     pub fn score(&mut self, team: usize, score: i32, is_leader: bool, tied: bool, real: f64) {
         let t = &mut self.t;
+        // (the port's own Waves context shows no score: its counter is the run's)
+        if self.mode == MODE_WAVES {
+            return;
+        }
         if self.mode == 3 {
             if let Some(s) = self.slots.get_mut(team).and_then(Option::as_mut) {
                 s.score.score(t, i64::from(score), is_leader, tied);
@@ -835,6 +848,12 @@ impl Scoreboard {
         }
     }
 
+    /// A player's slot widget and its number of cooldowns.
+    #[cfg(test)]
+    pub(crate) fn slot_parts(&self, player: usize) -> Option<(WidgetId, usize)> {
+        self.slots.get(player)?.as_ref().map(|s| (s.w, s.cooldowns.len()))
+    }
+
     /// (the port's own) A player's scoreboard portrait as last painted, in device pixels of the HUD canvas: x, y, w, h
     /// (the match chat's bubbles stand at it). None: no slot, not shown, or not painted yet.
     pub fn slot_rect(&self, player: usize) -> Option<[f64; 4]> {
@@ -845,6 +864,25 @@ impl Scoreboard {
         let p = self.t.find_in(s.w, "portraitContainer");
         let m = self.t.painted(p)?;
         Some([m.transform[4], m.transform[5], m.size[0] * m.transform[0], m.size[1] * m.transform[3]])
+    }
+
+    /// (the port's own) A Waves run's counter in modeLabel and its clock in the clock's label, each frame.
+    pub fn waves(&mut self, counter: &str, clock: &str) {
+        for (w, s) in [(self.mode_label, counter), (self.clock.label, clock)] {
+            let x = self.t.widget_mut(w);
+            if x.text != s {
+                x.text = s.to_owned();
+            }
+        }
+    }
+
+    /// (the port's own) A player slot's cooldowns made again for the abilities of the fighter that stands for the
+    /// player now: a Waves run's player is a mode pawn, bound after the scoreboard was made.
+    pub fn set_abilities(&mut self, player: usize, b: &BrokerPlayer, abilities: &[HudAbility], ui: &Prefs) {
+        let mode = self.mode;
+        let Some(s) = self.slots.get_mut(player).and_then(Option::as_mut) else { return };
+        let cw = self.t.find_in(s.w, "UI_IGv3_Cooldowns");
+        s.cooldowns = Cooldowns::new(&mut self.t, cw, b, abilities, LOCATION_FIXED, ui, mode == 5);
     }
 
     /// The stock rule's lives of a player (its index); a player out of them is faded.

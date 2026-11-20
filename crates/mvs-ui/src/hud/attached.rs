@@ -970,6 +970,11 @@ pub struct Cooldowns {
 }
 
 impl Cooldowns {
+    #[cfg(test)]
+    pub(crate) fn len(&self) -> usize {
+        self.slots.len()
+    }
+
     /// abilities: the fighter's Comp_Pawn_AbilityManager Abilities.
     pub fn new(
         t: &mut Tree,

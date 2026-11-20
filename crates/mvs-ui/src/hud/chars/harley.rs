@@ -7,7 +7,7 @@ use mvs_sim::actors::ActorRef;
 use mvs_sim::actors::world_actor::WorldActorState;
 
 use crate::element::ElementList;
-use crate::hud::common::BrokerPlayer;
+use crate::hud::common::{BrokerPlayer, PlayerMap};
 use crate::hud::input_label::{InputLabels, LabelParams, LabelSources};
 use crate::hud::pop::{PopParams, PopTexts};
 use crate::slate::Tree;
@@ -37,11 +37,12 @@ pub(crate) struct BoxLabels {
     seq: i64,
     /// The boxes whose reset text was sent.
     resets: Vec<i32>,
+    map: PlayerMap,
 }
 
 impl BoxLabels {
-    pub(crate) fn new(players: &[BrokerPlayer]) -> BoxLabels {
-        BoxLabels { players: players.to_vec(), made: IndexMap::new(), seq: 0, resets: Vec::new() }
+    pub(crate) fn new(players: &[BrokerPlayer], map: PlayerMap) -> BoxLabels {
+        BoxLabels { players: players.to_vec(), made: IndexMap::new(), seq: 0, resets: Vec::new(), map }
     }
 
     #[allow(clippy::too_many_arguments, reason = "the call surface of CharHud::observe")]
@@ -63,7 +64,7 @@ impl BoxLabels {
                 let Some(act) = w.actors.actors.get(id) else { continue };
                 let WorldActorState::JackBox(j) = &act.state else { continue };
                 boxes.push(act.seq);
-                if let Ok(r) = usize::try_from(j.reset_for)
+                if let Some(r) = w.by_id(j.reset_for).and_then(|f| self.map.index(w, f))
                     && !self.resets.contains(&act.seq)
                 {
                     self.resets.push(act.seq);
@@ -77,7 +78,7 @@ impl BoxLabels {
                     continue;
                 }
                 for &g in &j.allies {
-                    let Ok(i) = usize::try_from(w.fighter(g).id) else { continue };
+                    let Some(i) = self.map.index(w, g) else { continue };
                     if !self.players.get(i).is_some_and(|b| b.is_local && !b.is_bot) {
                         continue;
                     }

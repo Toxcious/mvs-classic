@@ -11,7 +11,7 @@ use mvs_sim::chars::finn::gem::fade_hidden;
 
 use super::HudSetup;
 use super::attached::draw_box;
-use super::common::{Anim, BrokerPlayer};
+use super::common::{Anim, BrokerPlayer, PlayerMap};
 use super::input_label::{LabelSources, PlacedInputLabel};
 use crate::bundle::Bundle;
 use crate::element::ElementList;
@@ -165,8 +165,8 @@ impl DashTargets {
         if self.proto.is_none() {
             return;
         }
-        let broker =
-            |f: mvs_sim::fighter::FighterId| players.get(usize::try_from(w.fighter(f).id).unwrap_or(usize::MAX));
+        let map = PlayerMap::of(setup);
+        let broker = |f: mvs_sim::fighter::FighterId| map.index(w, f).and_then(|i| players.get(i));
         let mut seen: Vec<(i32, Source)> = Vec::new();
         for f in w.all_ids() {
             for &a in &w.fighter(f).items.spawned_actors {
@@ -200,9 +200,8 @@ impl DashTargets {
                         // his list, its Instigator LeBron
                         let inst = instigator(p);
                         let lebron = inst.is_some_and(|i| {
-                            setup
-                                .players
-                                .get(usize::try_from(w.fighter(i).id).unwrap_or(usize::MAX))
+                            map.index(w, i)
+                                .and_then(|i| setup.players.get(i))
                                 .is_some_and(|s| s.character.as_deref() == Some("lebron"))
                         });
                         let ip = inst.and_then(broker);

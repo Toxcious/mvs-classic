@@ -600,6 +600,16 @@ impl InputLabels {
         self.labels.shift_remove(&key);
     }
 
+    /// The HUD pawn `fighter` is gone and its place may be taken by another: a label attached to it has no attach
+    /// actor from now on (a fighter's key names no item).
+    pub fn release(&mut self, fighter: usize) {
+        for l in self.labels.values_mut() {
+            if l.attach == Some(fighter) {
+                l.attach = None;
+            }
+        }
+    }
+
     /// items: each live item's actor location (UE) by id; fighters: the fighters' actor locations. A label
     /// attached to a fighter is placed on him, any other by its key's item.
     pub fn tick(

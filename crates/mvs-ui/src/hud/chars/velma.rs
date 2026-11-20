@@ -11,7 +11,7 @@ use mvs_sim::fighter::grounded;
 
 use crate::element::ElementList;
 use crate::hud::Texts;
-use crate::hud::common::BrokerPlayer;
+use crate::hud::common::{BrokerPlayer, PlayerMap};
 use crate::hud::input_label::{InputLabels, LabelParams, LabelSources};
 use crate::slate::Tree;
 use crate::text::Fonts;
@@ -67,11 +67,18 @@ pub(crate) struct VelmaHud {
     online: bool,
     /// The GlassesOff widget is up (`glasses_off`), as of the last observe.
     glasses: bool,
+    map: PlayerMap,
 }
 
 impl VelmaHud {
     /// velma: per fighter slot, whether it is a Velma.
-    pub(crate) fn new(players: &[BrokerPlayer], velma: &[bool], texts: &Texts, online: bool) -> VelmaHud {
+    pub(crate) fn new(
+        players: &[BrokerPlayer],
+        velma: &[bool],
+        texts: &Texts,
+        online: bool,
+        map: PlayerMap,
+    ) -> VelmaHud {
         VelmaHud {
             sent: velma
                 .iter()
@@ -82,6 +89,7 @@ impl VelmaHud {
             down_prefix: texts.down_prefix.clone(),
             online,
             glasses: false,
+            map,
         }
     }
 
@@ -97,13 +105,13 @@ impl VelmaHud {
     pub(crate) fn observe(&mut self, w: &World, _now: f64, real: f64, inputs: &mut InputLabels, order: &mut u64) {
         self.glasses = self.online
             && (0..self.sent.len()).any(|i| {
-                let (Some(_), Some(&f), Some(p)) = (self.sent[i], w.players.get(i), self.players.get(i)) else {
+                let (Some(_), Some(f), Some(p)) = (self.sent[i], self.map.fighter(w, i), self.players.get(i)) else {
                     return false;
                 };
                 p.is_local && w.fighter(f).life.dead <= 0.0 && velma_of(w, f).is_some_and(|s| s.glasses_off_count > 0)
             });
         for i in 0..self.sent.len() {
-            let Some(&f) = w.players.get(i) else { continue };
+            let Some(f) = self.map.fighter(w, i) else { continue };
             let Some(mut s) = self.sent[i] else { continue };
             self.jump_on(w, i, f, &mut s, real, inputs, order);
             self.police(w, i, f, &mut s, real, inputs, order);
@@ -138,7 +146,7 @@ impl VelmaHud {
             let WorldActorState::VelmaCarryRun(r) = &w.actors.actors.get(run)?.state else { return None };
             let ally = r.jump_on_ally.filter(|_| r.jump_on_ui)?;
             let fi = w.fighter(ally);
-            let slot = usize::try_from(fi.id).ok()?;
+            let slot = self.map.index(w, ally)?;
             let local = self.players.get(slot).is_some_and(|p| p.is_local);
             (fi.life.dead <= 0.0 && local).then(|| (slot, usize::try_from(fi.team.team).unwrap_or(0)))
         });

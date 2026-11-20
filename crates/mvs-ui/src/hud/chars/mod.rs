@@ -10,7 +10,7 @@ mod velma;
 
 use mvs_sim::World;
 
-use super::common::BrokerPlayer;
+use super::common::{BrokerPlayer, PlayerMap};
 use super::input_label::InputLabels;
 use super::pop::PopTexts;
 use super::{HudSetup, Texts};
@@ -45,13 +45,14 @@ impl CharHud {
         let flags =
             |name: &str| -> Vec<bool> { setup.players.iter().map(|p| p.character.as_deref() == Some(name)).collect() };
         let has = |v: &[bool]| v.iter().any(|&x| x);
+        let map = PlayerMap::of(setup);
         // (the boxes, the portals, then the characters' own)
         let mut out = Vec::new();
         if has(&flags("harley")) {
-            out.push(CharHud::Harley(BoxLabels::new(players)));
+            out.push(CharHud::Harley(BoxLabels::new(players, map)));
         }
         if has(&flags("rick")) {
-            out.push(CharHud::Rick(PortalLabels::new(players, texts)));
+            out.push(CharHud::Rick(PortalLabels::new(players, map, texts)));
         }
         let finn = flags("finn");
         if has(&finn)
@@ -61,15 +62,15 @@ impl CharHud {
         }
         let tj = flags("tomandjerry");
         if has(&tj) {
-            out.push(CharHud::TomJerry(TomJerryHud::new(b, players, &tj)));
+            out.push(CharHud::TomJerry(TomJerryHud::new(b, players, &tj, map)));
         }
         let velma = flags("velma");
         if has(&velma) {
-            out.push(CharHud::Velma(VelmaHud::new(players, &velma, texts, setup.online)));
+            out.push(CharHud::Velma(VelmaHud::new(players, &velma, texts, setup.online, map)));
         }
         let stripe = flags("stripe");
         if has(&stripe) {
-            out.push(CharHud::Stripe(StripeHud::new(b, &stripe)));
+            out.push(CharHud::Stripe(StripeHud::new(b, &stripe, map)));
         }
         out
     }

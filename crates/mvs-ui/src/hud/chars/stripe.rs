@@ -9,7 +9,7 @@ use mvs_sim::fighter::{actor_y, facing};
 use crate::bundle::Bundle;
 use crate::element::ElementList;
 use crate::hud::attached::draw_box;
-use crate::hud::common::Anim;
+use crate::hud::common::{Anim, PlayerMap};
 use crate::hud::input_label::InputLabels;
 use crate::slate::{Tree, instantiate};
 use crate::text::Fonts;
@@ -62,6 +62,7 @@ struct Seen {
 pub(crate) struct StripeHud {
     seen: Vec<Option<Seen>>,
     proto: Option<(Tree, Anim, Anim)>,
+    map: PlayerMap,
 }
 
 /// The target's yaw as a sign: +1 for yaw -90 (local Y = UE +X), -1 for yaw +90.
@@ -71,7 +72,7 @@ fn side_of(facing: f64) -> f64 {
 
 impl StripeHud {
     /// stripe: per fighter slot, whether it is a Stripe.
-    pub(crate) fn new(b: &Bundle, stripe: &[bool]) -> StripeHud {
+    pub(crate) fn new(b: &Bundle, stripe: &[bool], map: PlayerMap) -> StripeHud {
         let proto = b.widgets.contains_key(WIDGET).then(|| {
             (
                 instantiate(b, WIDGET, "AimWidget"),
@@ -79,14 +80,15 @@ impl StripeHud {
                 Anim::of(b, WIDGET, "LoopingRotate"),
             )
         });
-        StripeHud { seen: stripe.iter().map(|&s| s.then(|| Seen { side: 1.0, ..Seen::default() })).collect(), proto }
+        let seen = stripe.iter().map(|&s| s.then(|| Seen { side: 1.0, ..Seen::default() })).collect();
+        StripeHud { seen, proto, map }
     }
 
     /// After each World step.
     pub(crate) fn observe(&mut self, w: &World, _now: f64, _real: f64, _inputs: &mut InputLabels, _order: &mut u64) {
         let Some((proto, _, _)) = &self.proto else { return };
         for i in 0..self.seen.len() {
-            let (Some(s), Some(&f)) = (self.seen[i].as_mut(), w.players.get(i)) else { continue };
+            let (Some(s), Some(f)) = (self.seen[i].as_mut(), self.map.fighter(w, i)) else { continue };
             let Some(target) = stripe_of(w, f).and_then(|x| x.target) else {
                 s.reticle = None;
                 continue;

@@ -310,6 +310,19 @@ impl PopTexts {
         }
     }
 
+    /// The HUD pawn `fighter` is gone and its place may be taken by another: every widget attached to it keeps its
+    /// last position, as one whose attach actor is gone does.
+    pub fn release(&mut self, fighter: usize) {
+        for t in &mut self.pops {
+            if t.p.fighter == fighter {
+                t.p.fighter = usize::MAX;
+                if t.p.place == Place::Attached {
+                    t.p.place = Place::Screen;
+                }
+            }
+        }
+    }
+
     /// anchors: each fighter's actor location (UE; None while it has none). size: the viewport, pixels.
     #[allow(clippy::too_many_arguments)]
     pub fn tick(

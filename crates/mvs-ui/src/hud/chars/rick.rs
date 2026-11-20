@@ -8,7 +8,7 @@ use mvs_sim::actors::world_actor::WorldActorState;
 
 use crate::element::ElementList;
 use crate::hud::Texts;
-use crate::hud::common::BrokerPlayer;
+use crate::hud::common::{BrokerPlayer, PlayerMap};
 use crate::hud::input_label::{InputLabels, LabelParams, LabelSources};
 use crate::slate::Tree;
 use crate::text::Fonts;
@@ -26,6 +26,7 @@ fn portal_label(n: i64) -> i64 {
 #[derive(Debug)]
 pub(crate) struct PortalLabels {
     players: Vec<BrokerPlayer>,
+    map: PlayerMap,
     /// (portal seq, fighter slot) -> the label's count.
     made: IndexMap<(i32, usize), i64>,
     seq: i64,
@@ -34,8 +35,8 @@ pub(crate) struct PortalLabels {
 }
 
 impl PortalLabels {
-    pub(crate) fn new(players: &[BrokerPlayer], texts: &Texts) -> PortalLabels {
-        PortalLabels { players: players.to_vec(), made: IndexMap::new(), seq: 0, label: texts.teleport.clone() }
+    pub(crate) fn new(players: &[BrokerPlayer], map: PlayerMap, texts: &Texts) -> PortalLabels {
+        PortalLabels { players: players.to_vec(), map, made: IndexMap::new(), seq: 0, label: texts.teleport.clone() }
     }
 
     pub(crate) fn observe(&mut self, w: &World, _now: f64, real: f64, inputs: &mut InputLabels, order: &mut u64) {
@@ -49,7 +50,8 @@ impl PortalLabels {
                     continue;
                 }
                 for &i in &p.label_for {
-                    let Ok(i) = usize::try_from(i) else { continue };
+                    // (a pawn's id; its player index is its slot's in a Waves run)
+                    let Some(i) = w.by_id(i).and_then(|f| self.map.index(w, f)) else { continue };
                     if !self.players.get(i).is_some_and(|b| b.is_local && !b.is_bot) {
                         continue;
                     }
