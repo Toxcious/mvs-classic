@@ -647,6 +647,23 @@ fn the_labs_experimental_settings_tick_mutators_into_the_config() {
     tick(&mut s, &mut e, &mut lab, 5.0);
     let rows = context_rows(&s);
     assert_eq!(rows.len(), custom_text::MUTATORS.len(), "the list has Off and every mutator");
+    // the list fits on the screen, and still shows its first 8 rows with a scroll (painted frames: the cap needs
+    // the rows laid out)
+    {
+        let mut out = mvs_ui::element::ElementList::default();
+        for k in 0..30 {
+            s.frame(&mut e.run(&mut lab), &[], 5.0 + f64::from(k) / 60.0, &mut out);
+        }
+        let t = s.view.tree();
+        let list = t
+            .ids()
+            .find(|&w| t.user_class(w) == Some("UI_ContextMenu") && t.widget(w).parent.is_some())
+            .expect("the list is up");
+        let first = t.widget(t.find_in(list, "Container")).children[0];
+        let row_h = t.arranged_size(first)[1];
+        let h = t.widget(t.find_in(list, "SizeBox")).h_override;
+        assert!(row_h > 0.0 && (h - row_h * 8.0).abs() < 0.01, "the list is 8 rows of {row_h} high, not {h}");
+    }
     for (k, n) in [(2, 1u32), (6, 2)] {
         let (w, _) = rows.iter().find(|(_, l)| l.ends_with(custom_text::MUTATORS[k])).cloned().expect("the row");
         let i = s.view.tree().find_in(w, "UI_Interactor");

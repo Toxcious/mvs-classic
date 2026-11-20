@@ -465,11 +465,15 @@ impl Controller for ContextMenu {
 
     fn tick(&mut self, cx: &mut Cx<'_>, _dt: f64) {
         let sbox = find(cx, "SizeBox");
-        if self.adjust_scroll_box && cx.view.tree().widget(sbox).h_override <= 0.0 {
+        // Port: measured every frame, not once: the first rows laid out can be taller than they settle (wrapped
+        // before the list has its width), and a height kept from then showed the whole list with no scroll.
+        if self.adjust_scroll_box {
             let container = find(cx, "Container");
             let first = cx.view.tree().widget(container).children.first().copied();
             let h = first.map_or(0.0, |c| cx.view.tree().arranged_size(c)[1]);
-            wd(cx, sbox).h_override = h * f64::from(self.scroll_bar_item_count);
+            if h > 0.0 {
+                wd(cx, sbox).h_override = h * f64::from(self.scroll_bar_item_count);
+            }
         }
         if !self.fitted {
             self.fit_to_screen(cx);
