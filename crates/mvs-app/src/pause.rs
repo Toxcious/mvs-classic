@@ -5,7 +5,6 @@
 //! PFGPlayerController is PC, UI_Game is UG, PandaGameInstance is PGI in the offsets below.
 
 use mvs_sim::setup::{MatchSetup, TeamStyle, player_team};
-use mvs_ui::bindings::Bindings;
 use mvs_ui::menu::controller::MenuRun;
 use mvs_ui::menu::input::MenuPad;
 use mvs_ui::menu::local_play_match::{self as devices, InputSource};
@@ -374,7 +373,6 @@ pub fn with_pads(sh: &mut Shell, input: Vec<MenuInput>) -> Vec<MenuInput> {
 pub fn make_screen(
     sh: &mut Shell,
     class: &str,
-    bindings: &mut Bindings,
     lab: Option<&mut dyn LabSession>,
     pause: Option<&mut dyn MatchPauseSession>,
 ) -> Result<(MenuScreen, WidgetId)> {
@@ -387,7 +385,7 @@ pub fn make_screen(
     let mut run = MenuRun {
         fonts: &mut u.menu_fonts,
         prefs: settings,
-        bindings,
+        bindings: &mut u.bindings,
         sink: &mut sink,
         pointer: &mut u.pointer,
         lab: lab.map(|l| l as &mut dyn LabSession),
@@ -410,7 +408,6 @@ pub fn make_screen(
 pub fn menu_frame(
     sh: &mut Shell,
     screen: &mut MenuScreen,
-    bindings: &mut Bindings,
     lab: Option<&mut dyn LabSession>,
     pause: Option<&mut dyn MatchPauseSession>,
     input: &[MenuInput],
@@ -422,7 +419,7 @@ pub fn menu_frame(
     let mut run = MenuRun {
         fonts: &mut u.menu_fonts,
         prefs: settings,
-        bindings,
+        bindings: &mut u.bindings,
         sink: &mut sink,
         pointer: &mut u.pointer,
         lab: lab.map(|l| l as &mut dyn LabSession),
@@ -435,20 +432,14 @@ pub fn menu_frame(
 }
 
 /// The screen up or down (it takes the window's keys and the pointer while it is up).
-pub fn set_screen_active(
-    sh: &mut Shell,
-    screen: &mut MenuScreen,
-    bindings: &mut Bindings,
-    lab: Option<&mut dyn LabSession>,
-    on: bool,
-) {
+pub fn set_screen_active(sh: &mut Shell, screen: &mut MenuScreen, lab: Option<&mut dyn LabSession>, on: bool) {
     let Shell { ui, settings, audio, music, window, .. } = sh;
     let Some(u) = ui.as_mut() else { return };
     let mut sink = MenuAudio { audio, tick: music.tick, window: Some(crate::apply::window_info(window)), equip: None };
     let mut run = MenuRun {
         fonts: &mut u.menu_fonts,
         prefs: settings,
-        bindings,
+        bindings: &mut u.bindings,
         sink: &mut sink,
         pointer: &mut u.pointer,
         lab: lab.map(|l| l as &mut dyn LabSession),
@@ -463,7 +454,6 @@ pub fn set_screen_active(
 pub fn with_widget<R>(
     sh: &mut Shell,
     screen: &mut MenuScreen,
-    bindings: &mut Bindings,
     lab: Option<&mut dyn LabSession>,
     pause: Option<&mut dyn MatchPauseSession>,
     f: impl FnOnce(&mut mvs_ui::menu::Cx<'_>) -> R,
@@ -474,7 +464,7 @@ pub fn with_widget<R>(
     let mut run = MenuRun {
         fonts: &mut u.menu_fonts,
         prefs: settings,
-        bindings,
+        bindings: &mut u.bindings,
         sink: &mut sink,
         pointer: &mut u.pointer,
         lab: lab.map(|l| l as &mut dyn LabSession),
@@ -488,7 +478,6 @@ pub fn with_widget<R>(
 pub struct PauseHost {
     pub pause: MatchPause,
     pub screen: MenuScreen,
-    pub bindings: Bindings,
     /// UI_PauseMenu.
     pub widget: WidgetId,
 }
@@ -513,17 +502,10 @@ pub struct PauseOut {
 
 impl PauseHost {
     /// UI_Game's UI_PauseMenu on a screen of its own.
-    pub fn new(
-        sh: &mut Shell,
-        setup: &MatchSetup,
-        me: usize,
-        humans: Option<&[(usize, usize)]>,
-        bindings: Bindings,
-    ) -> Result<PauseHost> {
+    pub fn new(sh: &mut Shell, setup: &MatchSetup, me: usize, humans: Option<&[(usize, usize)]>) -> Result<PauseHost> {
         let mut pause = MatchPause::new(setup, me, humans);
-        let mut bindings = bindings;
-        let (screen, widget) = make_screen(sh, "UI_PauseMenu", &mut bindings, None, Some(&mut pause))?;
-        Ok(PauseHost { pause, screen, bindings, widget })
+        let (screen, widget) = make_screen(sh, "UI_PauseMenu", None, Some(&mut pause))?;
+        Ok(PauseHost { pause, screen, widget })
     }
 
     /// UI_Game.MatchSetPause(pause, playerPausing, isControllerDisconnect) (UG @14953) and SetGamePaused.
@@ -534,9 +516,9 @@ impl PauseHost {
             return;
         }
         let w = self.widget;
-        let Self { pause, screen, bindings, .. } = self;
+        let Self { pause, screen, .. } = self;
         pause.request = None;
-        with_widget(sh, screen, bindings, None, Some(&mut *pause), |cx| {
+        with_widget(sh, screen, None, Some(&mut *pause), |cx| {
             cx.visit_dyn(w, |c, cx| {
                 if let Some(m) = c.as_pause_menu() {
                     m.on_paused(cx, on, player_pausing, disconnect);
@@ -551,7 +533,7 @@ impl PauseHost {
         screen.view.manager.set_handle_input(on);
         if on {
             // @611 Visible; @695 AssignInputToWidget(UI_Game, -1) (the screen takes the window's keys while it is up).
-            with_widget(sh, screen, bindings, None, Some(&mut *pause), |cx| {
+            with_widget(sh, screen, None, Some(&mut *pause), |cx| {
                 cx.view.tree_mut().widget_mut(w).vis = Vis::Visible;
                 // (the manager is ticked in an active screen's frames only: brought to now before Init's Add Timer)
                 let now = cx.view.now();
@@ -564,11 +546,11 @@ impl PauseHost {
                 // @564: the pause mix (the SFX buses muted, every voice but the music's and ambience's paused)
                 cx.post("mix_pause_on");
             });
-            Self::set_active(sh, screen, bindings, pause, true);
+            Self::set_active(sh, screen, pause, true);
             pause.game_pause_next_frame(); // @773 Delay(0.0)
         } else {
             // @4851: Collapsed; @4889 SetGamePaused(false).
-            with_widget(sh, screen, bindings, None, Some(&mut *pause), |cx| {
+            with_widget(sh, screen, None, Some(&mut *pause), |cx| {
                 cx.view.tree_mut().widget_mut(w).vis = Vis::Collapsed;
                 // @4738
                 cx.post("mix_pause_off");
@@ -578,11 +560,11 @@ impl PauseHost {
             sh.devices.resume_all();
             // @4785: Delay(0.0) -> false (@3917): the loop clears it at the next frame.
             pause.unpaused_this_frame = true;
-            Self::set_active(sh, screen, bindings, pause, false);
+            Self::set_active(sh, screen, pause, false);
         }
     }
 
-    fn set_active(sh: &mut Shell, screen: &mut MenuScreen, bindings: &mut Bindings, pause: &mut MatchPause, on: bool) {
+    fn set_active(sh: &mut Shell, screen: &mut MenuScreen, pause: &mut MatchPause, on: bool) {
         let Shell { ui, settings, audio, music, window, .. } = sh;
         let Some(u) = ui.as_mut() else { return };
         let mut sink =
@@ -590,7 +572,7 @@ impl PauseHost {
         let mut run = MenuRun {
             fonts: &mut u.menu_fonts,
             prefs: settings,
-            bindings,
+            bindings: &mut u.bindings,
             sink: &mut sink,
             pointer: &mut u.pointer,
             lab: None,
@@ -675,18 +657,18 @@ impl PauseHost {
         // build's UIManager gives the focus by widget.
         let all = menu_input(sh, active || tutorial_up);
         let (input, rest) = if active { (all.clone(), releases(all)) } else { (releases(all.clone()), all) };
-        let Self { pause, screen, bindings, .. } = self;
-        let exit = menu_frame(sh, screen, bindings, None, Some(&mut *pause), &input, now);
+        let Self { pause, screen, .. } = self;
+        let exit = menu_frame(sh, screen, None, Some(&mut *pause), &input, now);
         // The menu's own calls (Resume, Leave Match) came back as requests.
         if let Some(on) = self.pause.take_request() {
             self.match_set_pause(sh, on, -1, false);
         }
         if self.pause.leave {
             self.pause.leave = false;
-            let Self { pause, screen, bindings, .. } = self;
+            let Self { pause, screen, .. } = self;
             // Transition UIManager {New_MainMenu, type 0, delay 0, force false, instant false, "Lobby"} (@3772-3994):
             // the fade to black on this screen, and at its end the level is left.
-            with_widget(sh, screen, bindings, None, Some(&mut *pause), |cx| {
+            with_widget(sh, screen, None, Some(&mut *pause), |cx| {
                 mvs_ui::menu::Manager::transition(
                     cx,
                     mvs_ui::menu::manager::TransitionParams {
@@ -714,8 +696,8 @@ impl PauseHost {
     /// {New_MainMenu, type 0, delay 0, force false, instant false, "Lobby"}, drawn as this screen's fader alone; the
     /// level is left at its end (`PauseOut::leave`).
     pub fn to_main_menu(&mut self, sh: &mut Shell) {
-        let Self { pause, screen, bindings, .. } = self;
-        with_widget(sh, screen, bindings, None, Some(&mut *pause), |cx| {
+        let Self { pause, screen, .. } = self;
+        with_widget(sh, screen, None, Some(&mut *pause), |cx| {
             mvs_ui::menu::Manager::transition(
                 cx,
                 mvs_ui::menu::manager::TransitionParams {

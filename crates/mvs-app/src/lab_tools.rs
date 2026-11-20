@@ -117,18 +117,14 @@ impl std::fmt::Debug for LabTools {
 }
 
 /// `f` on a MenuRun of the shell's UI (no session: the panel's rows write through the tools) and its element list.
-fn with_run<R>(
-    sh: &mut Shell,
-    bindings: &mut Bindings,
-    f: impl FnOnce(&mut MenuRun<'_>, &mut ElementList) -> R,
-) -> Option<R> {
+fn with_run<R>(sh: &mut Shell, f: impl FnOnce(&mut MenuRun<'_>, &mut ElementList) -> R) -> Option<R> {
     let Shell { ui, settings, audio, music, window, .. } = sh;
     let u = ui.as_mut()?;
     let mut sink = MenuAudio { audio, tick: music.tick, window: Some(crate::apply::window_info(window)), equip: None };
     let mut run = MenuRun {
         fonts: &mut u.menu_fonts,
         prefs: settings,
-        bindings,
+        bindings: &mut u.bindings,
         sink: &mut sink,
         pointer: &mut u.pointer,
         lab: None,
@@ -247,20 +243,19 @@ pub struct ToolsOut {
 
 /// The parts of the Lab the tools read and write.
 pub struct ToolsCx<'a> {
-    pub bindings: &'a mut Bindings,
     pub session: &'a mut LabState,
     pub world: &'a mut World,
 }
 
 impl LabTools {
     /// The tools of a new Lab: the panel built on a screen of its own, closed (None without the UI).
-    pub fn new(sh: &mut Shell, bindings: &mut Bindings) -> Option<LabTools> {
+    pub fn new(sh: &mut Shell) -> Option<LabTools> {
         let size = sh.swap.size;
         let (bundle, text) = sh.ui.as_ref().map(|u| (u.menu.clone(), u.text.clone()))?;
         let page = sh.settings.lab.page as usize;
         let on = sh.settings.lab.tools_on;
         let view = MenuView::new(bundle.clone(), text, size);
-        let (screen, panel) = with_run(sh, bindings, |run, _| {
+        let (screen, panel) = with_run(sh, |run, _| {
             let mut screen = MenuScreen::new(view, run);
             let state = ToolsState { page, folded: true, ..ToolsState::default() };
             let panel = screen.with_cx(run, |cx| LabToolsPanel::add(cx, pages(&bundle), state));
@@ -285,7 +280,7 @@ impl LabTools {
             on_seen: on,
             shapes: ShapesState::default(),
         };
-        with_run(sh, bindings, |run, _| t.set_open_in(run, false));
+        with_run(sh, |run, _| t.set_open_in(run, false));
         Some(t)
     }
 
@@ -543,11 +538,11 @@ impl LabTools {
     pub fn frame(&mut self, sh: &mut Shell, t: &mut ToolsCx<'_>, input: &FrameIn, visible: bool, now: f64) -> ToolsOut {
         let mut out = ToolsOut::default();
         let on = sh.settings.lab.tools_on;
-        let ToolsCx { bindings, session, world } = t;
+        let ToolsCx { session, world } = t;
         if on != self.on_seen {
             self.on_seen = on;
             if !on {
-                with_run(sh, bindings, |run, _| self.release(run, world));
+                with_run(sh, |run, _| self.release(run, world));
             }
         }
         let down = input.pad.map_or(0, |p| p.buttons);
@@ -565,7 +560,7 @@ impl LabTools {
             self.pad_prev = down;
             if visible {
                 let panel = self.panel;
-                with_run(sh, bindings, |run, _| {
+                with_run(sh, |run, _| {
                     if self.open {
                         // (the screen's next frame is a first: what is down is held, not pressed)
                         self.screen.set_active(run, false);
@@ -583,7 +578,7 @@ impl LabTools {
         // (the clicks over the panel: a capture listener would stop them before the game's; here the window gave them
         // to the match's devices already, which give them back)
         let mut taken = Vec::new();
-        let fed = with_run(sh, bindings, |run, list| {
+        let fed = with_run(sh, |run, list| {
             let mut fwd = Vec::new();
             let mut at = run.pointer.at;
             let mut toggled = false;
@@ -660,7 +655,7 @@ impl LabTools {
         if cmds.is_empty() {
             return out;
         }
-        with_run(sh, bindings, |run, _| {
+        with_run(sh, |run, _| {
             let was = self.open;
             for c in cmds {
                 out.reset |= self.apply(run, c, session, world);

@@ -196,6 +196,8 @@ pub struct MatchLoop {
     out: PathBuf,
     /// The local player.
     me: usize,
+    /// The program's bindings' revision the devices and the HUD's input labels read (`follow_bindings`).
+    bindings_seen: u64,
     /// Each player's "Attached UI v3 Bottom" / "Top" RelativeLocation.Z.
     ui_z: Vec<(f64, f64)>,
     acc: f64,
@@ -659,8 +661,12 @@ impl MatchLoop {
             laps.lap("level");
         }
         // The Lab's menu: a restart's takes over the one before it, with its camera and music (the new map's begin anew).
-        // (LoadInputBindings: the Controls screen's saved bindings, else the defaults)
-        let bindings = Bindings::load(world.data.input_defaults(), sh.settings.input.bindings.as_ref());
+        // (the program's bindings, the one set every menu's Controls screen edits; a run with no UI has no menu:
+        // LoadInputBindings on the World's defaults)
+        let bindings = match &sh.ui {
+            Some(u) => u.bindings.clone(),
+            None => Bindings::load(world.data.input_defaults(), sh.settings.input.bindings.as_ref()),
+        };
         let mut online = match &mut kind {
             MatchKind::Online { net } => net.take(),
             _ => None,
@@ -693,7 +699,7 @@ impl MatchLoop {
         let (lab, taken) = if matches!(kind, MatchKind::Lab { .. }) && replay.is_none() && sh.ui.is_some() {
             let name = usernames.first().cloned().unwrap_or_else(|| "Player".to_owned());
             let same = world.flow.same_attack_penalty;
-            let (h, t) = LabHost::new(sh, &world.setup, &name, carry, lab_ahead, bindings.clone(), same)?;
+            let (h, t) = LabHost::new(sh, &world.setup, &name, carry, lab_ahead, same)?;
             // A restart's new World starts with the penalty on and no instant cooldowns: the kept config's flags
             // are put back (the config the switches show).
             crate::match_lab::config_to_world(&mut world, h.config());
@@ -821,6 +827,7 @@ impl MatchLoop {
         let seated_pairs = humans.as_ref().map(|h| h.iter().map(|&(slot, _, set)| (slot, set)).collect::<Vec<_>>());
         let seated = humans.unwrap_or_else(|| vec![(me, DeviceKind::KbmPad0, 0)]);
         sh.devices.seat(bindings.clone(), if replay.is_some() { &[] } else { &seated });
+        let bindings_seen = bindings.revision();
         if let Some(d) = sh.devices.device(me) {
             d.reset();
         }
@@ -833,12 +840,12 @@ impl MatchLoop {
         }
         // (a tutorial's widgets, made before the pause menu's and under it)
         let tutorial = if matches!(kind, MatchKind::Tutorial) && replay.is_none() && sh.ui.is_some() {
-            Some(TutorialHost::new(sh, bindings.clone())?)
+            Some(TutorialHost::new(sh)?)
         } else {
             None
         };
         let mut pause = if has_pause_menu(&kind) && replay.is_none() && sh.ui.is_some() {
-            Some(PauseHost::new(sh, &world.setup, me, seated_pairs.as_deref(), bindings.clone())?)
+            Some(PauseHost::new(sh, &world.setup, me, seated_pairs.as_deref())?)
         } else {
             None
         };
@@ -888,6 +895,7 @@ impl MatchLoop {
             shots,
             out: o.out.clone(),
             me,
+            bindings_seen,
             ui_z,
             acc: 0.0,
             hud_time: 0.0,
@@ -1338,6 +1346,25 @@ impl MatchLoop {
         }
     }
 
+    /// A rebind made on a Controls screen of the match's menus (the pause menu's, the Lab menu's) reaches the match:
+    /// the devices and the HUD's input labels read the program's bindings as they are now (UInputSettings'
+    /// AddActionMapping and RemoveActionMapping rebuild every player's key maps, by the 4.26 source). A label drawn
+    /// before keeps its keys until its input type changes (UI_InputLabel Refresh).
+    fn follow_bindings(&mut self, sh: &mut Shell) {
+        let Shell { ui, devices, .. } = sh;
+        let Some(s) = ui else { return };
+        if s.bindings.revision() == self.bindings_seen {
+            return;
+        }
+        self.bindings_seen = s.bindings.revision();
+        devices.rebind(&s.bindings);
+        if let Some(u) = &mut self.ui {
+            let (me, lp) = (self.me, self.world.setup.local_play);
+            let players = (0..self.world.players.len()).map(|p| label_input(devices, &s.bindings, p, me, lp)).collect();
+            u.hud.set_label_input(&s.menu, players);
+        }
+    }
+
     /// Each player index's LastInteractionType given to the HUD's input labels (they read the device's at each
     /// refresh).
     fn label_types(&mut self, devices: &Devices) {
@@ -1390,6 +1417,7 @@ impl MatchLoop {
         // (a scripted run's keys, buttons and pad reach the match's devices as the window's would: before the chat's
         // box, which takes the keyboard while it is open, and taken every frame, so none is left for the next match)
         Self::script_devices(sh);
+        self.follow_bindings(sh);
         // (the port's own) the match chat's box first: while it is open its keys are its own, none reaches the match,
         // the pause menu or Escape's end
         self.chat_frame(sh);

@@ -650,6 +650,16 @@ impl Devices {
         *self = Devices { pads, pointer, stick_at, touches, pads_down, scripted, ..Devices::new(bindings, humans) };
     }
 
+    /// The bindings as they are now, on every seated device (a rebind made while the match runs). A held key may be
+    /// another action's from here on: what the devices hold is let go, as at an unpause.
+    pub fn rebind(&mut self, bindings: &Bindings) {
+        let bindings = Arc::new(bindings.clone());
+        for d in self.slots.iter_mut().flatten() {
+            d.bindings = bindings.clone();
+            d.resume();
+        }
+    }
+
     /// What the player touched since the last call, in order.
     pub fn take_touches(&mut self) -> Vec<Touch> {
         std::mem::take(&mut self.touches)
@@ -936,6 +946,25 @@ mod tests {
         d.set_pads([Some(PadState { lx: 0.8, ..PadState::default() }), None, None, None]);
         d.mouse_moved(30.0);
         assert_eq!(d.get(0).unwrap().last_interaction, 1);
+    }
+
+    #[test]
+    fn a_rebind_reaches_the_seated_device_and_lets_its_held_keys_go() {
+        let mut d = devices();
+        let held = |d: &Devices| d.get(0).unwrap().held.has(Action::Attack);
+        d.key("J", true);
+        assert!(held(&d));
+        // Attack from J to K, as the Controls screen edits the bindings
+        let mut b = (*d.get(0).unwrap().bindings).clone();
+        b.remove_action_mapping("Attack-P0", "J");
+        b.add_action_mapping("Attack-P0", "K");
+        d.rebind(&b);
+        assert!(!held(&d), "the old key's hold is let go");
+        d.key("J", false);
+        d.key("J", true);
+        assert!(!held(&d), "the old key is Attack's no more");
+        d.key("K", true);
+        assert!(held(&d));
     }
 
     /// The window's record as the menus' pointer takes it (app.rs, a frame no screen took input in).

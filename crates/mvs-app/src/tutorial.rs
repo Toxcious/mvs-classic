@@ -13,7 +13,6 @@ use mvs_sim::events::{Event, TutorialUiCall};
 use mvs_sim::modes::tutorial::{TutorialScore, classes, run};
 use mvs_sim::setup::{MatchMode, MatchPlayer, MatchSetup};
 use mvs_sim::world::pawns;
-use mvs_ui::bindings::Bindings;
 use mvs_ui::element::ElementList;
 use mvs_ui::hud::Hud;
 use mvs_ui::menu::controller::MenuRun;
@@ -310,7 +309,6 @@ pub struct MatchParts<'a> {
 pub struct TutorialHost {
     pub screens: TutorialScreens,
     pub screen: MenuScreen,
-    bindings: Bindings,
     st: State,
     /// The menu input of the frame (the pause menu's frame leaves it when its own screen is not up).
     pub input: Vec<MenuInput>,
@@ -326,9 +324,8 @@ impl std::fmt::Debug for TutorialHost {
 
 impl TutorialHost {
     /// The widgets' screen, empty and not active (the screens show and hide it).
-    pub fn new(sh: &mut Shell, bindings: Bindings) -> Result<TutorialHost> {
+    pub fn new(sh: &mut Shell) -> Result<TutorialHost> {
         let size = sh.swap.size;
-        let mut bindings = bindings;
         let Shell { ui, settings, audio, music, window, .. } = sh;
         let u = ui.as_mut().ok_or_else(|| Error::Match("a tutorial's widgets run with the UI".into()))?;
         let mut view = MenuView::new(u.menu.clone(), u.text.clone(), size);
@@ -338,7 +335,7 @@ impl TutorialHost {
         let mut run = MenuRun {
             fonts: &mut u.menu_fonts,
             prefs: settings,
-            bindings: &mut bindings,
+            bindings: &mut u.bindings,
             sink: &mut sink,
             pointer: &mut u.pointer,
             lab: None,
@@ -350,7 +347,6 @@ impl TutorialHost {
         Ok(TutorialHost {
             screens: TutorialScreens::new(),
             screen,
-            bindings,
             st: State::new(),
             input: Vec::new(),
             list: ElementList::default(),
@@ -425,7 +421,7 @@ impl TutorialHost {
     fn set_up(&mut self, sh: &mut Shell, m: &mut MatchParts<'_>) {
         let up = self.screens.up(&self.screen.view);
         if up != self.screen.active() {
-            let Self { screen, bindings, st, .. } = self;
+            let Self { screen, st, .. } = self;
             let Shell { ui, settings, audio, music, window, .. } = sh;
             let Some(u) = ui.as_mut() else { return };
             if up {
@@ -441,7 +437,7 @@ impl TutorialHost {
             let mut run = MenuRun {
                 fonts: &mut u.menu_fonts,
                 prefs: settings,
-                bindings,
+                bindings: &mut u.bindings,
                 sink: &mut sink,
                 pointer: &mut u.pointer,
                 lab: None,
@@ -459,7 +455,7 @@ impl TutorialHost {
         m: &mut MatchParts<'_>,
         f: impl FnOnce(&mut TutorialScreens, &mut mvs_ui::menu::Cx<'_>) -> R,
     ) -> Option<R> {
-        let Self { screens, screen, bindings, st, .. } = self;
+        let Self { screens, screen, st, .. } = self;
         let Shell { ui, settings, audio, music, window, .. } = sh;
         let u = ui.as_mut()?;
         let mut sink =
@@ -469,7 +465,7 @@ impl TutorialHost {
         let mut run = MenuRun {
             fonts: &mut u.menu_fonts,
             prefs: settings,
-            bindings,
+            bindings: &mut u.bindings,
             sink: &mut sink,
             pointer: &mut u.pointer,
             lab: None,
@@ -485,7 +481,7 @@ impl TutorialHost {
     pub fn frame(&mut self, sh: &mut Shell, m: &mut MatchParts<'_>, now: f64) -> FrameOut {
         let input = std::mem::take(&mut self.input);
         let exit = {
-            let Self { screen, bindings, st, list, .. } = self;
+            let Self { screen, st, list, .. } = self;
             let Shell { ui, settings, audio, music, window, .. } = sh;
             match ui.as_mut() {
                 Some(u) => {
@@ -505,7 +501,7 @@ impl TutorialHost {
                     let mut run = MenuRun {
                         fonts: &mut u.menu_fonts,
                         prefs: settings,
-                        bindings,
+                        bindings: &mut u.bindings,
                         sink: &mut sink,
                         pointer: &mut u.pointer,
                         lab: None,

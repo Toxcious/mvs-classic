@@ -11,7 +11,6 @@
 
 use indexmap::IndexMap;
 use mvs_sim::{MatchSetup, World};
-use mvs_ui::bindings::Bindings;
 use mvs_ui::bundle::FighterInfo;
 use mvs_ui::menu::input::MenuPad;
 use mvs_ui::menu::manager::TransitionParams;
@@ -38,27 +37,22 @@ use crate::pause::{MatchPause, make_screen, menu_frame, with_widget};
 use crate::script::Fed;
 
 /// A new Lab's menu built ahead of its match, on the loading screen's frames while the loader makes the World (the
-/// UI's types are not Send): the pause menu's screen, the Lab Tools and the key bindings they were made with. The
+/// UI's types are not Send): the pause menu's screen and the Lab Tools. The
 /// match takes it when its first config is the one it was built for, else builds the menu anew.
 #[derive(Debug)]
 // Deviation: UI_Game creates the Lab menu when the level starts; the port builds it ahead on the loading screen.
 pub struct LabAhead {
     menu: LabMenu,
     config: LabConfig,
-    bindings: Bindings,
 }
 
 impl LabAhead {
     /// The menu a new Lab of `setup` owned by `name` starts with (`LabHost::new`'s, built now). `same_attack` is the
     /// World's SameAttackPenalty the match will start with.
     pub fn build(sh: &mut Shell, setup: &MatchSetup, name: &str, same_attack: bool) -> Result<LabAhead> {
-        let store = sh.store().ok_or_else(|| crate::Error::Match("no store is open".into()))?;
-        // (LoadInputBindings as the match's: the World's InputDefaults are this entry of the same store)
-        let defaults: mvs_data::InputDefaults = mvs_data::entry(&*store.kind(mvs_data::KIND)?, mvs_data::path::INPUT)?;
-        let mut bindings = Bindings::load(&defaults, sh.settings.input.bindings.as_ref());
         let fighters = fighters_of(sh);
-        let (menu, config) = new_menu(sh, &fighters, setup, name, same_attack, &mut bindings)?;
-        Ok(LabAhead { menu, config, bindings })
+        let (menu, config) = new_menu(sh, &fighters, setup, name, same_attack)?;
+        Ok(LabAhead { menu, config })
     }
 }
 
@@ -70,15 +64,14 @@ fn new_menu(
     setup: &MatchSetup,
     name: &str,
     same_attack: bool,
-    bindings: &mut Bindings,
 ) -> Result<(LabMenu, LabConfig)> {
     // (a Lab entered from the menus: the Lab Tools' switch and page start at the defaults)
     sh.settings.lab = mvs_settings::LabSettings::default();
     let config = first_config(fighters, &sh.settings, setup, name, same_attack);
     let mut session = LabState::new(config.clone(), None);
-    let (screen, widget) = make_screen(sh, "UI_LAB_PauseMenu", bindings, Some(&mut session), None)?;
+    let (screen, widget) = make_screen(sh, "UI_LAB_PauseMenu", Some(&mut session), None)?;
     // (the Lab Tools' panel over the match: closed at a new Lab's start)
-    let tools = LabTools::new(sh, bindings);
+    let tools = LabTools::new(sh);
     Ok((LabMenu { session, screen, pause_menu: widget, tools, queue_timer: None, clock: 0.0 }, config))
 }
 
@@ -116,7 +109,6 @@ pub struct LabHost {
     pub control: LabControl,
     /// The controller's hold timer (the gamepad's Start).
     pub pause: MatchPause,
-    pub bindings: Bindings,
     fighters: IndexMap<String, FighterInfo>,
     pool: BotPool,
     rng: Box<dyn FnMut() -> f64>,
@@ -164,13 +156,11 @@ impl LabHost {
         name: &str,
         carry: Option<LabCarry>,
         ahead: Option<Box<LabAhead>>,
-        bindings: Bindings,
         same_attack: bool,
     ) -> Result<(LabHost, Taken)> {
         let fighters = fighters_of(sh);
         let pool = BotPool::default();
         let mut rng: Box<dyn FnMut() -> f64> = Box::new(random_source());
-        let mut bindings = bindings;
         let slot_of = carry.as_ref().map_or_else(|| (0..setup.players.len()).collect(), |c| lab_slots(&c.config));
         let restarted_menu = carry.is_some();
         let (menu, config, rolled, taken, map_load) = match carry {
@@ -190,11 +180,8 @@ impl LabHost {
             None => {
                 let first = first_config(&fighters, &sh.settings, setup, name, same_attack);
                 let (menu, config) = match ahead.filter(|a| a.config == first) {
-                    Some(a) => {
-                        bindings = a.bindings;
-                        (a.menu, a.config)
-                    }
-                    None => new_menu(sh, &fighters, setup, name, same_attack, &mut bindings)?,
+                    Some(a) => (a.menu, a.config),
+                    None => new_menu(sh, &fighters, setup, name, same_attack)?,
                 };
                 (menu, config, LabRoll::default(), Taken::default(), false)
             }
@@ -217,7 +204,6 @@ impl LabHost {
             menu,
             control: LabControl::new(roster, rolled),
             pause,
-            bindings,
             fighters,
             pool,
             rng,
@@ -259,8 +245,8 @@ impl LabHost {
     }
 
     fn set_active(&mut self, sh: &mut Shell, on: bool) {
-        let Self { menu, bindings, .. } = self;
-        crate::pause::set_screen_active(sh, &mut menu.screen, bindings, Some(&mut menu.session), on);
+        let Self { menu, .. } = self;
+        crate::pause::set_screen_active(sh, &mut menu.screen, Some(&mut menu.session), on);
     }
 
     /// UI_Game.MatchSetPause(on) as the Lab runs it: the control's step, and the menu shown or hidden.
@@ -297,8 +283,8 @@ impl LabHost {
         self.map_load_active = true;
         self.cover_out = None;
         self.cover_in = self.menu.clock + COVER_FADE;
-        let Self { menu, bindings, .. } = self;
-        with_widget(sh, &mut menu.screen, bindings, Some(&mut menu.session), None, |cx| {
+        let Self { menu, .. } = self;
+        with_widget(sh, &mut menu.screen, Some(&mut menu.session), None, |cx| {
             if cx.view.manager.is_waiting {
                 return;
             }
@@ -319,8 +305,8 @@ impl LabHost {
         self.map_load_active = false;
         self.reveal_left = 0;
         self.cover_out = Some(self.menu.clock + COVER_FADE);
-        let Self { menu, bindings, .. } = self;
-        with_widget(sh, &mut menu.screen, bindings, Some(&mut menu.session), None, |cx| {
+        let Self { menu, .. } = self;
+        with_widget(sh, &mut menu.screen, Some(&mut menu.session), None, |cx| {
             Manager::set_waiting_faded(cx, false, "", false, 0.0, COVER_FADE);
         });
     }
@@ -328,8 +314,8 @@ impl LabHost {
     /// The menu shown (its panels asked for the config, the pause sound mix on) or hidden.
     fn show(&mut self, sh: &mut Shell, on: bool) {
         let w = self.menu.pause_menu;
-        let Self { menu, bindings, .. } = self;
-        with_widget(sh, &mut menu.screen, bindings, Some(&mut menu.session), None, |cx| {
+        let Self { menu, .. } = self;
+        with_widget(sh, &mut menu.screen, Some(&mut menu.session), None, |cx| {
             cx.view.tree_mut().widget_mut(w).vis = if on { Vis::Visible } else { Vis::Collapsed };
             if on {
                 // (the manager is ticked in an active screen's frames only: brought to now before the menu's timers)
@@ -452,16 +438,16 @@ impl LabHost {
             crate::pause::releases(input.menu.clone())
         };
         let exit = {
-            let Self { menu, bindings, .. } = self;
-            menu_frame(sh, &mut menu.screen, bindings, Some(&mut menu.session), None, &lab_input, now)
+            let Self { menu, .. } = self;
+            menu_frame(sh, &mut menu.screen, Some(&mut menu.session), None, &lab_input, now)
         };
         self.menu.session.end_response();
         // The Lab Tools' panel, over the match while the Lab menu is not up.
         let visible = sh.settings.lab.tools_on && !self.control.paused && !self.active();
-        let Self { menu, bindings, .. } = self;
+        let Self { menu, .. } = self;
         let LabMenu { session, tools, .. } = menu;
         if let Some(t) = tools {
-            let mut cx = ToolsCx { bindings, session, world: &mut *world };
+            let mut cx = ToolsCx { session, world: &mut *world };
             if t.frame(sh, &mut cx, &input, visible, now).reset {
                 // (labReset: Spawn All Players on the fighters' starting damage as it is)
                 let starting_damage =
@@ -495,8 +481,8 @@ impl LabHost {
     }
 
     fn toggle_move_list(&mut self, sh: &mut Shell) {
-        let Self { menu, bindings, .. } = self;
-        with_widget(sh, &mut menu.screen, bindings, Some(&mut menu.session), None, |cx| {
+        let Self { menu, .. } = self;
+        with_widget(sh, &mut menu.screen, Some(&mut menu.session), None, |cx| {
             // (the pause menu stays collapsed under the list)
             toggle_movelist(cx);
         });
@@ -627,8 +613,8 @@ impl LabHost {
         }
         self.unpause_game(sh, out);
         let w = self.menu.pause_menu;
-        let Self { menu, bindings, .. } = self;
-        with_widget(sh, &mut menu.screen, bindings, Some(&mut menu.session), None, |cx| {
+        let Self { menu, .. } = self;
+        with_widget(sh, &mut menu.screen, Some(&mut menu.session), None, |cx| {
             // (the Lab's menu view is not ticked while the match runs: its InternalTime brought to now before the
             // notification's Add Timer reads it)
             let now = cx.view.now();
@@ -647,8 +633,8 @@ impl LabHost {
     /// collapsed (the build's is: the unpause hid it); the fighters keep the game's keys.
     fn notification_screen(&mut self, sh: &mut Shell) {
         let w = self.menu.pause_menu;
-        let Self { menu, bindings, .. } = self;
-        with_widget(sh, &mut menu.screen, bindings, Some(&mut menu.session), None, |cx| {
+        let Self { menu, .. } = self;
+        with_widget(sh, &mut menu.screen, Some(&mut menu.session), None, |cx| {
             cx.view.tree_mut().widget_mut(w).vis = Vis::Collapsed;
         });
         self.set_active(sh, true);
@@ -713,9 +699,9 @@ impl LabHost {
             }
             *phase
         };
-        let Self { menu, bindings, .. } = self;
+        let Self { menu, .. } = self;
         if phase != LabLeave::Fade {
-            with_widget(sh, &mut menu.screen, bindings, Some(&mut menu.session), None, |cx| {
+            with_widget(sh, &mut menu.screen, Some(&mut menu.session), None, |cx| {
                 Manager::transition(
                     cx,
                     TransitionParams {
@@ -733,7 +719,7 @@ impl LabHost {
             }
             return None;
         }
-        with_widget(sh, &mut menu.screen, bindings, Some(&mut menu.session), None, |cx| {
+        with_widget(sh, &mut menu.screen, Some(&mut menu.session), None, |cx| {
             Manager::unfocus_all(cx, 0);
             Manager::dismiss_all_modals(cx);
         });
@@ -744,13 +730,13 @@ impl LabHost {
     fn with_run<R>(&mut self, sh: &mut Shell, f: impl FnOnce(&mut MenuScreen, &mut MenuRun<'_>) -> R) -> Option<R> {
         let Shell { ui, settings, audio, music, window, .. } = sh;
         let u = ui.as_mut()?;
-        let Self { menu, bindings, .. } = self;
+        let Self { menu, .. } = self;
         let mut sink =
             MenuAudio { audio, tick: music.tick, window: Some(crate::apply::window_info(window)), equip: None };
         let mut run = MenuRun {
             fonts: &mut u.menu_fonts,
             prefs: settings,
-            bindings,
+            bindings: &mut u.bindings,
             sink: &mut sink,
             pointer: &mut u.pointer,
             lab: Some(&mut menu.session as &mut dyn LabSession),
