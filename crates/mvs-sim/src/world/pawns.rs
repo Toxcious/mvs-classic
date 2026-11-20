@@ -161,9 +161,19 @@ fn born_pawn(
     if at == FirstTicks::OwnerTick && w.scratch.step_at >= 2 {
         panic!("{fn_name}: an 'ownerTick' spawn after the fighters' duringPhysicsTick");
     }
-    let seq = w.pawn_seq.unwrap_or(0);
+    let in_use = |w: &World, id: i32| w.pawns.as_ref().is_some_and(|ps| ps.iter().any(|&p| w.fighter(p).id == id));
+    let mut seq = w.pawn_seq.unwrap_or(0);
+    // (the port's own Waves mode spawns without end while its player keeps the first id all run: its spawns pass
+    // over the ids still in use, `modes::waves`)
+    if crate::modes::waves::on(w) {
+        let mut tries = 0;
+        while in_use(w, MINION_ID_BASE + seq % MINION_IDS) && tries < MINION_IDS {
+            seq += 1;
+            tries += 1;
+        }
+    }
     let id = MINION_ID_BASE + seq % MINION_IDS;
-    if w.pawns.as_ref().is_some_and(|ps| ps.iter().any(|&p| w.fighter(p).id == id)) {
+    if in_use(w, id) {
         panic!("{fn_name}: the id {id} is still in use");
     }
     w.pawn_seq = Some(seq + 1);

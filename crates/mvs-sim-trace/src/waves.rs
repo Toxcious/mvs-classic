@@ -45,6 +45,7 @@ plain_struct!(WavesRun {
     "nextSpawn" = next_spawn,
     "out" = out,
     "player" = player,
+    "playerOut" = player_out,
     "points" = points,
     "ringOuts" = ring_outs,
     "spawned" = spawned,

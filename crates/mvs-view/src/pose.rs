@@ -794,7 +794,10 @@ impl ViewPoser {
             }
             item_keys.push(k);
         }
-        let pick = usize::try_from(fi.id).ok().and_then(|i| w.setup.players.get(i)).and_then(|p| p.skin.as_deref());
+        // (a Waves World's pawns have ids past the players': the player's skin is its bound slot's set-up player's;
+        // the enemies' slot has none, so they take the default skin)
+        let player = if mvs_sim::modes::waves::on(w) { mvs_sim::world::pawns::slot_of(w, f) } else { fi.id };
+        let pick = usize::try_from(player).ok().and_then(|i| w.setup.players.get(i)).and_then(|p| p.skin.as_deref());
         let skin = match minion {
             Some(m) => (m.skin)(&cd.fighter)?,
             None => skins::skin_of(&cd.fighter, pick)?,

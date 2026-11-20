@@ -10,11 +10,15 @@ use mvs_sim_trace::waves as run;
 const CAST: [&str; 5] = ["shaggy", "batman", "superman", "wonderwoman", "taz"];
 
 fn world(variant: WavesVariant, level: i32, seed: i32) -> Option<World> {
+    world_of(variant, "superman", level, seed)
+}
+
+fn world_of(variant: WavesVariant, character: &str, level: i32, seed: i32) -> Option<World> {
     let Ok(store) = mvs_store::Store::open(mvs_store::dev_store_dir()) else {
         eprintln!("note: no store at {}; nothing checked", mvs_store::dev_store_dir().display());
         return None;
     };
-    let setup = run::bot_setup(variant, "superman", level, CAST.map(String::from).into());
+    let setup = run::bot_setup(variant, character, level, CAST.map(String::from).into());
     let data = run::data_for(&store, &setup, "trainingroomsmall").expect("the data");
     Some(run::world(&data, &setup, seed).expect("the World"))
 }
@@ -115,4 +119,72 @@ fn a_run_is_the_same_from_one_seed() {
         }
     }
     assert!(a.waves.as_ref().unwrap().spawned > 3);
+}
+
+#[test]
+fn a_spawn_passes_over_the_ids_in_use() {
+    let Some(mut w) = world(WavesVariant::Endless, 3, 8) else { return };
+    while w.waves.as_ref().unwrap().enemies.is_empty() {
+        run::step(&mut w);
+    }
+    let player = w.waves.as_ref().unwrap().player.unwrap();
+    let held = w.fighter(player).id;
+    // (the counter's next id is the player's, as after MINION_IDS spawns of an Endless run)
+    let base = mvs_sim::world::pawns::MINION_ID_BASE;
+    w.pawn_seq = Some(mvs_sim::world::pawns::MINION_IDS + held - base);
+    let before = w.waves.as_ref().unwrap().spawned;
+    while w.waves.as_ref().unwrap().spawned == before {
+        run::step(&mut w);
+        assert!(w.waves.as_ref().unwrap().end.is_none(), "the run ended before a spawn");
+    }
+    let f = *w.waves.as_ref().unwrap().enemies.last().unwrap();
+    let ids: Vec<i32> = w.pawns.as_ref().unwrap().iter().map(|&p| w.fighter(p).id).collect();
+    assert_ne!(w.fighter(f).id, held);
+    assert_eq!(ids.iter().filter(|&&i| i == w.fighter(f).id).count(), 1, "the new id is the only one: {ids:?}");
+}
+
+#[test]
+fn a_minions_ring_out_is_the_minions_and_counts_for_nothing() {
+    let Some(mut w) = world_of(WavesVariant::Endless, "steven", 3, 9) else { return };
+    run::step(&mut w);
+    let player = w.waves.as_ref().unwrap().player.unwrap();
+    let (x, y) = (w.fighter(player).body.x, w.fighter(player).body.y);
+    let o = mvs_sim::world::pawns::MinionSpawn {
+        character: w.lit("steven"),
+        owner: player,
+        x,
+        y,
+        facing: 1.0,
+        tree: None,
+        at: mvs_sim::world::pawns::FirstTicks::Leftover,
+    };
+    let m = mvs_sim::world::pawns::spawn_minion(&mut w, o);
+    run::step(&mut w);
+    let ring_outs = w.waves.as_ref().unwrap().ring_outs;
+    w.fighter_mut(m).body.x = 1.0e6;
+    w.fighter_mut(m).life.blast_listed = true;
+    mvs_sim::world::blast::check_blast(&mut w, m);
+    assert_eq!(w.fighter(m).life.dead, mvs_sim::Real::INFINITY, "the minion's defeat (minion_ring_out)");
+    assert!(!w.fighter(m).vis.invisible, "not the mode's ring-out");
+    let r = w.waves.as_ref().unwrap();
+    assert_eq!((r.ring_outs, r.end, r.player_out), (ring_outs, None, false));
+}
+
+#[test]
+fn a_hidden_fighters_ring_out_counts_once() {
+    let Some(mut w) = world(WavesVariant::Endless, 3, 10) else { return };
+    while w.waves.as_ref().unwrap().enemies.is_empty() {
+        run::step(&mut w);
+    }
+    let e = w.waves.as_ref().unwrap().enemies[0];
+    // (hidden by a move: an eat, a polymorph, a teleport)
+    w.fighter_mut(e).vis.invisible = true;
+    waves::round_end(&mut w, e);
+    waves::round_end(&mut w, e);
+    assert_eq!(w.waves.as_ref().unwrap().ring_outs, 1);
+    assert!(!w.waves.as_ref().unwrap().enemies.contains(&e), "its place under the cap is free");
+    let player = w.waves.as_ref().unwrap().player.unwrap();
+    w.fighter_mut(player).vis.invisible = true;
+    waves::round_end(&mut w, player);
+    assert_eq!(waves::status(&w).unwrap().end, Some(WavesEnd::PlayerOut));
 }

@@ -5,7 +5,7 @@
 use indexmap::IndexMap;
 use mvs_data::Value;
 use mvs_data::fighter::{Component, FighterData, Map, SubMesh};
-use mvs_sim::setup::{MatchSetup, TeamStyle, player_team};
+use mvs_sim::setup::{MatchMode, MatchPlayer, MatchSetup, TeamStyle, player_team};
 
 use crate::{Error, Result};
 
@@ -228,6 +228,14 @@ pub fn hud_palette(store: &mvs_store::Store) -> Result<Option<PaletteRows>> {
 /// `fighterColours` (the rules are in its body): `me` the local player,
 /// `playing_online` a relay match, `team_skins` the world-useTeamColoredSkins preference.
 pub fn fighter_colours(setup: &MatchSetup, me: usize, playing_online: bool, team_skins: bool) -> Vec<FighterColour> {
+    // The port's own Waves mode: its set-up holds the player alone, and its enemies' slot (`ENEMY_SLOT`, 1) takes
+    // the colours a 1v1's second player gets (a bot on team 1: the enemy outline, the red variant).
+    if matches!(setup.mode, Some(MatchMode::Waves { .. })) && setup.players.len() == 1 {
+        const _: () = assert!(mvs_sim::modes::waves::ENEMY_SLOT == 1);
+        let mut s = setup.clone();
+        s.players.push(MatchPlayer { bot: true, team: Some(1), ..MatchPlayer::default() });
+        return fighter_colours(&s, me, playing_online, team_skins);
+    }
     // a set-up without rules is the Lab: TrainGameMode, game mode type 3, GetColorIndex's online branch
     let lab = setup.rules.is_none();
     let online = lab || playing_online;
@@ -650,5 +658,16 @@ mod tests {
         // (Ally bound to Blue1, Team3 to Green1; the others name no row and keep their defaults)
         let rows = central_palette(&defaults, &game, ["Blue1", "None", "None", "Green1", ""]);
         assert_eq!(rows, [[0.0; 4], [0.0, 0.0, 1.0, 1.0], [2.0; 4], [0.0, 1.0, 0.5, 1.0], [4.0; 4]]);
+    }
+
+    #[test]
+    fn a_waves_runs_enemies_take_an_opponents_colours() {
+        let player = MatchPlayer { character: Some("superman".to_owned()), ..MatchPlayer::default() };
+        let setup = mvs_sim::modes::waves::setup(mvs_sim::setup::WavesVariant::Endless, player, Vec::new());
+        let c = fighter_colours(&setup, 0, false, true);
+        assert_eq!(c.len(), 2);
+        assert_eq!(c[0].stencil, 4, "the player's own outline");
+        let enemy = c[usize::try_from(mvs_sim::modes::waves::ENEMY_SLOT).unwrap()];
+        assert_eq!((enemy.stencil, enemy.variant), (3, Variant::Red), "the enemy outline, the red variant");
     }
 }

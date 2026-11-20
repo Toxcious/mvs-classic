@@ -379,6 +379,11 @@ fn ring_out(w: &mut World, f: FighterId) {
     // A mode World (`setup.mode`): its game mode's RoundEnd (TutorialGameMode RoundEnd @3502 overrides
     // PandaGameMode's for every loser) in place of the score and defeat path, then @704 as below.
     if let Some(mode) = w.mode {
+        // (the port's own Waves mode runs a minion's ring-out as a match does; its mode hook takes the fighters')
+        if w.waves.is_some() && w.fighter(f).life.is_minion {
+            minion_ring_out(w, f);
+            return;
+        }
         (mode.round_end)(w, f);
         perks::check_for_blast_box_bounce(w, f);
         return;
@@ -399,19 +404,7 @@ fn ring_out(w: &mut World, f: FighterId) {
     // Delay(0) bind, which the port has not).
     // Deviation: a respawned fighter's perk buffs bind again at its reset, behind every pawn's and every first-life
     // buff's; they are taken here in fighter order all the same (no binder reads what another one writes).
-    let all = pawns::all_list(w);
-    for &o in &all {
-        if let Some(h) = w.fighter(o).hooks.char.player_knocked_out {
-            h(w, o, f);
-        }
-        buffs::buff_signal(
-            w,
-            o,
-            BuffSignal::PlayerKnockedOut,
-            BuffSignalArg { victim: Some(f), ..BuffSignalArg::default() },
-        );
-    }
-    pawns::put_fighters(w, all);
+    player_knocked_out(w, f);
     if w.stage_run.is_some() {
         stage::stage_ring_out(w, f); // StageHooks.ringOut
     }
@@ -523,6 +516,24 @@ fn arena_warning(w: &mut World, f: FighterId, was: i32, now: i32) {
 /// respawn. The defeat tail with NotPlayerCharacter (BaseFighter @19063) skips ShowOrHideUI and still sets the
 /// RemoveCameraFocus timer. The actor is not destroyed here: the creator's handler does it (CharHooks
 /// minionDefeated -> `destroy_minion`).
+/// OnPlayerRingoutImpl's PlayerKnockedOut broadcast (@248): each pawn's bound handler, then the buffs that bound it,
+/// in fighter order, with `f` the loser (`ring_out`; the port's own Waves mode's ring-out, `modes::waves`).
+pub fn player_knocked_out(w: &mut World, f: FighterId) {
+    let all = pawns::all_list(w);
+    for &o in &all {
+        if let Some(h) = w.fighter(o).hooks.char.player_knocked_out {
+            h(w, o, f);
+        }
+        buffs::buff_signal(
+            w,
+            o,
+            BuffSignal::PlayerKnockedOut,
+            BuffSignalArg { victim: Some(f), ..BuffSignalArg::default() },
+        );
+    }
+    pawns::put_fighters(w, all);
+}
+
 fn minion_ring_out(w: &mut World, f: FighterId) {
     let fr = w.fighter(f);
     let (fighter, p) = (fr.id, [-fr.body.x, fr.body.y]);

@@ -109,6 +109,8 @@ pub struct WavesRun {
     pub spawned: i32,
     /// Enemies rung out so far (before the run's end).
     pub ring_outs: i32,
+    /// The player has been rung out (counted once).
+    pub player_out: bool,
     /// The enemies in the match and not rung out, in spawn order.
     pub enemies: Vec<FighterId>,
     /// The enemies rung out since the last latent pass, which despawns them.
@@ -217,17 +219,23 @@ pub fn start(w: &mut World) {
 /// The World's `ModeHooks::round_end`, for every loser that leaves the blast box: a counted enemy goes from the match
 /// in the next latent pass and never comes back; the player's ring-out ends the run. The loser is hidden (as the
 /// tutorial's game mode hides a loser) behind the blast's death effects.
+/// A fighter rung out twice (its inner and outer blast box both left) is counted once.
 pub fn round_end(w: &mut World, f: FighterId) {
-    if w.fighter(f).vis.invisible {
+    let r = run(w);
+    let counted = if r.player == Some(f) { r.player_out } else { !r.enemies.contains(&f) };
+    if counted {
         return;
     }
     crate::world::blast::blast_box_death_fx(w, f);
+    // (as a match's OnPlayerRingoutImpl: the characters' and the perks' handlers, with the loser still in)
+    crate::world::blast::player_knocked_out(w, f);
     w.fighter_mut(f).vis.invisible = true;
     let tick = w.flow.tick;
     let target = (variant(w) == WavesVariant::RingOuts100).then_some(TARGET);
     let giant = carries_giant(w, f);
     let r = run_mut(w);
     if r.player == Some(f) {
+        r.player_out = true;
         if r.end.is_none() {
             r.end = Some(WavesEnd::PlayerOut);
             r.end_tick = tick;
@@ -254,9 +262,13 @@ pub fn round_end(w: &mut World, f: FighterId) {
 /// The player's reward for a ring-out: `by` damage off, none below 0 (the port's own: with one life and no heal, the
 /// damage of a whole run would add up on the player, the module's doc).
 fn heal(w: &mut World, p: FighterId, by: Real) {
-    let s = &mut w.fighter_mut(p).stats;
-    let d = s.damage - by;
-    s.damage = if d < 0.0 { 0.0 } else { d };
+    // (a heal's path: the buffs and signals bound to the damage see it)
+    crate::combat::buffs::apply_healing(w, p, by);
+}
+
+/// Whether the World runs a Waves run (the shared code's gate on the mode's own rules).
+pub fn on(w: &World) -> bool {
+    w.waves.is_some()
 }
 
 /// Whether fighter `f` carries the Giant mutator's buff (a Giant enemy).
@@ -274,6 +286,13 @@ pub fn latent(w: &mut World) {
     }
     let tick = w.flow.tick;
     for f in std::mem::take(&mut run_mut(w).out) {
+        // The holds the enemy is the instigator of end with it (a match ends them at the respawn, which never comes).
+        let victims = w.fighter(f).holds.hold_victims.clone();
+        for v in victims {
+            if w.fighter(v).holds.hold.as_ref().is_some_and(|h| h.bound) {
+                crate::combat::holds::end_hold_buff(w, v);
+            }
+        }
         pawns::despawn_pawn(w, f, false);
         run_mut(w).gone.push((f, tick));
     }
