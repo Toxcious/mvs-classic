@@ -1,18 +1,21 @@
 //! Draws each launcher screen to a PNG, with made-up facts: the splash, setup's three steps (the build running and
 //! stopped, its details), the guide, Home ready, rebuilding, with a problem, with an update offered (and its more
-//! menu), updating, the more menu, the settings' tabs. Home's picture comes from a store
-//! when one is given.
+//! menu), updating, the more menu, the settings' tabs, the patch notes over Home. Home's picture and the patch
+//! notes' come from a store when one is given. `--notes` shows the releases of a file in place of the made-up ones,
+//! the first as the one installed: the launcher's kept list (`patch-notes.json` of its data folder), or one written
+//! by hand to see a release's text before it is published (`[{"version": "0.2.0", "name": "..", "published_at":
+//! "2026-03-01T12:00:00Z", "body": "<its Markdown>"}]`).
 //!
-//! Usage: launcher-shots --out <dir> [--size 1600x900] [--store <dir>] [--time <seconds>]
+//! Usage: launcher-shots --out <dir> [--size 1600x900] [--store <dir>] [--notes <file>] [--time <seconds>]
 
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 
 use mvs_render::Assets;
 use mvs_render::gpu::{Gpu, TexDesc, TexKind, TexViews};
 use mvs_render::image::write_png;
 use mvs_store::Store;
 use mvs_ui::launcher::draw::Pointer;
+use mvs_ui::launcher::notes::{self, NoteAge, PatchNote};
 use mvs_ui::launcher::{
     Build, HomeState, LauncherUi, LogLine, Model, Note, Phase, PhaseState, Screen, Shortcuts, Source, Tone, words as w,
 };
@@ -24,17 +27,19 @@ struct Args {
     out: PathBuf,
     size: [u32; 2],
     store: Option<PathBuf>,
+    notes: Option<PathBuf>,
     time: f64,
 }
 
 fn args() -> Result<Args, String> {
-    let mut a = Args { out: PathBuf::from("."), size: [1600, 900], store: None, time: 3.0 };
+    let mut a = Args { out: PathBuf::from("."), size: [1600, 900], store: None, notes: None, time: 3.0 };
     let mut it = std::env::args().skip(1);
     while let Some(arg) = it.next() {
         let mut val = || it.next().ok_or(format!("{arg}: no value"));
         match arg.as_str() {
             "--out" => a.out = PathBuf::from(val()?),
             "--store" => a.store = Some(PathBuf::from(val()?)),
+            "--notes" => a.notes = Some(PathBuf::from(val()?)),
             "--time" => a.time = val()?.parse().map_err(|_| "--time: a number")?,
             "--size" => {
                 let v = val()?;
@@ -51,8 +56,109 @@ fn line(time: &str, tone: Tone, em: &str, text: &str) -> LogLine {
     LogLine { time: time.into(), tone, em: em.into(), text: text.into() }
 }
 
+/// Made-up releases' texts, in the Markdown a release's page is written in.
+const NOTES: [([u32; 3], &str, &str); 3] = [
+    (
+        [0, 1, 1],
+        "2026-02-14T18:00:00Z",
+        "A second release, a few weeks after the first.
+
+> [!IMPORTANT]
+> This release changes the lobby protocol: everyone in a lobby needs it, and a [relay](https://example.org/relay)
+> you host yourself must be updated with its players.
+
+## New
+
+- **Patch notes in the launcher.** The latest releases show as cards on the home screen; click one to read what
+  changed.
+- **A longer practice list.** The Lab's bot menu holds more behaviours, and remembers the one you picked.
+  - The dummy can be told to tech in place, away or toward you.
+  - A recorded input can loop.
+- **Quicker rematches.** Both players pressing **REMATCH** start the next match without the results screen.
+
+## Fixes
+
+- **A queue that lost its connection** no longer leaves the pre-match screen waiting; it ends and says why.
+- A long list in a drop-down now scrolls instead of running off the window.
+- The settings' **Online** tab keeps the relay address you typed when the test fails.
+- Text chat no longer opens while a controller's menu button is held.
+
+## Performance
+
+- Lower memory use in long sessions: screens and effects no longer in use are let go.
+- The first match after the launcher opens starts sooner.
+
+## Download
+
+Download `MVS-Classic-0.1.1.zip`, unzip it and run the launcher.",
+    ),
+    (
+        [0, 1, 0],
+        "2026-01-20T12:00:00Z",
+        "The first release.
+
+## What's in it
+
+- The open beta's roster, stages and match rules
+- Local matches, the Lab and the tutorials
+- Online play with rollback netcode",
+    ),
+    ([0, 0, 9], "2026-01-02T12:00:00Z", ""),
+];
+
+/// A release of `--notes`' file.
+#[derive(serde::Deserialize)]
+struct Kept {
+    version: String,
+    #[serde(default)]
+    name: String,
+    #[serde(default)]
+    published_at: String,
+    #[serde(default)]
+    body: String,
+}
+
+/// The notes shown: the releases of `file`, else the made-up ones; the first is the one installed.
+fn patch_notes(file: Option<&Path>) -> Result<Vec<PatchNote>, String> {
+    let list: Vec<([u32; 3], String, String, String)> = match file {
+        Some(f) => {
+            let at = |e: &dyn std::fmt::Display| format!("{}: {e}", f.display());
+            let kept: Vec<Kept> = serde_json::from_slice(&std::fs::read(f).map_err(|e| at(&e))?).map_err(|e| at(&e))?;
+            kept.into_iter()
+                .map(|k| {
+                    let mut numbers = [0; 3];
+                    for (n, part) in numbers.iter_mut().zip(k.version.split('.')) {
+                        *n = part.parse().unwrap_or(0);
+                    }
+                    (numbers, k.name, k.published_at, k.body)
+                })
+                .collect()
+        }
+        None => NOTES
+            .iter()
+            .map(|([a, b, c], at, text)| {
+                ([*a, *b, *c], format!("MVS Classic {a}.{b}.{c}"), (*at).into(), (*text).into())
+            })
+            .collect(),
+    };
+    let pictures = notes::pictures(&list.iter().map(|n| n.0).collect::<Vec<_>>());
+    Ok(list
+        .into_iter()
+        .zip(pictures)
+        .enumerate()
+        .map(|(k, (([major, minor, patch], title, at, text), picture))| PatchNote {
+            version: format!("{major}.{minor}.{patch}"),
+            title,
+            date: notes::day(&at).map(|(y, m, d)| w::note_day(y, m, d)).unwrap_or_default(),
+            age: if k == 0 { NoteAge::Current } else { NoteAge::Old },
+            picture,
+            blocks: notes::parse(&text),
+        })
+        .collect())
+}
+
 /// The facts the screens are drawn with.
-fn model() -> Model {
+fn model(notes: Vec<PatchNote>) -> Model {
     let mut m = Model::default();
     m.install.root = "D:\\Games\\MVS Classic\\data".into();
     m.install.space = Some(Note::new(w::space_ok("412.6 GB"), Tone::Ok));
@@ -122,12 +228,24 @@ fn model() -> Model {
     m.settings.beta_health = (Tone::Plain, w::FOUND.into());
     m.settings.can_rebuild = true;
     m.settings.shortcuts = Shortcuts { available: true, desktop: true, start_menu: false };
+    m.notes = notes;
     m
 }
 
-fn picture(gpu: &Gpu, store: &Path) -> Result<Arc<mvs_render::gpu::Texture>, String> {
+/// Home's picture and the note pictures, from the store.
+fn pictures(gpu: &Gpu, store: &Path, ui: &mut LauncherUi) -> Result<(), String> {
     let assets = Assets::open(Store::open(store).map_err(|e| e.to_string())?, gpu).map_err(|e| e.to_string())?;
-    assets.texture(PICTURE).map_err(|e| e.to_string())
+    match assets.texture(PICTURE) {
+        Ok(t) => ui.set_picture(Some(t)),
+        Err(e) => eprintln!("launcher-shots: home's picture: {e}"),
+    }
+    for (k, name) in notes::PICTURES.iter().enumerate() {
+        match assets.texture(name) {
+            Ok(t) => ui.set_note_picture(k, Some(t)),
+            Err(e) => eprintln!("launcher-shots: note picture {name}: {e}"),
+        }
+    }
+    Ok(())
 }
 
 fn main() -> Result<(), String> {
@@ -147,7 +265,7 @@ fn main() -> Result<(), String> {
         )
         .map_err(|e| e.to_string())?;
     let mut ui = LauncherUi::new(&gpu).map_err(|e| e.to_string())?;
-    let base = model();
+    let base = model(patch_notes(a.notes.as_deref())?);
     type Shot = (&'static str, fn(&mut Model), (bool, Option<usize>, bool, bool));
     let none = (false, None, false, false);
     let shots: Vec<Shot> = vec![
@@ -193,6 +311,9 @@ fn main() -> Result<(), String> {
                 m.screen = Screen::Home;
                 m.home.state = HomeState::Update;
                 m.home.status = (Tone::Warn, w::is_out("0.1.1"), w::INSTALLS_SOON.into());
+                for (n, age) in m.notes.iter_mut().zip([NoteAge::New, NoteAge::Current]) {
+                    n.age = age;
+                }
             },
             none,
         ),
@@ -255,19 +376,25 @@ fn main() -> Result<(), String> {
         ),
         ("settings-about", |m| m.screen = Screen::Home, (false, Some(3), false, false)),
     ];
-    if let Some(s) = &a.store {
-        match picture(&gpu, s) {
-            Ok(t) => ui.set_picture(Some(t)),
-            Err(e) => eprintln!("launcher-shots: home's picture: {e}"),
-        }
+    if let Some(s) = &a.store
+        && let Err(e) = pictures(&gpu, s, &mut ui)
+    {
+        eprintln!("launcher-shots: the store's pictures: {e}");
     }
     let pointer = Pointer { at: None, down: false, click: false, wheel: 0.0 };
-    for (name, set, (guide, settings, menu, details)) in shots {
+    // (the patch notes over Home, after the others: the newest release's, an older one's, one with no text)
+    let notes: [(&str, Option<usize>); 3] = [("notes", Some(0)), ("notes-older", Some(1)), ("notes-empty", Some(2))];
+    let shots = shots.into_iter().map(|s| (s, None)).chain(notes.map(|(name, k)| {
+        let home: Shot = (name, |m| m.screen = Screen::Home, none);
+        (home, k)
+    }));
+    for ((name, set, (guide, settings, menu, details)), note) in shots {
         let mut m = base.clone();
         set(&mut m);
-        // (a first frame at 0 starts the screen's clocks: the picture's fade in)
+        // (a first frame at 0 starts the screen's clocks: the pictures' fade in)
         ui.frame(&gpu, &target, &m, pointer, &[], &[], 0.0).map_err(|e| e.to_string())?;
         ui.open(guide, settings, menu, details);
+        ui.open_note(note);
         ui.frame(&gpu, &target, &m, pointer, &[], &[], a.time).map_err(|e| e.to_string())?;
         let px = gpu.read_texture(&target).map_err(|e| e.to_string())?;
         let file = a.out.join(format!("launcher-{name}.png"));

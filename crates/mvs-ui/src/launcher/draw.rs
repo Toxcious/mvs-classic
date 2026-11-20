@@ -5,7 +5,7 @@
 use mvs_render::gpu::Gpu;
 
 use super::fonts::{Face, Fonts};
-use super::paint::{Fill, Kind, Painter, Rgba, Shape, hex, rgba};
+use super::paint::{CLEAR, Fill, Kind, Painter, Rgba, Shape, hex, rgba};
 
 /// The page's size, CSS pixels.
 pub const PAGE: [f32; 2] = [1100.0, 660.0];
@@ -138,6 +138,40 @@ impl Canvas<'_> {
         s.border = border;
         s.border_color = border_color;
         self.push(s);
+    }
+
+    /// The picture of `slot` over `r`, scaled to cover it about its middle (CSS object-fit: cover), `zoom` times
+    /// closer, its corners rounded; `fade`: its bottom fades out between these two parts of `r`'s height. False
+    /// when the slot holds no picture: nothing drawn.
+    pub fn picture(
+        &mut self,
+        slot: u32,
+        r: [f32; 4],
+        radius: f32,
+        zoom: f32,
+        opacity: f32,
+        fade: Option<[f32; 2]>,
+    ) -> bool {
+        let Some([tw, th]) = self.p.picture_size(slot) else { return false };
+        let (tw, th) = (tw as f32, th as f32);
+        // (a box wider than the picture shows its whole width and loses rows; a taller one loses columns)
+        let k = (r[2] / r[3]) / (tw / th);
+        let (uw, uh) = if k >= 1.0 { (1.0 / zoom, 1.0 / k / zoom) } else { (k / zoom, 1.0 / zoom) };
+        let (u0, v0) = ((1.0 - uw) * 0.5, (1.0 - uh) * 0.5);
+        let mut s = Shape::new(Kind::Image, r, Fill::Solid(CLEAR));
+        s.picture = slot;
+        s.radius = radius;
+        s.opacity = opacity;
+        s.uv = [u0, v0, u0 + uw, v0 + uh];
+        // (no fade on the left; none at the bottom unless asked: the shader's ramps lie outside 0..1)
+        let bottom = fade.map_or([2.0, 3.0], |[a, b]| [v0 + a * uh, v0 + b * uh]);
+        s.fade = [-1.0, -0.5, bottom[0], bottom[1]];
+        // The texels a window pixel covers: two to a tap of the box filter (the sampler blends neighbours).
+        let texels = (uw * tw / (r[2] * self.s)).max(uh * th / (r[3] * self.s));
+        let taps = (texels * 0.5).ceil().clamp(1.0, 4.0);
+        s.p = [f32::from(u8::from(self.p.picture_srgb(slot))), taps, 0.0, 0.0];
+        self.push(s);
+        true
     }
 
     /// A blurred rectangle (CSS box-shadow with blur `blur` and spread 0, or filter: blur on a box).

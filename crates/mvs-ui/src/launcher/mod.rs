@@ -1,7 +1,8 @@
 //! The launcher's screens (app/launcher): its own 2D kit (paint.rs: rectangles, rounded rectangles, gradients,
-//! strokes, the picture, text from bundled fonts), the splash, the setup steps, the import's progress, Home and the
-//! settings overlay. The app crate keeps the launcher's state (the worker, the settings, the routes) and hands a
-//! `Model` each frame; the screens draw it and answer the player's choices as `Action`s.
+//! strokes, pictures, text from bundled fonts), the splash, the setup steps, the import's progress, Home with the
+//! latest releases' patch notes, and the settings overlay. The app crate keeps the launcher's state (the worker,
+//! the settings, the routes) and hands a `Model` each frame; the screens draw it and answer the player's choices as
+//! `Action`s.
 //!
 //! The launcher is a program of its own (`mvs-launcher.exe`) in a frameless window of the page's size: the page
 //! draws its title bar (its drag band, the minimise and close buttons) and Home its RUNNING state while the game's
@@ -12,6 +13,7 @@
 pub mod draw;
 pub mod fonts;
 pub mod import_view;
+pub mod notes;
 pub mod paint;
 mod screens;
 mod sky;
@@ -259,6 +261,8 @@ pub struct Model {
     pub app_problem: Option<String>,
     /// The splash waits for the update check.
     pub checking: bool,
+    /// (the port's own) The latest releases' notes, the newest first: Home's cards and the notes over it.
+    pub notes: Vec<notes::PatchNote>,
 }
 
 /// The player's choices.
@@ -359,6 +363,11 @@ struct PageState {
     copied_at: Option<f64>,
     /// The picture's fade in started.
     picture_at: Option<f64>,
+    /// (the port's own) The patch notes over Home: the release shown (its place in the model's notes), its text's
+    /// scroll, and when the cards' pictures' fade in started.
+    note: Option<usize>,
+    note_scroll: f32,
+    note_pictures_at: Option<f64>,
     screen: Screen,
     /// The Online tab's boxes: the focus, their text, and the page clock of the last key in each.
     focus: Focus,
@@ -402,6 +411,10 @@ impl PageState {
     }
 }
 
+/// The painter's slot of Home's picture, and of the first note picture (the others follow it).
+const HOME_PICTURE: u32 = 0;
+const NOTE_PICTURES: u32 = 1;
+
 /// The launcher's page on the GPU.
 pub struct LauncherUi {
     painter: Painter,
@@ -431,11 +444,23 @@ impl LauncherUi {
         if t.is_none() {
             self.page.picture_at = None;
         }
-        self.painter.set_picture(t);
+        self.painter.set_picture(HOME_PICTURE, t);
     }
 
     pub fn has_picture(&self) -> bool {
-        self.painter.has_picture()
+        self.painter.has_picture(HOME_PICTURE)
+    }
+
+    /// (the port's own) The note picture `k` (a `PatchNote`'s `picture`), or none: a card without it shows its
+    /// plain face.
+    pub fn set_note_picture(&mut self, k: usize, t: Option<std::sync::Arc<Texture>>) {
+        self.painter.set_picture(NOTE_PICTURES + k as u32, t);
+    }
+
+    /// The patch notes opened at the model's note `k` as a click on its card would (a tool's pictures), or closed.
+    pub fn open_note(&mut self, k: Option<usize>) {
+        self.page.note = k;
+        self.page.note_scroll = 0.0;
     }
 
     /// An overlay opened as a click would (a tool's pictures of each screen): the guide, the settings at `tab`
@@ -467,11 +492,16 @@ impl LauncherUi {
             self.page.settings = false;
             self.page.guide = false;
             self.page.menu = false;
+            self.page.note = None;
+        }
+        if self.page.note.is_some_and(|k| k >= m.notes.len()) {
+            self.page.note = None;
         }
         if m.screen != self.page.screen {
             if m.screen != Screen::Home {
                 self.page.settings = false;
                 self.page.menu = false;
+                self.page.note = None;
             }
             if m.screen != Screen::Beta {
                 self.page.guide = false;
@@ -479,8 +509,14 @@ impl LauncherUi {
             self.page.scroll = [0.0; 3];
             self.page.screen = m.screen;
         }
-        if self.painter.has_picture() && self.page.picture_at.is_none() && m.screen == Screen::Home {
+        if self.painter.has_picture(HOME_PICTURE) && self.page.picture_at.is_none() && m.screen == Screen::Home {
             self.page.picture_at = Some(t);
+        }
+        let pictures = m.notes.iter().any(|n| self.painter.has_picture(NOTE_PICTURES + n.picture as u32));
+        if !pictures {
+            self.page.note_pictures_at = None;
+        } else if self.page.note_pictures_at.is_none() && m.screen == Screen::Home {
+            self.page.note_pictures_at = Some(t);
         }
         let mut c =
             Canvas { gpu, p: &mut self.painter, fonts: &mut self.fonts, s, size, pointer, t, blocked: false, xf: None };

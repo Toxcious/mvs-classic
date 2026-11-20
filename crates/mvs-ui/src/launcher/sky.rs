@@ -140,9 +140,11 @@ pub fn simple(c: &mut Canvas, stars: &[Star]) {
     draw_stars(c, stars, [w, h]);
 }
 
-/// `.bg.art`: Home's sky, the picture when it is there and its life, the shade under the launcher's parts.
+/// `.bg.art`: Home's sky, the picture (the painter's `picture_slot`) when it is there and its life, the shade
+/// under the launcher's parts.
 // Deviation: no film grain (.grain, an SVG noise at 7 % in overlay blend).
-pub fn art(c: &mut Canvas, stars: &[Star], picture: bool, picture_on: f32) {
+pub fn art(c: &mut Canvas, stars: &[Star], picture_slot: u32, picture_on: f32) {
+    let picture = c.p.has_picture(picture_slot);
     let [w, h] = c.size;
     let full = [0.0, 0.0, w, h];
     let base = c.down(
@@ -182,7 +184,8 @@ pub fn art(c: &mut Canvas, stars: &[Star], picture: bool, picture_on: f32) {
         // Deviation: the left fade starts at u 0.2, not the page's 0.04: the picture's umbrella platform and branch,
         // cut off by its left edge, showed half faded beside the house.
         s.fade = [0.2, 0.52, 0.66, 0.98];
-        s.p = [if c.p.picture_srgb() { 1.0 } else { 0.0 }, 0.0, 0.0, 0.0];
+        s.picture = picture_slot;
+        s.p = [if c.p.picture_srgb(picture_slot) { 1.0 } else { 0.0 }, 0.0, 0.0, 0.0];
         s.opacity = picture_on;
         c.push(s);
         alive(c, r, ((picture_on - 0.25) / 0.75).clamp(0.0, 1.0));

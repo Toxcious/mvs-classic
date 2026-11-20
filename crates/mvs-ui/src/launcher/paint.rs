@@ -1,9 +1,9 @@
-//! The launcher's 2D painter: shapes in the order they are added, drawn in one call of one shader of the port's own
-//! (compiled with d3dcompiler_47) on any render target. A shape is a rounded rectangle or an ellipse (fill, border,
-//! soft edge for glows and shadows, a linear or radial gradient), a ring with a gap (the spinner), a stroked segment
-//! (the icons), a glyph of the text atlas or the one picture; each with its clip and its 2x2 transform about an
-//! origin (CSS skew and rotate). Colours are the page's sRGB values, blended as a browser does: on the encoded values,
-//! premultiplied.
+//! The launcher's 2D painter: shapes in the order they are added, drawn by one shader of the port's own (compiled
+//! with d3dcompiler_47) on any render target, in one call for each picture the shapes ask for in turn. A shape is a
+//! rounded rectangle or an ellipse (fill, border, soft edge for glows and shadows, a linear or radial gradient), a
+//! ring with a gap (the spinner), a stroked segment (the icons), a glyph of the text atlas or a picture; each with
+//! its clip and its 2x2 transform about an origin (CSS skew and rotate). Colours are the page's sRGB values, blended
+//! as a browser does: on the encoded values, premultiplied.
 
 use std::ffi::c_void;
 
@@ -47,7 +47,9 @@ pub enum Kind {
     Rect = 0,
     /// A coverage glyph of the text atlas (`uv` its texels).
     Glyph = 1,
-    /// The picture (`uv` 0..1), faded on its left and bottom by `fade`.
+    /// The picture of slot `picture` (`uv` 0..1), its corners rounded by `radius`, faded on its left and bottom
+    /// by `fade`; `p`: whether its texels are sRGB, and the taps a side of its box filter (a picture drawn smaller
+    /// than its texels; 0 or 1: one sample).
     Image = 2,
     /// A stroke from `p[0..2]` to `p[2..4]`, `border` wide, round caps.
     Segment = 3,
@@ -97,6 +99,8 @@ pub struct Shape {
     pub p: [f32; 4],
     /// The picture's fade: its left side from u p0 (clear) to p1 (whole), its bottom from v p2 (whole) to p3 (clear).
     pub fade: [f32; 4],
+    /// An Image's picture: its slot (`Painter::set_picture`).
+    pub picture: u32,
 }
 
 impl Shape {
@@ -116,6 +120,7 @@ impl Shape {
             origin: [0.0; 2],
             p: [0.0; 4],
             fade: [0.0; 4],
+            picture: 0,
         }
     }
 }
@@ -167,12 +172,14 @@ Texture2D<float> atlas : register(t1);
 Texture2D<float4> grads : register(t2);
 Texture2D<float4> picture : register(t3);
 SamplerState lin : register(s0);
+// (xy the target's size; z the draw's first shape: SV_InstanceID counts from 0 in every draw)
 cbuffer Frame : register(b0) { float4 target; };
 
 struct V { float4 pos : SV_Position; float2 local : LOCAL; nointerpolation uint id : SHAPE; };
 
 V MainVS(uint vid : SV_VertexID, uint iid : SV_InstanceID) {
-    Shape s = shapes[iid];
+    uint id = iid + (uint)target.z;
+    Shape s = shapes[id];
     // (the quad grows by the soft edge and the border, and covers a segment's stroke)
     float pad = s.misc.z + 1.0;
     float4 r = s.rect;
@@ -191,7 +198,7 @@ V MainVS(uint vid : SV_VertexID, uint iid : SV_InstanceID) {
     V o;
     o.pos = float4(at / target.xy * float2(2, -2) + float2(-1, 1), 0, 1);
     o.local = local;
-    o.id = iid;
+    o.id = id;
     return o;
 }
 
@@ -234,12 +241,26 @@ float4 MainPS(V v) : SV_Target {
         float lum = dot(c.rgb, float3(0.2126, 0.7152, 0.0722));
         c.a *= pow(a, lerp(1.0, 0.72, lum));
     } else if (s.misc.w == 2) {
-        float2 uv = s.uv.xy + (p - s.rect.xy) / s.rect.zw * (s.uv.zw - s.uv.xy);
-        c = picture.SampleLevel(lin, uv, 0);
+        float2 span = s.uv.zw - s.uv.xy;
+        float2 uv = s.uv.xy + (p - s.rect.xy) / s.rect.zw * span;
+        int taps = (int)s.p.y;
+        if (taps > 1) {
+            // (a picture with no mips drawn smaller than its texels: the mean over the pixel's footprint)
+            float2 step = span / s.rect.zw / taps;
+            c = 0;
+            [loop] for (int j = 0; j < taps; j++) {
+                [loop] for (int i = 0; i < taps; i++) {
+                    c += picture.SampleLevel(lin, uv + (float2(i, j) + 0.5 - taps * 0.5) * step, 0);
+                }
+            }
+            c /= taps * taps;
+        } else {
+            c = picture.SampleLevel(lin, uv, 0);
+        }
         // (an sRGB picture samples linear: encoded again, the page blends encoded values)
         if (s.p.x > 0) c.rgb = c.rgb <= 0.0031308 ? c.rgb * 12.92 : 1.055 * pow(abs(c.rgb), 1 / 2.4) - 0.055;
         float k = smoothstep(s.fade.x, s.fade.y, uv.x) * (1 - smoothstep(s.fade.z, s.fade.w, uv.y));
-        c.a *= k * saturate(1 - rect_sdf(p, s.rect, 0));
+        c.a *= k * saturate(1 - rect_sdf(p, s.rect, s.misc.x));
     } else if (s.misc.w == 3) {
         float2 a = s.p.xy, b = s.p.zw - s.p.xy;
         float t = saturate(dot(p - a, b) / max(dot(b, b), 1e-6));
@@ -327,7 +348,8 @@ pub struct Painter {
     grad_rows: Vec<Vec<(f32, Rgba)>>,
     grads_dirty: bool,
     atlas: Texture,
-    picture: Option<std::sync::Arc<Texture>>,
+    /// The pictures the Image shapes draw, by slot.
+    pictures: Vec<Option<std::sync::Arc<Texture>>>,
     list: Vec<Shape>,
     /// The clip every new shape takes.
     pub clip: [f32; 4],
@@ -396,7 +418,7 @@ impl Painter {
             grad_rows: Vec::new(),
             grads_dirty: false,
             atlas: tex([ATLAS, ATLAS], DXGI_FORMAT_R8_UNORM)?,
-            picture: None,
+            pictures: Vec::new(),
             list: Vec::new(),
             clip: [-1e6, -1e6, 1e6, 1e6],
         })
@@ -413,19 +435,27 @@ impl Painter {
         (self.grad_rows.len() - 1) as u32
     }
 
-    /// The picture the Image shapes draw (None: none).
-    pub fn set_picture(&mut self, t: Option<std::sync::Arc<Texture>>) {
-        self.picture = t;
+    /// The picture the Image shapes of `slot` draw (None: none).
+    pub fn set_picture(&mut self, slot: u32, t: Option<std::sync::Arc<Texture>>) {
+        let slot = slot as usize;
+        if self.pictures.len() <= slot {
+            self.pictures.resize(slot + 1, None);
+        }
+        self.pictures[slot] = t;
     }
 
-    pub fn has_picture(&self) -> bool {
-        self.picture.is_some()
+    fn picture(&self, slot: u32) -> Option<&Texture> {
+        self.pictures.get(slot as usize).and_then(|t| t.as_deref())
+    }
+
+    pub fn has_picture(&self, slot: u32) -> bool {
+        self.picture(slot).is_some()
     }
 
     /// The picture's texels are sRGB (sampled linear): the Image shapes encode them again.
-    pub fn picture_srgb(&self) -> bool {
+    pub fn picture_srgb(&self, slot: u32) -> bool {
         use windows::Win32::Graphics::Dxgi::Common::*;
-        self.picture.as_ref().is_some_and(|t| {
+        self.picture(slot).is_some_and(|t| {
             matches!(
                 t.desc.format,
                 DXGI_FORMAT_R8G8B8A8_UNORM_SRGB
@@ -439,12 +469,16 @@ impl Painter {
     }
 
     /// The picture's size, texels.
-    pub fn picture_size(&self) -> Option<[u32; 2]> {
-        self.picture.as_ref().map(|t| [t.desc.size[0], t.desc.size[1]])
+    pub fn picture_size(&self, slot: u32) -> Option<[u32; 2]> {
+        self.picture(slot).map(|t| [t.desc.size[0], t.desc.size[1]])
     }
 
-    /// A shape added (it takes the painter's clip, intersected with its own).
+    /// A shape added (it takes the painter's clip, intersected with its own); an Image whose slot holds no picture
+    /// is not.
     pub fn push(&mut self, mut s: Shape) {
+        if s.kind == Kind::Image && !self.has_picture(s.picture) {
+            return;
+        }
         s.clip = [
             s.clip[0].max(self.clip[0]),
             s.clip[1].max(self.clip[1]),
@@ -510,10 +544,20 @@ impl Painter {
         let bytes = unsafe { std::slice::from_raw_parts(rows.as_ptr().cast::<u8>(), bytes_len) };
         gpu.write(shapes, bytes);
         let size = [target.desc.size[0], target.desc.size[1]];
-        gpu.write(&self.frame, &[size[0] as f32, size[1] as f32, 0.0, 0.0].map(f32::to_le_bytes).concat());
         let rtv = target.rtv.as_ref().ok_or(Error::Format { what: "launcher target".into(), why: "no RTV".into() })?;
-        let picture = self.picture.as_deref().or(Some(&self.grads)).and_then(|t| t.srv.clone());
-        let srvs = [shapes.srv.clone(), self.atlas.srv.clone(), self.grads.srv.clone(), picture];
+        // (the picture's slot is always bound: the gradients stand in until a draw brings its own)
+        let srvs = [shapes.srv.clone(), self.atlas.srv.clone(), self.grads.srv.clone(), self.grads.srv.clone()];
+        // The draws: the shapes in order, a new one where an Image asks for another picture than the one bound.
+        let mut draws: Vec<(usize, usize, Option<u32>)> = Vec::new();
+        let (mut first, mut bound) = (0, None);
+        for (k, s) in list.iter().enumerate().filter(|(_, s)| s.kind == Kind::Image) {
+            if bound.is_some_and(|b| b != s.picture) {
+                draws.push((first, k - first, bound));
+                first = k;
+            }
+            bound = Some(s.picture);
+        }
+        draws.push((first, list.len() - first, bound));
         gpu.set_states(self.blend, self.raster, self.depth, 0);
         // SAFETY: state and draw calls with objects made on this device; the arrays outlive the calls.
         unsafe {
@@ -529,9 +573,20 @@ impl Painter {
             gpu.ctx.PSSetSamplers(0, Some(&[Some(gpu.sampler(self.sampler))]));
         }
         gpu.viewport([0, 0, size[0], size[1]]);
-        // SAFETY: six vertices an instance, the instances the buffer holds.
+        for (first, count, slot) in draws {
+            gpu.write(&self.frame, &[size[0] as f32, size[1] as f32, first as f32, 0.0].map(f32::to_le_bytes).concat());
+            let picture = slot.and_then(|s| self.picture(s)).and_then(|t| t.srv.clone());
+            // SAFETY: six vertices an instance, the instances the buffer holds from the draw's first on; the picture
+            // is a view made on this device.
+            unsafe {
+                if picture.is_some() {
+                    gpu.ctx.PSSetShaderResources(3, Some(&[picture]));
+                }
+                gpu.ctx.DrawInstanced(6, count as u32, 0, 0);
+            }
+        }
+        // SAFETY: the views unbound.
         unsafe {
-            gpu.ctx.DrawInstanced(6, list.len() as u32, 0, 0);
             gpu.ctx.PSSetShaderResources(0, Some(&[None, None, None, None]));
             gpu.ctx.VSSetShaderResources(0, Some(&[None]));
         }

@@ -557,6 +557,33 @@ pub fn update_unfinished(why: &str) -> String {
     format!("The update did not finish: {why}")
 }
 pub const CLOSE: &str = "Close";
+
+// Patch notes (the port's own): Home's cards of the latest releases, and a release's notes in a window over Home.
+pub const PATCH_NOTES: &str = "Patch notes";
+pub const NOTE_NEW: &str = "New";
+pub const NOTE_INSTALLED: &str = "Installed";
+pub const NOTE_EMPTY: &str = "This release has no notes.";
+pub const MONTHS: [&str; 12] = [
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December",
+];
+/// The day a release came out (`month` 1..12).
+pub fn note_day(year: u32, month: u32, day: u32) -> String {
+    format!("{day} {} {year}", MONTHS[(month.clamp(1, 12) - 1) as usize])
+}
+pub fn notes_unread(why: &str) -> String {
+    format!("The patch notes could not be read: {why}")
+}
 pub const NO_FEED: &str = "this build names no update feed";
 pub const NOTHING_STAGED: &str = "no release downloaded yet";
 pub const NOTHING_FOUND: &str = "no update found to download: check for updates first";

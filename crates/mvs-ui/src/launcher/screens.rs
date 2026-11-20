@@ -7,7 +7,11 @@ use super::draw::*;
 use super::fonts::Face;
 use super::paint::{Fill, Kind, Rgba, Shape, hex, rgba};
 use super::sky::{self, Star};
-use super::{Action, HomeState, Model, PageState, PhaseState, Screen, TITLE_BAR, Tone, WINDOW_BUTTON, words as w};
+use super::{
+    Action, HOME_PICTURE, HomeState, Model, PageState, PhaseState, Screen, TITLE_BAR, Tone, WINDOW_BUTTON, words as w,
+};
+
+mod patch_notes;
 
 fn tone(t: Tone, plain: Rgba) -> Rgba {
     match t {
@@ -20,8 +24,8 @@ fn tone(t: Tone, plain: Rgba) -> Rgba {
 
 /// The page: its screen, then the overlays over it.
 pub(super) fn page(c: &mut Canvas, m: &Model, st: &mut PageState, stars: &[Vec<Star>; 3], out: &mut Vec<Action>) {
-    c.blocked = st.guide || st.settings;
-    let shut = (!st.guide, !st.settings);
+    c.blocked = st.guide || st.settings || st.note.is_some();
+    let shut = (!st.guide, !st.settings, st.note.is_none());
     match m.screen {
         Screen::Splash => splash(c, m, &stars[0]),
         Screen::Install | Screen::Beta | Screen::Build => setup(c, m, st, &stars[1], out),
@@ -32,7 +36,7 @@ pub(super) fn page(c: &mut Canvas, m: &Model, st: &mut PageState, stars: &[Vec<S
     c.blocked = false;
     // The click that opened an overlay is the opener's: the overlay, drawn this same frame, would take it for a
     // click outside its box and close at once.
-    if (shut.0 && st.guide) || (shut.1 && st.settings) {
+    if (shut.0 && st.guide) || (shut.1 && st.settings) || (shut.2 && st.note.is_some()) {
         c.pointer.click = false;
     }
     if st.guide {
@@ -40,6 +44,9 @@ pub(super) fn page(c: &mut Canvas, m: &Model, st: &mut PageState, stars: &[Vec<S
     }
     if st.settings && m.screen == Screen::Home {
         settings(c, m, st, out);
+    }
+    if m.screen == Screen::Home {
+        patch_notes::window(c, m, st);
     }
     if let Some(p) = &m.app_problem {
         banner(c, 52.0, 760.0, p, None, rgba(60, 8, 24, 0.92));
@@ -1082,13 +1089,14 @@ fn guide(c: &mut Canvas, st: &mut PageState, out: &mut Vec<Action>) {
 
 fn home(c: &mut Canvas, m: &Model, st: &mut PageState, stars: &[Star], out: &mut Vec<Action>) {
     let on = st.picture_at.map_or(0.0, |t0| ((c.t - t0) / 0.6).clamp(0.0, 1.0) as f32);
-    sky::art(c, stars, c.p.has_picture(), on);
+    sky::art(c, stars, HOME_PICTURE, on);
     moon_and_logo(c);
     let h = &m.home;
     if h.state == HomeState::Problem && banner(c, 52.0, 640.0, &h.problem, Some(w::LOCATE_IT), rgba(60, 8, 24, 0.9)) {
         out.push(Action::Locate);
     }
     play_zone(c, m, st, out);
+    patch_notes::cards(c, m, st);
     // The settings button, top right: left of the window buttons, 12 px from them (.topright).
     let r = [c.size[0] - 2.0 * WINDOW_BUTTON - 12.0 - 34.0, 7.0, 34.0, 34.0];
     let hover = c.hover(r);
