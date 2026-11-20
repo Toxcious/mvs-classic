@@ -35,8 +35,11 @@ pub struct NetAsk {
 /// Why a session did not open.
 #[derive(Clone, Debug, PartialEq)]
 pub enum OpenFailed {
-    /// ProtocolMismatch: the host core speaks another protocol, or said nothing of one within HANDSHAKE_MS.
+    /// ProtocolMismatch: the host core speaks another protocol.
     Mismatch,
+    /// Deviation: (online.ts: ProtocolMismatch as well) the host core said nothing within HANDSHAKE_MS; the menus
+    /// tell the player it did not answer, not that it speaks another protocol.
+    NoAnswer,
     /// The service closed the session first.
     Closed(ClosedWhy),
 }
@@ -274,7 +277,7 @@ impl NetClient {
         if self.handshake.is_some_and(|t| now >= t) {
             self.handshake = None;
             self.close(port);
-            return vec![News::Failed(OpenFailed::Mismatch)];
+            return vec![News::Failed(OpenFailed::NoAnswer)];
         }
         if self.ready && now >= self.next_ping {
             self.send_ping(port, now);
@@ -432,7 +435,7 @@ mod tests {
         assert!(!c.open && matches!(w.borrow().posted.last(), Some(NetRequest::Close)));
         let mut c = NetClient::open(&mut p, SessionTarget::Host, 0.0, true, 0.0);
         assert!(c.pump(&mut p, HANDSHAKE_MS - 1.0).is_empty());
-        assert_eq!(c.pump(&mut p, HANDSHAKE_MS), [News::Failed(OpenFailed::Mismatch)]);
+        assert_eq!(c.pump(&mut p, HANDSHAKE_MS), [News::Failed(OpenFailed::NoAnswer)]);
         let mut c = NetClient::open(&mut p, SessionTarget::Host, 0.0, true, 0.0);
         let closed = NetEvent::Closed(ClosedWhy::Limited);
         assert_eq!(c.take(&mut p, &closed, 3, 1.0), [News::Failed(OpenFailed::Closed(ClosedWhy::Limited))]);

@@ -823,7 +823,7 @@ impl OnlineHub {
                 return;
             }
             NetEvent::PartySay { from, say } => {
-                self.party_say(from, say);
+                self.party_say(from, say, now);
                 return;
             }
             NetEvent::PartyFighter { from, fighter } => {
@@ -862,6 +862,7 @@ impl OnlineHub {
                             self.tell(OnlineNotice::ProtocolDiffers);
                             ClosedWhy::Other { text: String::new() }
                         }
+                        OpenFailed::NoAnswer => ClosedWhy::HostSilent,
                         OpenFailed::Closed(why) => why,
                     };
                     self.closed(why);
@@ -1359,7 +1360,7 @@ impl OnlineHub {
                     self.send(&ClientMessage::Chat { text: t, all });
                 }
             }
-            OnlineCmd::Queue { modes } => self.queue_open(modes),
+            OnlineCmd::Queue { modes } => self.queue_open(modes, now),
             OnlineCmd::PreMatch(c) => self.pre_match_cmd(c, loadout, now),
             OnlineCmd::Vote(yes) => {
                 if let Some(m) = self.queue_end.as_mut().and_then(|q| q.vote(yes)) {
@@ -1449,10 +1450,10 @@ impl OnlineHub {
     }
 
     // app/party-flow.ts: the leader's 'open' opens the member's queue screen on its modes; the rest goes to the search.
-    fn party_say(&mut self, from: &str, say: &PartySay) {
+    fn party_say(&mut self, from: &str, say: &PartySay, now: f64) {
         let other = self.party_other();
         let mut out = Vec::new();
-        let took = self.queue.as_mut().is_some_and(|q| q.party_say(say, &other, &mut out));
+        let took = self.queue.as_mut().is_some_and(|q| q.party_say(say, &other, now, &mut out));
         self.q_out(out);
         if !took
             && let PartySay::Open { modes } = say
@@ -1466,7 +1467,7 @@ impl OnlineHub {
 
     // ---------- the queue (app/queue.ts) ----------
 
-    fn queue_open(&mut self, modes: Vec<QueueMode>) {
+    fn queue_open(&mut self, modes: Vec<QueueMode>, now: f64) {
         let party = self.party_full();
         // (a full party queues no 1v1: WBP_MatchOptions @1248-1457 turns its card off)
         let modes: Vec<QueueMode> =
@@ -1481,7 +1482,7 @@ impl OnlineHub {
                 self.close();
                 self.queue_session = true;
             } else {
-                self.open(SessionTarget::Queue, 0.0);
+                self.open(SessionTarget::Queue, now);
             }
             let party = party.map(|(leader, list)| PartyQueue { leader, list });
             let mut q = QueueSession::new(modes.clone(), party, self.compat.clone());
@@ -1580,7 +1581,7 @@ impl OnlineHub {
         let mut out = Vec::new();
         let Some(q) = &mut self.queue else { return };
         match c {
-            PreMatchCmd::ScreenUp => q.live = true,
+            PreMatchCmd::ScreenUp => q.screen_up(&mut out),
             PreMatchCmd::LocalLocked(p) => {
                 q.loadout = loadout(&p.character);
                 q.local_locked(p);

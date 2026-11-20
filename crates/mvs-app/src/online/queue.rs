@@ -25,6 +25,10 @@ use super::tables::{Tables, loadout_of_cosmetics, with_mode_mutators};
 /// search.
 pub const PARTY_CANCEL_WAIT_MS: f64 = 1500.0;
 
+/// Unverified: (the port's own) how long a join waits for the server's queue.state before the search ends as at a
+/// refused join (the host core answers a join at once: no answer is a session that is gone without its close).
+pub const JOIN_ANSWER_MS: f64 = 15000.0;
+
 /// The found match's start: the set-up with the bots' tables and the mode's mutators, the
 /// perks by slot, this game's slot, the names, the map, the mode, the world's seed; `local` a match with no other
 /// human (played by this game alone: match.leave at its end).
@@ -97,6 +101,10 @@ pub struct QueueSession {
     other_ready: bool,
     stopping: bool,
     lost: Option<f64>,
+    /// (the port's own) the session is gone: a join cannot go out.
+    gone: bool,
+    /// (the port's own) the last join's deadline for its answer (JOIN_ANSWER_MS).
+    join_due: Option<f64>,
     // the queue's own: the found match (until its start), the started one, the last search's end
     // without a match, and its listening (from a join to the start or the end)
     q_found: bool,
@@ -147,6 +155,8 @@ impl QueueSession {
             other_ready: false,
             stopping: false,
             lost: None,
+            gone: false,
+            join_due: None,
             q_found: false,
             q_match: false,
             q_ended: None,
@@ -172,12 +182,13 @@ impl QueueSession {
     // ---------- the online queue ----------
 
     // A call while a found match waits for its start does nothing (that match stands: the server refuses it too).
-    fn join(&mut self, out: &mut Vec<QOut>) {
+    fn join(&mut self, now: f64, out: &mut Vec<QOut>) {
         if self.q_found && !self.q_match {
             return;
         }
         let Some(m) = self.mine.clone() else { return };
         self.listening = true;
+        self.join_due = Some(now + JOIN_ANSWER_MS);
         self.q_found = false;
         self.q_match = false;
         self.q_ended = None;
@@ -203,6 +214,7 @@ impl QueueSession {
         }
         self.q_found = false;
         self.listening = false;
+        self.join_due = None;
     }
 
     /// Out of the queue, or out of the found match's pre-match: the server answers nothing.
@@ -215,6 +227,9 @@ impl QueueSession {
     pub fn take(&mut self, m: &ServerMessage, tables: &Tables, me: (&str, &str), now: f64, out: &mut Vec<QOut>) {
         if !self.listening {
             return;
+        }
+        if matches!(m, ServerMessage::QueueState { .. } | ServerMessage::QueueFound(_)) {
+            self.join_due = None;
         }
         match m {
             ServerMessage::QueueState { on, why, name } => {
@@ -263,12 +278,35 @@ impl QueueSession {
 
     /// The session is gone: a search or a found match before its start ends as at a refused join; a started match's
     /// loss is its set's.
+    /// (the port's own) A search that ended before the screen came up is the screen's kick at once, and a later join
+    /// with no session to go on is one too.
     pub fn connection_lost(&mut self, now: f64, out: &mut Vec<QOut>) {
+        self.gone = true;
+        self.join_due = None;
         if self.q_match || self.q_ended.is_some() {
             return;
         }
         self.q_end(QueueWhy::Error);
         self.on_state(false, Some(QueueWhy::Error), None, now, out);
+    }
+
+    /// (the port's own) The screen is up: a search that ended while it was not is its kick to the main menu (the
+    /// screen would wait in it for an answer that cannot come).
+    pub fn screen_up(&mut self, out: &mut Vec<QOut>) {
+        self.live = true;
+        if let Some(note) = self.ended.take() {
+            out.push(QOut::Screen(PreMatchEvent::Kick(note)));
+        }
+    }
+
+    // (the port's own) the search over with the note: the screen's kick, else the main menu's note.
+    fn kick(&mut self, note: KickNote, out: &mut Vec<QOut>) {
+        self.searching = false;
+        if self.live {
+            out.push(QOut::Screen(PreMatchEvent::Kick(note)));
+        } else {
+            self.ended = Some(note);
+        }
     }
 
     // ---------- the queue run's state and found handlers ----------
@@ -299,7 +337,7 @@ impl QueueSession {
             self.searching = false;
             self.party_stopped(out);
             // (the member's 'ready' that came while this search stopped)
-            self.party_go(out);
+            self.party_go(now, out);
             return;
         }
         // (the port's own) A party's ticket ended under this game, which did not ask: the other member's join went
@@ -393,16 +431,20 @@ impl QueueSession {
     // ---------- the screen's hooks ----------
 
     /// Sends the local pick's join.
-    fn rejoin(&mut self, out: &mut Vec<QOut>) {
+    fn rejoin(&mut self, now: f64, out: &mut Vec<QOut>) {
         if self.mine.is_none() {
             return;
+        }
+        // (the port's own) no session for the join: the search ends as at a lost connection
+        if self.gone {
+            return self.kick(KickNote::Error, out);
         }
         self.searching = true;
         self.joined = false;
         if self.cancels_out > 0 {
             self.joined_since_cancel = true;
         }
-        self.join(out);
+        self.join(now, out);
     }
 
     fn send_cancel(&mut self, out: &mut Vec<QOut>) {
@@ -447,14 +489,14 @@ impl QueueSession {
         }
         // MatchmakingStartTime (PM@66969) and Toggle Matchmaking's bIsMatchmaking
         self.start_ms = now;
-        let Some(party) = &self.party else { return self.rejoin(out) };
+        let Some(party) = &self.party else { return self.rejoin(now, out) };
         self.ready = true;
         // (the port's own) the member's lock told to the leader, whose search waits for it
         if !party.leader {
             out.push(QOut::Say(PartySay::Ready));
             return;
         }
-        self.party_go(out);
+        self.party_go(now, out);
     }
 
     /// The owner's Toggle Matchmaking(false); a member's AskLeaderToCancelMatchmaking (PM@80191).
@@ -471,7 +513,7 @@ impl QueueSession {
 
     /// The leader's search, once both picks are locked (its own and the member's 'ready'): state 11, its join, and
     /// the 'queue' the member's join waits for (the two within the server's PARTY_WAIT_MS).
-    fn party_go(&mut self, out: &mut Vec<QOut>) {
+    fn party_go(&mut self, now: f64, out: &mut Vec<QOut>) {
         if !self.party.as_ref().is_some_and(|p| p.leader)
             || !self.ready
             || !self.other_ready
@@ -485,7 +527,7 @@ impl QueueSession {
         if self.live {
             out.push(QOut::Screen(PreMatchEvent::PartyStarted));
         }
-        self.rejoin(out);
+        self.rejoin(now, out);
         out.push(QOut::Say(PartySay::Queue { modes: self.modes.clone() }));
     }
 
@@ -512,7 +554,7 @@ impl QueueSession {
 
     /// (the port's own) The other member's say to the party's search (partyQueueSay): true when the search took it.
     /// `other` is the other member's name.
-    pub fn party_say(&mut self, say: &PartySay, other: &str, out: &mut Vec<QOut>) -> bool {
+    pub fn party_say(&mut self, say: &PartySay, other: &str, now: f64, out: &mut Vec<QOut>) -> bool {
         let Some(leader) = self.party.as_ref().map(|p| p.leader) else { return false };
         if self.found.is_some() {
             return false;
@@ -520,7 +562,7 @@ impl QueueSession {
         match say {
             PartySay::Ready if leader => {
                 self.other_ready = true;
-                self.party_go(out);
+                self.party_go(now, out);
                 true
             }
             PartySay::Open { modes } if !leader => {
@@ -537,7 +579,7 @@ impl QueueSession {
                     return false;
                 }
                 if self.mine.is_some() && self.ready && !self.searching && !self.cancelling {
-                    self.rejoin(out);
+                    self.rejoin(now, out);
                 }
                 true
             }
@@ -566,16 +608,23 @@ impl QueueSession {
         }
     }
 
-    /// The timers: an unasked off 'party' whose 'cancel' did not come ends the search.
+    /// The timers: an unasked off 'party' whose 'cancel' did not come ends the search; (the port's own) a join with
+    /// no answer in JOIN_ANSWER_MS ends it as at a refused join.
     pub fn pump(&mut self, now: f64, out: &mut Vec<QOut>) {
         if self.lost.is_some_and(|t| now >= t) {
             self.lost = None;
             self.party_ended(KickNote::PartySearchEnded, out);
         }
+        if self.join_due.is_some_and(|t| now >= t) {
+            eprintln!("mvs: online: the queue's join had no answer");
+            self.join_due = None;
+            self.q_end(QueueWhy::Error);
+            self.on_state(false, Some(QueueWhy::Error), None, now, out);
+        }
     }
 
     pub fn next_due(&self) -> Option<f64> {
-        self.lost
+        [self.lost, self.join_due].into_iter().flatten().reduce(f64::min)
     }
 
     /// Out of the queue (endQueue): the party told this game is back in the menus, pm.leave.
@@ -684,6 +733,47 @@ mod tests {
     }
 
     #[test]
+    fn a_search_with_no_session_or_no_answer_kicks_the_screen() {
+        let t = Tables::default();
+        let mut out = Vec::new();
+        // the session lost before the screen came up: the screen is kicked as it comes up
+        let mut q = QueueSession::new(vec![QueueMode::OneVOne], None, "c1".into());
+        q.connection_lost(1.0, &mut out);
+        assert!(out.is_empty() && q.ended == Some(KickNote::Error));
+        q.screen_up(&mut out);
+        assert_eq!(out, [QOut::Screen(PreMatchEvent::Kick(KickNote::Error))]);
+        assert!(q.ended.is_none());
+        // a lock after the loss: no join goes out, the screen is kicked
+        out.clear();
+        q.local_locked(pick());
+        q.start_matchmaking(2.0, &mut out);
+        assert_eq!(out, [QOut::Screen(PreMatchEvent::Kick(KickNote::Error))]);
+        assert!(!q.searching);
+        // a join the server never answers ends after JOIN_ANSWER_MS
+        let mut q = QueueSession::new(vec![QueueMode::OneVOne], None, "c1".into());
+        q.screen_up(&mut out);
+        q.local_locked(pick());
+        out.clear();
+        q.start_matchmaking(10.0, &mut out);
+        assert_eq!(q.next_due(), Some(10.0 + JOIN_ANSWER_MS));
+        out.clear();
+        q.pump(10.0 + JOIN_ANSWER_MS - 1.0, &mut out);
+        assert!(out.is_empty());
+        q.pump(10.0 + JOIN_ANSWER_MS, &mut out);
+        assert_eq!(out, [QOut::Screen(PreMatchEvent::Kick(KickNote::Error))]);
+        assert!(!q.searching && q.next_due().is_none());
+        // an answered join keeps searching past the wait
+        let mut q = QueueSession::new(vec![QueueMode::OneVOne], None, "c1".into());
+        q.screen_up(&mut out);
+        q.local_locked(pick());
+        q.start_matchmaking(0.0, &mut out);
+        q.take(&msg(json!({ "t": "queue.state", "on": true })), &t, ("me", ""), 1.0, &mut out);
+        out.clear();
+        q.pump(JOIN_ANSWER_MS * 2.0, &mut out);
+        assert!(out.is_empty() && q.searching && q.next_due().is_none());
+    }
+
+    #[test]
     fn a_party_leader_waits_for_the_members_ready() {
         let t = Tables::default();
         let party = PartyQueue { leader: true, list: QueueParty { members: vec!["me".into(), "p2".into()] } };
@@ -696,7 +786,7 @@ mod tests {
         q.local_locked(pick());
         q.start_matchmaking(0.0, &mut out);
         assert!(out.is_empty() && !q.searching);
-        assert!(q.party_say(&PartySay::Ready, "Two", &mut out));
+        assert!(q.party_say(&PartySay::Ready, "Two", 0.0, &mut out));
         assert!(matches!(out[0], QOut::Screen(PreMatchEvent::PartyStarted)));
         assert!(sends(&out)[0].contains(r#""party":{"members":["me","p2"]}"#));
         assert_eq!(out.last(), Some(&QOut::Say(PartySay::Queue { modes: vec![QueueMode::TwoVTwo] })));
