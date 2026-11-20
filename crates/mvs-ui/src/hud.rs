@@ -102,6 +102,20 @@ pub struct HudSetup {
     pub ui: mvs_settings::UiSettings,
 }
 
+/// (the port's own) The HUD context mode of a Waves run: the player's portrait alone, the run's counter and clock.
+pub const MODE_WAVES: u8 = 6;
+
+/// (the port's own) A Waves run as the HUD reads it each frame (`Hud::set_waves`).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct WavesHud {
+    /// Enemies rung out so far.
+    pub ring_outs: u32,
+    /// The count that clears the run (100 Ring-Outs), or None (Endless).
+    pub target: Option<u32>,
+    /// The run's clock, seconds.
+    pub seconds: f64,
+}
+
 /// An arcade round as the HUD reads it (AXFunctions GetArcadeInfo's round, GetNumArcadeLevels).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct HudArcade {
@@ -442,6 +456,8 @@ pub struct Hud {
     top: Tree,
     ui: Prefs,
     ctx5: bool,
+    /// (the port's own) The Waves run's counter, set each frame by the app in context `MODE_WAVES`.
+    waves: Option<WavesHud>,
     names: PlayerNumbers,
     /// A minion's own queue (BPI_PopText on the Watermelon, the pawn's AddPopTextToQueue), by its id.
     minion_queues: IndexMap<Fid, VecDeque<Queued>>,
@@ -726,6 +742,7 @@ impl Hud {
             top,
             ui,
             ctx5,
+            waves: None,
             names,
             minion_queues: IndexMap::new(),
             minion_pops: Vec::new(),
@@ -800,6 +817,11 @@ impl Hud {
     /// What the input labels read of the players' input: `menu`, the bundle with
     /// InputButtonIconsTable (the menu's table and its textures are the HUD's data); `players`, each
     /// player index's input. Until it is given, every label is the keyboard form with the default keys.
+    /// (the port's own) The Waves run's counter for the frames that follow (context `MODE_WAVES`).
+    pub fn set_waves(&mut self, w: Option<WavesHud>) {
+        self.waves = w;
+    }
+
     pub fn set_label_input(&mut self, menu: &Bundle, players: Vec<LabelInput>) {
         let icons = menu.input_icons.keys().filter_map(|k| Some((k.clone(), menu.input_icon(k)?.to_owned()))).collect();
         let names = self.res.labels.names().clone();

@@ -30,6 +30,8 @@ pub struct Session {
     pub podium_toasts: PodiumToasts,
     /// The arcade run the screens read.
     pub arcade: Box<ArcadeState>,
+    /// (the port's own) The Waves mode's pick and its last run's result (`waves.rs`).
+    pub waves: Box<super::waves::WavesState>,
     /// The stats file: the profile, the badges' counts, the arcade and
     /// tutorial records and the toasts.
     pub stats: mvs_settings::stats::StatsFile,

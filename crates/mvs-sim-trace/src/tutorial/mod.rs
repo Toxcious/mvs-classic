@@ -814,7 +814,7 @@ fn make_objects(w: &mut World, v: &Value, l: &mut Lx) {
                     None => l.miss(format_args!("no data for the tutorial actor {key}")),
                 }
             }
-            None => l.miss("a tutorial actor in the record, no tutorial mode in the set-up"),
+            _ => l.miss("a tutorial actor in the record, no tutorial mode in the set-up"),
         }
     }
     if let Some(Value::List(a)) = ob.get("demos") {

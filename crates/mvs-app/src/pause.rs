@@ -30,7 +30,14 @@ pub const SPECIAL_LEFT: usize = 8;
 /// Local Play and the port's other offline lobby matches. Online and every match a server holds have none. The Lab
 /// (no lobby match) has UI_LAB_PauseMenu. (An arcade round and a tutorial are offline lobby matches.)
 pub fn has_pause_menu(kind: &MatchKind) -> bool {
-    matches!(kind, MatchKind::Custom { .. } | MatchKind::LocalPlay | MatchKind::Arcade | MatchKind::Tutorial)
+    matches!(
+        kind,
+        MatchKind::Custom { .. }
+            | MatchKind::LocalPlay
+            | MatchKind::Arcade
+            | MatchKind::Tutorial
+            | MatchKind::Waves { .. }
+    )
 }
 
 /// The pause menu's Skip Step calls on the running tutorial, run by the loop on the World after the menu's frame.

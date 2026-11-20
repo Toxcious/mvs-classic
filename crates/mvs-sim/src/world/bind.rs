@@ -51,11 +51,11 @@ pub fn intern_setup(names: &mut Names, setup: &crate::setup::MatchSetup) {
     for s in &setup.mutators {
         intern(names, s);
     }
-    if let Some(crate::setup::MatchMode::Tutorial { actor, cast }) = &setup.mode {
+    if let Some(crate::setup::MatchMode::Tutorial { actor, .. }) = &setup.mode {
         intern(names, actor);
-        for s in cast {
-            intern(names, s);
-        }
+    }
+    for s in setup.mode.iter().flat_map(crate::setup::MatchMode::cast) {
+        intern(names, s);
     }
 }
 

@@ -160,18 +160,17 @@ pub fn construct(w: &mut World) {
     // World.stageRun, or none
     stage::make_stage_run(w);
     reset(w);
-    if matches!(setup.mode, Some(S::MatchMode::Tutorial { .. })) {
-        flow::start_tutorial(w); // the tutorial level's begin play
+    match setup.mode {
+        Some(S::MatchMode::Tutorial { .. }) => flow::start_tutorial(w), // the tutorial level's begin play
+        Some(S::MatchMode::Waves { .. }) => crate::modes::waves::start(w),
+        None => {}
     }
 }
 
 /// The characters the match uses: the default one, the players', a mode's cast.
 fn used_keys(w: &World) -> Vec<String> {
     let mut used = vec![crate::world::DEFAULT_CHARACTER.to_owned()];
-    let cast = match &w.setup.mode {
-        Some(S::MatchMode::Tutorial { cast, .. }) => cast.clone(),
-        None => Vec::new(),
-    };
+    let cast = w.setup.mode.as_ref().map_or_else(Vec::new, |m| m.cast().to_vec());
     for k in w
         .setup
         .players

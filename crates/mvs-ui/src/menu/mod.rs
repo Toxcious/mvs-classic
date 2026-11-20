@@ -38,6 +38,7 @@ pub mod toasts;
 pub mod training_config;
 pub mod tutorial;
 pub mod view;
+pub mod waves;
 pub mod widgets;
 
 pub use controller::{Controller, Cx, Event, Handler, MenuRun};

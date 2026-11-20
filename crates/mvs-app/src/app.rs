@@ -388,6 +388,8 @@ pub enum MatchKind {
     /// A tutorial (Map_TrophyRoom_Tutorial's TutorialGameMode): its widgets over
     /// the match, back to the main menu at its end screen.
     Tutorial,
+    /// A Waves run (`waves.rs`): its result page at its end.
+    Waves { variant: mvs_sim::setup::WavesVariant },
 }
 
 /// A match to load and run (a lobby's match, the Lab's first set-up).

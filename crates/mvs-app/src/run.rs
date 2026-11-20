@@ -1928,7 +1928,8 @@ impl MatchLoop {
             | MatchKind::LocalPlay
             | MatchKind::Arcade
             | MatchKind::Online { .. }
-            | MatchKind::Tutorial => MatchEnd::Home,
+            | MatchKind::Tutorial
+            | MatchKind::Waves { .. } => MatchEnd::Home,
         };
         if !self.to_results {
             // Unverified: a match left from the pause menu ends the run with nothing

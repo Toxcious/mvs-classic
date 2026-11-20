@@ -87,6 +87,27 @@ pub enum MatchMode {
     /// `TutorialMode`: the TutorialActor class the level runs and the character keys it may spawn, in roster order.
     /// The `tutorials` (every TutorialActor class's data) are the match's data, not its set-up, here.
     Tutorial { actor: String, cast: Vec<String> },
+    /// The port's own Waves mode (`modes/waves/`): the player, set-up player 0, against a stream of bots drawn from
+    /// `cast` (`modes::waves::draw_cast`), which the match loads up front.
+    Waves { variant: WavesVariant, cast: Vec<String> },
+}
+
+impl MatchMode {
+    /// The character keys the mode may spawn past the set-up's players, loaded with them.
+    pub fn cast(&self) -> &[String] {
+        match self {
+            MatchMode::Tutorial { cast, .. } | MatchMode::Waves { cast, .. } => cast,
+        }
+    }
+}
+
+/// A Waves run's goal: the run ends at the player's ring-out either way.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum WavesVariant {
+    /// 100 Ring-Outs: the run is cleared at the hundredth ring-out; its record is the time.
+    RingOuts100,
+    /// Endless: the record is the count of ring-outs.
+    Endless,
 }
 
 /// `MatchSetup`.

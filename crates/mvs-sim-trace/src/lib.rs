@@ -425,10 +425,7 @@ fn player_of(v: &serde_json::Value) -> Result<MatchPlayer, String> {
 /// cast (the World's `used`).
 pub fn keys_of(s: &MatchSetup) -> Vec<String> {
     let mut keys: Vec<String> = Vec::new();
-    let cast = match &s.mode {
-        Some(MatchMode::Tutorial { cast, .. }) => cast.as_slice(),
-        None => &[],
-    };
+    let cast = s.mode.as_ref().map_or(&[][..], MatchMode::cast);
     for k in s
         .players
         .iter()

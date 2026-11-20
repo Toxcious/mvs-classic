@@ -28,7 +28,7 @@ impl ViewPoser {
         }
         // (a mode's cast: its pawns get their views at the step that finds them (sync_pawns), each in its
         // character's default skin (no player slot names one) and its minions' skins)
-        if let Some(mvs_sim::setup::MatchMode::Tutorial { cast, .. }) = &w.setup.mode {
+        if let Some(cast) = w.setup.mode.as_ref().map(mvs_sim::setup::MatchMode::cast) {
             for k in cast {
                 let Some(cd) = w.data.chars.get(k.as_str()) else { continue };
                 let mut skins = Vec::new();

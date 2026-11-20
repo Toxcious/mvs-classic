@@ -706,7 +706,7 @@ impl ViewPoser {
         p.players = p.recs.iter().map(|r| r.id).collect();
         // (a mode's cast, held with the match as a fighter's is: the characters whose assets its
         // actors draw with, Rick's for Tutorial_Meeseeks, are never a pawn's)
-        if let Some(mvs_sim::setup::MatchMode::Tutorial { cast, .. }) = &world.setup.mode {
+        if let Some(cast) = world.setup.mode.as_ref().map(mvs_sim::setup::MatchMode::cast) {
             for k in cast.iter().filter(|k| world.data.chars.contains_key(k.as_str())) {
                 p.load_char(store, world, k)?;
             }

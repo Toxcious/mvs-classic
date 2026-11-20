@@ -568,7 +568,17 @@ impl MatchAudio {
         if let Some(mvs_sim::setup::MatchMode::Tutorial { cast, .. }) = &world.setup.mode {
             return cast.iter().map(String::as_str).collect();
         }
-        world.setup.players.iter().map(|p| p.character.as_deref().unwrap_or(&world.data.default_character)).collect()
+        let mut out: Vec<&str> = Vec::new();
+        let players =
+            world.setup.players.iter().map(|p| p.character.as_deref().unwrap_or(&world.data.default_character));
+        // (a Waves run: the player's, then its enemies' cast)
+        let cast = world.setup.mode.iter().flat_map(mvs_sim::setup::MatchMode::cast).map(String::as_str);
+        for k in players.chain(cast) {
+            if !out.contains(&k) {
+                out.push(k);
+            }
+        }
+        out
     }
 
     /// scopeMatchAudio: per fighter of the match, the events its data names and its set carries, its applied skin's,

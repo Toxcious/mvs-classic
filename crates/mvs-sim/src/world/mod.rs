@@ -339,6 +339,8 @@ pub struct World {
     /// `mode` and `tutorial`: the running tutorial's game mode and actor (`modes/tutorial/`), set by its begin
     /// play (`modes::tutorial::run::start_tutorial`).
     pub tutorial: Option<Box<crate::modes::tutorial::TutorialRun>>,
+    /// The port's own Waves run (`modes/waves/`), set by `modes::waves::start`.
+    pub waves: Option<Box<crate::modes::waves::WavesRun>>,
     /// `mode`: the set-up mode's hooks. Skipped from the state: they
     /// are `fn` pointers bound from the set-up's mode at `World::new` and never changed, so a save would copy the
     /// same value.
@@ -441,6 +443,7 @@ impl World {
             world_mutators: None,
             runtime_solids: None,
             tutorial: None,
+            waves: None,
             mode: None,
             predicted: false,
             bot_trees: None,
