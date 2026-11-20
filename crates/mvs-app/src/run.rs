@@ -45,6 +45,7 @@ use crate::prepare::{Pending, PrepKey, PrepareJob, Prepared};
 use crate::rumble::MatchRumble;
 use crate::script::Gate;
 use crate::tutorial::{MatchParts, TutorialHost};
+use crate::waves::{EndBeat, EndStep};
 use crate::{Error, Result};
 use mvs_ui::bindings::Bindings;
 use mvs_ui::menu::MenuInput;
@@ -247,6 +248,8 @@ pub struct MatchLoop {
     win_at: Option<i32>,
     /// A tutorial match's widgets over it and its program side; None in any other match.
     tutorial: Option<TutorialHost>,
+    /// (the port's own) A Waves run's end beat; None in any other match and in a replay.
+    waves_end: Option<EndBeat>,
 }
 
 impl std::fmt::Debug for MatchLoop {
@@ -287,6 +290,9 @@ pub struct HudMade {
 pub(crate) fn hud_setup(inputs: &HudInputs, world: &World, me: usize, online: bool, usernames: &[String]) -> HudSetup {
     let setup = &world.setup;
     let arcade = inputs.arcade;
+    if crate::waves::is_waves(world) {
+        return crate::waves::hud_setup(world, me, usernames, &inputs.ui);
+    }
     // A mode's match has no fighters at the start: its HUD players are the set-up's, the
     // pawns bound to their slots later.
     if setup.mode.is_some() {
@@ -832,6 +838,7 @@ impl MatchLoop {
         if let Some(p) = &mut pause {
             p.pause.tutorial = matches!(kind, MatchKind::Tutorial);
         }
+        let waves_end = matches!(kind, MatchKind::Waves { .. }) && replay.is_none();
         let rumble = MatchRumble::new(&sh.devices);
         let ui_z = world
             .players
@@ -903,6 +910,7 @@ impl MatchLoop {
             chat_enter: false,
             win_at: None,
             tutorial,
+            waves_end: waves_end.then(EndBeat::default),
         })
     }
 
@@ -959,10 +967,15 @@ impl MatchLoop {
     /// The match's player bots: a Lab slot's controller is its bot entry of the Lab's menu (`lab_bot_of` the config's
     /// difficulty, recovery before the menu has set one); a match bot is `matchBot(12345 + slot, level)`. The trees
     /// go on the World, which a minion's controller reads too. With them, the EBotBehavior each Lab bot was made of
-    /// (0 a human's slot or a match bot).
+    /// (0 a human's slot or a match bot). A mode's match gets the trees with no player bot: its pawns' controllers
+    /// (a tutorial's bags, a Waves run's enemies) are the sim's and read them there.
     fn bots_of(world: &mut World, carry: Option<&LabCarry>, lab: bool) -> (Vec<Option<BtBot>>, Vec<u8>) {
         let n = world.setup.players.len();
-        if !world.setup.players.iter().any(|p| p.bot) {
+        // (a Waves run's bot in the player's seat is the sim's own, as its enemies are)
+        if !world.setup.players.iter().any(|p| p.bot) || crate::waves::is_waves(world) {
+            if world.setup.mode.is_some() {
+                world.bot_trees = Some(Arc::new(world.data.bot_trees.clone()));
+            }
             return (vec![None; n], vec![0; n]);
         }
         let mut behaviors = vec![0; n];
@@ -1042,7 +1055,7 @@ impl MatchLoop {
         if let Some(w) = warmed {
             eprintln!("mvs: hud warmed off the frame: {} textures, {} materials", w.textures, w.materials);
         } else if let Some(r) = &sh.renderer {
-            let chars: Vec<&str> = world.players.iter().map(|&f| world.names.str(world.fighter(f).ch)).collect();
+            let chars = crate::waves::hud_chars(world);
             let (t, w) = (Instant::now(), mvs_ui::element::warm_hud(r.assets(), &hud_bundle, &chars)?);
             eprintln!(
                 "mvs: hud warm {} textures, {} materials, {:.0} ms",
@@ -1219,6 +1232,8 @@ impl MatchLoop {
         if let Some(u) = &mut self.ui {
             // (the Lab's combo texts, behind the Lab menu's toggles)
             u.hud.set_lab_combos(self.lab.as_ref().map(LabHost::combos));
+            // (the port's own) a Waves run's counter and clock (a replay's too)
+            u.hud.set_waves(mvs_sim::modes::waves::status(&self.world).map(|s| crate::waves::hud_of(&s)));
             u.hud.observe(&self.world, &self.world.events, self.hud_time, self.real);
             for p in pops {
                 u.hud.scenery_pop(p, self.hud_time + STEP);
@@ -1294,6 +1309,23 @@ impl MatchLoop {
             match &mut self.pause {
                 Some(p) => p.to_main_menu(sh),
                 None => self.phase = Phase::Over,
+            }
+        }
+    }
+
+    /// (the port's own) A Waves run's end: a beat once the sim says the run is over, the fade at its last moment,
+    /// then the run's record saved and the match over, to the main menu (`over`: no results screen). Run after
+    /// each tick. A run left from the pause menu before the sim settled it saves nothing.
+    fn waves_frame(&mut self, sh: &mut Shell) {
+        let Some(e) = &mut self.waves_end else { return };
+        #[allow(clippy::cast_possible_truncation)] // (0.3 s: 18 ticks)
+        let fade = (FADE / STEP).round() as i32;
+        match e.frame(mvs_sim::modes::waves::status(&self.world), self.world.flow.tick, fade) {
+            EndStep::None => {}
+            EndStep::Fade => self.fade_start = Some(self.real),
+            EndStep::Finish(s) => {
+                crate::waves::finish(&mut sh.session, &self.world, &s);
+                self.phase = Phase::Over;
             }
         }
     }
@@ -1407,6 +1439,8 @@ impl MatchLoop {
             while self.acc >= STEP && self.phase == Phase::Playing && self.lab_effect.is_none() {
                 self.tick(sh)?;
                 self.acc -= STEP;
+                // (each tick's: a catch-up frame of many ticks skips no part of the beat)
+                self.waves_frame(sh);
             }
             if one_a_frame {
                 self.acc = 0.0;
@@ -1896,6 +1930,13 @@ impl MatchLoop {
 
     /// The match and its results over: left, and where it goes.
     fn over(&mut self, sh: &mut Shell) -> Result<Option<MatchEnd>> {
+        // (the port's own) a Waves run left from the pause menu once the sim had settled it, during its end beat:
+        // its result is kept
+        if let Some(e) = &mut self.waves_end
+            && let Some(s) = e.settle(mvs_sim::modes::waves::status(&self.world))
+        {
+            crate::waves::finish(&mut sh.session, &self.world, &s);
+        }
         // (each slot's online id from match.go, before the match's ticks go)
         let peers = match &self.ticks {
             Ticks::Online(o) => o.chat_table().map(|(_, p, _)| p).unwrap_or_default(),

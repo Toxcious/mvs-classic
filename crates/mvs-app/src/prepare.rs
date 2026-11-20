@@ -226,8 +226,7 @@ impl PrepareJob {
                 // (the HUD's pictures and UI materials made with the load, so its first frames draw them; a warm that
                 // fails leaves it to the install's, which reports it)
                 let warmed = h.assets.as_ref().and_then(|a| {
-                    let chars: Vec<&str> =
-                        world.players.iter().map(|&f| world.names.str(world.fighter(f).ch)).collect();
+                    let chars = crate::waves::hud_chars(&world);
                     mvs_ui::element::warm_hud(a, &bundle, &chars)
                         .inspect_err(|e| eprintln!("mvs: the HUD warm off the frame: {e}"))
                         .ok()

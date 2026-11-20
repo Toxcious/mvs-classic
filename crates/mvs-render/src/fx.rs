@@ -50,6 +50,8 @@ use crate::scenery::EmitterParam;
 /// One sim step (s).
 const STEP: f64 = 1.0 / 60.0;
 const PI: f64 = std::f64::consts::PI;
+/// How many gone mode pawns' colours `Fx::gone_colours` keeps.
+const GONE_KEPT: usize = 32;
 
 /// The effects' warm list (`Fx::warm`).
 #[derive(Debug, Default)]
@@ -354,6 +356,10 @@ pub struct Fx {
     rigs: IndexMap<String, Option<Rig>>,
     /// By the fighter's id.
     pawns: IndexMap<i32, PawnFx>,
+    /// The colours of the last `GONE_KEPT` mode pawns that left the world (`drop_gone_pawns`), by the fighter's id:
+    /// a projectile that still names one as its owner reads its team. Bounded, so an Endless run's despawns do not
+    /// grow it.
+    gone_colours: IndexMap<i32, FighterColour>,
     /// A step's list of pawn ids (kept from step to step).
     pawn_ids: Vec<i32>,
     followers: Vec<(SystemId, Follow)>,
@@ -441,6 +447,7 @@ impl Fx {
             splines: IndexMap::new(),
             rigs: IndexMap::new(),
             pawns: IndexMap::new(),
+            gone_colours: IndexMap::new(),
             pawn_ids: Vec::new(),
             followers: Vec::new(),
             snack_destroy: Vec::new(),
@@ -801,6 +808,14 @@ impl Fx {
             self.pawns.iter().find(|(id, p)| p.minion.is_none() && w.by_id(**id).is_none()).map(|x| *x.0)
         {
             if let Some(p) = self.pawns.shift_remove(&id) {
+                // (the port's own) its colour kept for the projectiles that still name it as their owner, in flight
+                // or spawned later (a Waves run's rung-out enemy): the last GONE_KEPT pawns' only
+                if let Some(c) = p.colour {
+                    self.gone_colours.insert(id, c);
+                    if self.gone_colours.len() > GONE_KEPT {
+                        self.gone_colours.shift_remove_index(0);
+                    }
+                }
                 p.kill_components(&mut self.player);
             }
         }
@@ -916,7 +931,10 @@ impl Fx {
             None => match self.pawns.get(&id) {
                 Some(PawnFx { minion: Some(ci), .. }) => f64::from(*ci),
                 Some(PawnFx { colour: Some(c), .. }) => c.team,
-                _ => panic!("fx: no pawn entry for fighter {id} (a step makes one for each pawn it finds)"),
+                _ => match self.gone_colours.get(&id) {
+                    Some(c) => c.team,
+                    None => panic!("fx: no pawn entry for fighter {id} (a step makes one for each pawn it finds)"),
+                },
             },
         }
     }
@@ -924,7 +942,10 @@ impl Fx {
     fn color_index(&self, id: i32) -> u8 {
         match self.colours.get(id as usize) {
             Some(c) => c.color_index,
-            None => self.pawns.get(&id).map_or(0, |p| p.minion.or(p.colour.map(|c| c.color_index)).unwrap_or(0)),
+            None => match self.pawns.get(&id) {
+                Some(p) => p.minion.or(p.colour.map(|c| c.color_index)).unwrap_or(0),
+                None => self.gone_colours.get(&id).map_or(0, |c| c.color_index),
+            },
         }
     }
 

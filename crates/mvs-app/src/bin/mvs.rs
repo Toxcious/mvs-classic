@@ -10,6 +10,7 @@
 //!   [--replay <trace match> [--trace-out <file>]] [--real-pace] [--shot <tick>[,..]] [--out <dir>] [--throttle <rate>]
 //!   [--bench <secs>] [--stage <key>] [--shot-results <secs>] [--press-results <secs>] [--no-audio] [--input-script <jsonl>] [--menu-tape <out>]
 //!   [--shot-frames <frame>[,..]] [--live-loads] [--audio-tape <file>]
+//!   [--waves endless|100 [--character <key>] [--waves-bot <level>]]   (a Waves run on `--stage`, cast from `--seed`)
 //!   [--relay <addr> (--host | --join <lobby>) [--key <file>] [--feed <trace match>]]
 //!   [--online-config <file> [--direct-loopback] [--online-open host|join:<code>|queue:<mode>[,..]] [--online-lag <ms>]
 //!   [--online-desync-at <tick>] [--feed <trace match>]]
@@ -58,7 +59,7 @@ mvs --play --store <dir> [--data <dir>] [--size 1920x1080] [--full-screen] [--ad
 mvs [--data <dir>] [--store <dir>] [--size 1920x1080] [--full-screen] [--adapter <text>] [--seed <n>] [--no-ui] \
 [--replay <trace match> [--trace-out <file>]] [--real-pace] [--shot <tick>[,..]] [--out <dir>] [--throttle <rate>] \
 [--bench <secs>] [--shot-results <secs>] [--no-audio] [--input-script <jsonl>] [--menu-tape <out>] [--shot-frames <frame>[,..]] \
-[--live-loads] [--audio-tape <file>]\n[--relay <addr> (--host | --join <lobby>) [--key <file>] [--feed <trace match>]]\n\
+[--live-loads] [--audio-tape <file>] [--waves endless|100 [--character <key>] [--waves-bot <level>]]\n[--relay <addr> (--host | --join <lobby>) [--key <file>] [--feed <trace match>]]\n\
 [--online-config <file> [--direct-loopback] [--online-open host|join:<code>|queue:<mode>[,..]] [--online-lag <ms>] \
 [--online-desync-at <tick>] [--feed <trace match>]]
 \n[--queue-fake [--queue-bots <s>] [--queue-start <s>] [--queue-vote-no] [--queue-path <pm.path json>]]\n\
@@ -116,6 +117,12 @@ struct Args {
     /// `--audio-tape <file>`: every call any screen hands the sound engine written to this file from the program's
     /// start (the post tape's lines: `mvs_app::audio::TapeWriter`).
     audio_tape: Option<PathBuf>,
+    /// (the port's own) `--waves endless|100`: the command line's match is a Waves run (`mvs_app::waves`).
+    waves: Option<mvs_sim::setup::WavesVariant>,
+    /// `--character <key>`: the Waves run's fighter (None: the default one).
+    character: Option<String>,
+    /// (dev) `--waves-bot <level>`: a match bot of that level in the Waves run's player seat (a run that lasts).
+    waves_bot: Option<u8>,
 }
 
 /// The flags of a test or scripted run: one of them mutes the device unless `--sound` is given, so a run the agents
@@ -223,6 +230,9 @@ fn parse(mut it: impl Iterator<Item = String>) -> Result<Args, String> {
         muted: false,
         background: false,
         audio_tape: None,
+        waves: None,
+        character: None,
+        waves_bot: None,
     };
     let (mut mute, mut sound, mut test, mut back, mut front) = (false, false, false, false, false);
     let (mut audio_tape, mut results_press) = (None, None);
@@ -274,6 +284,21 @@ fn parse(mut it: impl Iterator<Item = String>) -> Result<Args, String> {
             "--no-audio" => a.shell.audio = false,
             "--stage" => a.stage = it.next().ok_or("--stage: no value")?,
             "--replay" => a.replay = Some(it.next().ok_or("--replay: no value")?),
+            "--waves" => {
+                let v = it.next().ok_or("--waves: no value")?;
+                a.waves = Some(mvs_app::waves::variant_of(&v).ok_or(format!("--waves: {v} is not endless or 100"))?);
+            }
+            "--character" => {
+                let v = it.next().ok_or("--character: no value")?;
+                if !mvs_protocol::roster::CHARACTERS.contains(&v.as_str()) {
+                    return Err(format!("--character: {v} is not a roster key"));
+                }
+                a.character = Some(v);
+            }
+            "--waves-bot" => {
+                let v = it.next().ok_or("--waves-bot: no value")?;
+                a.waves_bot = Some(v.parse().map_err(|_| format!("--waves-bot: {v} is not a bot level"))?);
+            }
             "--shot" => {
                 for t in it.next().ok_or("--shot: no value")?.split(',') {
                     o.shots.push(num(Some(t.to_string()), "--shot")?);
@@ -350,6 +375,12 @@ fn parse(mut it: impl Iterator<Item = String>) -> Result<Args, String> {
     }
     if a.replay.is_some() && a.stage != mvs_sim_trace::TRACE_STAGE {
         return Err("--stage: not with --replay (the trace's header names the stage)".to_owned());
+    }
+    if a.waves.is_some() && (a.play || a.replay.is_some() || relay.is_some() || a.run.script.input_script.is_some()) {
+        return Err("--waves: not with --play, --replay, --relay or --input-script".to_owned());
+    }
+    if (a.character.is_some() || a.waves_bot.is_some()) && a.waves.is_none() {
+        return Err("--character, --waves-bot: no --waves".to_owned());
     }
     if o.trace_out.is_some() && a.replay.is_none() {
         return Err("--trace-out: no --replay".to_owned());
@@ -545,11 +576,20 @@ fn run(a: Args) -> mvs_app::Result<()> {
     } else {
         Go::Match(Box::new(match &a.replay {
             Some(name) => MatchStart::replay(name),
-            None => {
-                let mut start = MatchStart::default_match(a.seed);
-                start.stage.clone_from(&a.stage);
-                start
-            }
+            None => match a.waves {
+                Some(variant) => {
+                    let roster =
+                        shell.ui.as_ref().and_then(|u| u.menu.menu.as_ref()).map_or(&[][..], |m| m.roster.as_slice());
+                    let character = a.character.as_deref();
+                    let (settings, bot) = (&shell.settings, a.waves_bot);
+                    mvs_app::waves::waves_match(variant, character, bot, settings, roster, a.seed, &a.stage)
+                }
+                None => {
+                    let mut start = MatchStart::default_match(a.seed);
+                    start.stage.clone_from(&a.stage);
+                    start
+                }
+            },
         }))
     };
     let mut app = App::new(shell, first, &a.run)?;
