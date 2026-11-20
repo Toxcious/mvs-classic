@@ -44,7 +44,7 @@ pub const TAPE_PROTOCOL: u32 = 23;
 /// A tape of [`dir`] as [`read`] gives it, with every `"proto"` (a hello's) and `"server"` (a refusal's) of
 /// [`TAPE_PROTOCOL`] moved to this build's [`crate::version::PROTOCOL`] (in the tape's JSON, in the message texts it
 /// holds and in the bytes it holds as `{ "$bytes": hex }`), so a new PROTOCOL needs no new tape. Another number (an
-/// old game's hello) stays.
+/// old game's hello) stays. The message texts' lobby mutator is moved to this build's set too ([`move_mutators`]).
 pub fn read_tape(name: &str) -> Option<serde_json::Value> {
     let v = read(name)?;
     Some(move_protocol(v))
@@ -71,9 +71,61 @@ fn move_protocol(v: serde_json::Value) -> serde_json::Value {
                 .collect(),
         ),
         Value::Array(a) => Value::Array(a.into_iter().map(move_protocol).collect()),
-        Value::String(s) => Value::String(move_in_text(&s, now)),
+        Value::String(s) => {
+            let s = move_in_text(&s, now);
+            Value::String(move_mutators(&s).unwrap_or(s))
+        }
         x => x,
     }
+}
+
+/// A message text of the tape's lobby, which had one mutator (`options.mutator` and the option `mutator`, an index
+/// of `LOBBY_MUTATORS`, 0 none), with it as this build's set (`options.mutators` and the option `mutators`, a
+/// `MutatorSet`'s bits); None for a text without one. An index past the list is moved to bits no set takes, so its
+/// refusal stays.
+fn move_mutators(s: &str) -> Option<String> {
+    use crate::lobby_rules::{MUTATOR_CHOICES, MutatorSet};
+    use serde_json::{Value, json};
+    fn set_of(n: &Value) -> Value {
+        match n.as_u64().and_then(|n| usize::try_from(n).ok()) {
+            Some(n) if n < MUTATOR_CHOICES => json!(MutatorSet::default().with(n, true).0),
+            Some(_) => json!(u32::MAX),
+            None => n.clone(),
+        }
+    }
+    fn widen(v: &mut Value) -> bool {
+        match v {
+            Value::Object(o) => {
+                let mut changed = false;
+                if o.get("key").and_then(Value::as_str) == Some("mutator") {
+                    o.insert("key".into(), json!("mutators"));
+                    if let Some(x) = o.get("value").map(set_of) {
+                        o.insert("value".into(), x);
+                    }
+                    changed = true;
+                }
+                if let Some(n) = o.remove("mutator") {
+                    o.insert("mutators".into(), set_of(&n));
+                    changed = true;
+                }
+                o.values_mut().fold(changed, |c, x| widen(x) || c)
+            }
+            // (every element is widened: no stop at the first)
+            Value::Array(a) => {
+                let mut changed = false;
+                for x in a {
+                    changed |= widen(x);
+                }
+                changed
+            }
+            _ => false,
+        }
+    }
+    if !s.contains("\"mutator\"") {
+        return None;
+    }
+    let mut v: Value = serde_json::from_str(s).ok()?;
+    widen(&mut v).then(|| v.to_string())
 }
 
 /// The keys of a message that hold the PROTOCOL.

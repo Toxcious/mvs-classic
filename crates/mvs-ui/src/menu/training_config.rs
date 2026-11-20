@@ -32,6 +32,9 @@ pub struct LabConfig {
     pub selected_map: String,
     pub instant_cooldowns: bool,
     pub same_attack_penalty: bool,
+    /// (the port's own) The match's mutators (the Lab's Experimental Settings): a change restarts the match at the
+    /// unpause.
+    pub mutators: mvs_protocol::lobby_rules::MutatorSet,
 }
 
 /// The Lab's toggles a restart carries (LabSession's hitstunCombo, juggleCombo, hazards).

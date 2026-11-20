@@ -3,7 +3,7 @@
 //! to all members as "lobby.state" { id, ev, data }: the whole lobby and the event it stands for.
 
 use mvs_protocol::lobby_rules::{
-    BOT_DIFFICULTY_EXPERT, BOT_DIFFICULTY_MIN, LobbyPlayer, LobbyRules, OptionKey, OptionValue, bot_name,
+    BOT_DIFFICULTY_EXPERT, BOT_DIFFICULTY_MIN, LobbyPlayer, LobbyRules, MutatorSet, OptionKey, OptionValue, bot_name,
 };
 use mvs_protocol::messages::{HostWhy, LobbyErrorWhy, LobbyRefusedWhy, RefusedWhy, ServerMessage};
 use mvs_protocol::names::clean_name;
@@ -24,18 +24,14 @@ fn option_value(key: Option<&Value>, value: Option<&Value>) -> Option<(OptionKey
         "public" => OptionKey::Public,
         "stocks" => OptionKey::Stocks,
         "invitedOnly" => OptionKey::InvitedOnly,
-        "mutator" => OptionKey::Mutator,
+        "mutators" => OptionKey::Mutators,
         _ => return None,
     };
     match key {
-        OptionKey::Mutator => {
-            let x = value?.as_f64()?;
-            // (a listed value: 0..=17)
-            (x.fract() == 0.0 && (0.0..=17.0).contains(&x)).then(|| {
-                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-                let n = x as usize;
-                (key, OptionValue::Choice(n))
-            })
+        OptionKey::Mutators => {
+            // (a set of listed mutators' bits)
+            let bits = u32::try_from(value?.as_u64()?).ok()?;
+            MutatorSet::of(bits).map(|m| (key, OptionValue::Set(m)))
         }
         _ => value?.as_bool().map(|b| (key, OptionValue::Bool(b))),
     }

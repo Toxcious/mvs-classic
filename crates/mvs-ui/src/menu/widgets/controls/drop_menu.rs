@@ -38,6 +38,9 @@ fn shown(cx: &Cx<'_>, w: WidgetId) -> bool {
 #[derive(Debug, Default)]
 pub struct ContextButton {
     pub on_click: Event<()>,
+    /// (the port's own) A checklist's ticked row: its label is white while unfocused (`ContextMenu::set_checked`).
+    checked: bool,
+    focused: bool,
 }
 
 impl ContextButton {
@@ -55,6 +58,19 @@ impl ContextButton {
         wd(cx, l).text = label.to_string();
         let i = find(cx, "UI_Interactor");
         set_id(cx, i, label);
+    }
+
+    /// (the port's own) The row ticked in a checklist or not.
+    pub fn set_checked(&mut self, cx: &mut Cx<'_>, on: bool) {
+        self.checked = on;
+        if !self.focused {
+            let l = find(cx, "label");
+            wd(cx, l).color = self.idle_color();
+        }
+    }
+
+    fn idle_color(&self) -> Rgba {
+        if self.checked { WHITE } else { CONTEXT_IDLE }
     }
 
     /// @0-34: ScaleBox_1.SetStretch(3) and the label's AutoWrapText off.
@@ -94,11 +110,13 @@ impl Controller for ContextButton {
         match id {
             H_CLICK => cx.emit(self, |c| &c.on_click, &()),
             H_FOCUS => {
+                self.focused = true;
                 wd(cx, l).color = CONTEXT_FOCUSED;
                 wd(cx, f).vis = Vis::SelfHitTestInvisible;
             }
             H_UNFOCUS => {
-                wd(cx, l).color = CONTEXT_IDLE;
+                self.focused = false;
+                wd(cx, l).color = self.idle_color();
                 wd(cx, f).vis = Vis::Hidden;
             }
             _ => {}
@@ -113,6 +131,8 @@ const CM_DISMISS_CLICK: u32 = 2;
 const CM_TIMER: u32 = 3;
 const CM_SCROLL: u32 = 4;
 const CM_HIDE: u32 = 1;
+/// A checklist's ticked row's mark before its label: a bullet (the menu's faces have no tick).
+const CHECKED: &str = "\u{2022} ";
 
 /// The list UI_Manager.ShowContextMenu puts over the screen: a full-screen dismissTarget and the `menu` box placed
 /// by its canvas slot. Not ported, none of it reachable: the close button entry (Init @1257-1412: id closeButton,
@@ -143,6 +163,8 @@ pub struct ContextMenu {
     adjust_scroll_box: bool,
     /// (the port's own) The list was fitted to the room below its top (`fit_to_screen`).
     fitted: bool,
+    /// (the port's own) Each row's button, label widget and text, by id: a checklist's ticks are drawn on them.
+    labels: IndexMap<String, (WidgetId, WidgetId, String)>,
 }
 
 impl ContextMenu {
@@ -164,6 +186,7 @@ impl ContextMenu {
             scroll_bar_item_count: 0,
             adjust_scroll_box: false,
             fitted: false,
+            labels: IndexMap::new(),
         })
     }
 
@@ -281,6 +304,15 @@ impl ContextMenu {
         self.scroll_bar_item_count = rows as i32;
     }
 
+    /// (the port's own) A checklist's rows: `ids` ticked, their labels white and after the mark (`CHECKED`).
+    pub fn set_checked(&mut self, cx: &mut Cx<'_>, ids: &[String]) {
+        for (id, (b, l, label)) in &self.labels {
+            let on = ids.contains(id);
+            wd(cx, *l).text = format!("{}{label}", if on { CHECKED } else { "" });
+            cx.visit::<ContextButton, _>(*b, |c, cx| c.set_checked(cx, on));
+        }
+    }
+
     /// Hide Self / Hide Me (next frame, see the type).
     fn hide_self(cx: &mut Cx<'_>) {
         cx.view.delay(0.0, Handler { owner: cx.w, id: CM_HIDE });
@@ -340,6 +372,7 @@ impl ManagedContextMenu for ContextMenu {
             x.typeface = Some("NormsCond-ExtraBoldItalic".into());
             x.font_size = 20.0;
             x.letter_spacing = 0.0;
+            self.labels.insert(button.id.clone(), (bw, l, button.label.clone()));
             let iw = ContextButton::interactor(cx, bw);
             self.interactors.insert(button.id.clone(), iw);
             // @2683, @3967-4320: a button's tooltip
@@ -400,6 +433,7 @@ impl Controller for ContextMenu {
         self.move_timer = -1.0;
         self.params = None;
         self.interactors.clear();
+        self.labels.clear();
         cx.view.manager.on_timer_event.remove(Handler { owner: me, id: CM_TIMER });
         cx.view.manager.on_scroll.remove(Handler { owner: me, id: CM_SCROLL });
         let sb = find(cx, "ScrollBox");
@@ -522,6 +556,10 @@ pub struct DropMenu {
     pub current_selected_id: String,
     open: bool,
     items: Vec<Value>,
+    /// (the port's own) A checklist's ticked ids (`set_checked`); None for a list of one choice.
+    checked: Option<Vec<String>>,
+    /// The context menu while it is up.
+    list: Option<WidgetId>,
 }
 
 impl DropMenu {
@@ -683,6 +721,10 @@ impl DropMenu {
         if let Some(m) = cx.view.context_menu(menu) {
             m.on_dismissed().add(Handler { owner: me, id: D_CTX_DISMISSED });
         }
+        self.list = Some(menu);
+        if let Some(ids) = &self.checked {
+            cx.visit::<ContextMenu, _>(menu, |c, cx| c.set_checked(cx, ids));
+        }
         for (_, i) in interactors {
             if let Some(s) = cx.view.manager.interactor_mut(i) {
                 s.on_click_with_source.add(Handler { owner: me, id: D_CTX_CLICK });
@@ -728,9 +770,27 @@ impl DropMenu {
         }
     }
 
+    /// (the port's own) The row as a checklist: its ticked ids and its label. A click on a row of its list ticks
+    /// nothing itself: it is the owner's `on_click`, and the list stays up until dismissed; the owner answers with
+    /// `set_checked`, which ticks the rows of the list while it is up.
+    pub fn set_checked(&mut self, cx: &mut Cx<'_>, ids: Vec<String>, label: &str) {
+        for n in ["WrapSelectionLabel", "AutoWrapSelectionLabel"] {
+            let l = find(cx, n);
+            wd(cx, l).text = label.to_string();
+        }
+        if let Some(m) = self.list {
+            cx.visit::<ContextMenu, _>(m, |c, cx| c.set_checked(cx, &ids));
+        }
+        self.checked = Some(ids);
+    }
+
     /// Clicked @2808: CurrentSelectedID is the ID before ToggleOpen(false), so an in-place list's OnClosed sees the
     /// pick.
     fn clicked(&mut self, cx: &mut Cx<'_>, index: i32, id: &str) {
+        if self.checked.is_some() {
+            cx.emit(self, |c| &c.on_click, &(index, id.to_string()));
+            return;
+        }
         self.current_selected_id = id.to_string();
         self.toggle_open(cx, false);
         self.set_active_by_id(cx, id);
@@ -871,6 +931,7 @@ impl Controller for DropMenu {
             }
             D_CTX_DISMISSED => {
                 self.open = false;
+                self.list = None;
                 let idle = find(cx, "IdleContainer");
                 wd(cx, idle).opacity = 1.0;
                 let main = Self::main_interactor(cx);

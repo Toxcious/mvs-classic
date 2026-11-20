@@ -11,7 +11,7 @@
 
 use std::any::Any;
 
-use mvs_protocol::lobby_rules::{LobbyOptions, OptionKey, OptionValue};
+use mvs_protocol::lobby_rules::{LobbyOptions, MutatorSet, OptionKey, OptionValue};
 use serde_json::{Value, json};
 
 use super::common::{ModalBase, fill_page};
@@ -40,6 +40,8 @@ pub struct Row {
     pub label: Words,
     /// The values in the order the drop menu lists them, with their names.
     pub values: Vec<(OptionValue, Words)>,
+    /// A checklist (the mutators): the values are sets of one, ticked or not; the empty set clears the list.
+    pub multi: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -69,11 +71,31 @@ pub fn room_page() -> SettingsPage {
                     (OptionValue::Bool(false), Words::Game("1164D2E24901624F6C0BF48A216689B8")), // Private
                     (OptionValue::Bool(true), Words::Game("37F7D5A94886770D20288BA8D91BCB3D")),  // Public
                 ],
+                multi: false,
             },
             // (the port's own) only the players a member invited may join (invitedOnly)
-            Row { key: OptionKey::InvitedOnly, label: Words::Own(text::INVITED_ONLY.into()), values: on_off() },
+            Row {
+                key: OptionKey::InvitedOnly,
+                label: Words::Own(text::INVITED_ONLY.into()),
+                values: on_off(),
+                multi: false,
+            },
         ],
         art: None,
+    }
+}
+
+/// The mutators' checklist: Off (the empty set), then each of LOBBY_MUTATORS.
+fn mutators_row() -> Row {
+    Row {
+        key: OptionKey::Mutators,
+        label: Words::Own(text::MUTATOR.into()),
+        values: text::MUTATORS
+            .iter()
+            .enumerate()
+            .map(|(i, t)| (OptionValue::Set(MutatorSet::default().with(i, true)), Words::Own((*t).into())))
+            .collect(),
+        multi: true,
     }
 }
 
@@ -82,20 +104,38 @@ pub fn experimental_page() -> SettingsPage {
     SettingsPage {
         title: Words::Own(text::EXPERIMENTAL_TITLE.into()),
         rows: vec![
-            Row { key: OptionKey::Stocks, label: Words::Own(text::STOCK_MODE.into()), values: on_off() },
-            // the match's mutator (LOBBY_MUTATORS, by value)
-            Row {
-                key: OptionKey::Mutator,
-                label: Words::Own(text::MUTATOR.into()),
-                values: text::MUTATORS
-                    .iter()
-                    .enumerate()
-                    .map(|(i, t)| (OptionValue::Choice(i), Words::Own((*t).into())))
-                    .collect(),
-            },
+            Row { key: OptionKey::Stocks, label: Words::Own(text::STOCK_MODE.into()), values: on_off(), multi: false },
+            mutators_row(),
         ],
         art: Some("GameMode_AXHard_BG"),
     }
+}
+
+/// The Lab's experimental rules: the mutators alone (the Lab has no stocks).
+pub fn lab_experimental_page() -> SettingsPage {
+    SettingsPage { rows: vec![mutators_row()], ..experimental_page() }
+}
+
+/// The set after a click on a checklist row's `value`: Off clears it, a mutator is ticked or unticked.
+pub fn toggled(set: MutatorSet, value: MutatorSet) -> MutatorSet {
+    if value.is_empty() { MutatorSet::default() } else { MutatorSet(set.0 ^ value.0) }
+}
+
+/// A checklist's label: Off, the one mutator's name, or the count.
+pub fn mutators_label(set: MutatorSet) -> String {
+    match set.len() {
+        0 => text::MUTATORS[0].to_string(),
+        1 => set.indexes().next().map_or_else(String::new, |n| text::MUTATORS[n].to_string()),
+        n => text::mutator_count(n),
+    }
+}
+
+/// A checklist's ticked rows' ids: Off for the empty set, else each mutator's.
+fn ticked_ids(set: MutatorSet) -> Vec<String> {
+    if set.is_empty() {
+        return vec![option_text(OptionValue::Set(set))];
+    }
+    set.indexes().map(|n| option_text(OptionValue::Set(MutatorSet::default().with(n, true)))).collect()
 }
 
 /// What the modal reads of the lobby (`Lobby.amILeader()`, `teamStyle`, `options`).
@@ -123,6 +163,7 @@ struct MenuRow {
     key: OptionKey,
     menu: WidgetId,
     values: Vec<OptionValue>,
+    multi: bool,
 }
 
 #[derive(Debug)]
@@ -138,7 +179,7 @@ pub struct CustomGameSettings {
 fn option_text(v: OptionValue) -> String {
     match v {
         OptionValue::Bool(b) => b.to_string(),
-        OptionValue::Choice(n) => n.to_string(),
+        OptionValue::Set(m) => m.0.to_string(),
     }
 }
 
@@ -225,7 +266,12 @@ impl CustomGameSettings {
             let me = cx.w;
             let row = self.menus.len() as u32;
             cx.visit::<DropMenu, _>(w, |m, _| m.on_click.add(Handler { owner: me, id: H_ROW + row }));
-            self.menus.push(MenuRow { key: r.key, menu: w, values: r.values.iter().map(|(v, _)| *v).collect() });
+            self.menus.push(MenuRow {
+                key: r.key,
+                menu: w,
+                values: r.values.iter().map(|(v, _)| *v).collect(),
+                multi: r.multi,
+            });
             cx.visit_dyn(w, |_, cx| DropMenu::update_context(cx, &ctx, Some(0)));
         }
     }
@@ -254,9 +300,18 @@ impl CustomGameSettings {
         }
         let Some(v) = self.view else { return };
         for m in &self.menus {
-            let key = option_text(v.options.get(m.key));
+            let value = v.options.get(m.key);
             let main = cx.view.tree().find_in(m.menu, "mainInteractor");
-            cx.visit::<DropMenu, _>(m.menu, |d, cx| d.set_active_by_id(cx, &key));
+            match value {
+                OptionValue::Set(set) if m.multi => {
+                    let (ticked, label) = (ticked_ids(set), mutators_label(set));
+                    cx.visit::<DropMenu, _>(m.menu, |d, cx| d.set_checked(cx, ticked, &label));
+                }
+                _ => {
+                    let key = option_text(value);
+                    cx.visit::<DropMenu, _>(m.menu, |d, cx| d.set_active_by_id(cx, &key));
+                }
+            }
             interactor::set_interactable(cx, main, v.leader);
             if !v.leader {
                 cx.visit::<DropMenu, _>(m.menu, |d, cx| d.close(cx));
@@ -367,6 +422,17 @@ impl Controller for CustomGameSettings {
                     && let Some(&value) = row.values.get(i as usize)
                 {
                     let key = row.key;
+                    let value = match (value, self.view.map(|v| v.options.get(key))) {
+                        (OptionValue::Set(click), Some(OptionValue::Set(now))) if row.multi => {
+                            OptionValue::Set(toggled(now, click))
+                        }
+                        _ => value,
+                    };
+                    // (the page's copy takes the change at once: a second click before the lobby's answer toggles
+                    // from it)
+                    if let Some(v) = &mut self.view {
+                        v.options.set(key, value);
+                    }
                     cx.emit(self, |c| &c.on_option, &(key, value));
                 }
             }
@@ -389,11 +455,28 @@ mod tests {
         assert_eq!(p.rows[1].values.len(), mvs_protocol::lobby_rules::MUTATOR_CHOICES);
         assert_eq!(p.art, Some("GameMode_AXHard_BG"));
         assert_eq!(room_page().rows.len(), 2);
+        let lab = lab_experimental_page();
+        assert_eq!(lab.rows.len(), 1);
+        assert!(lab.rows[0].multi && lab.rows[0].key == OptionKey::Mutators);
+    }
+
+    #[test]
+    fn a_checklist_click_ticks_unticks_or_clears() {
+        let one = |n| MutatorSet::default().with(n, true);
+        let s = toggled(toggled(MutatorSet::default(), one(2)), one(6));
+        assert_eq!(s, MutatorSet((1 << 2) | (1 << 6)));
+        assert_eq!(mutators_label(s), text::mutator_count(2));
+        assert_eq!(ticked_ids(s), ["4", "64"]);
+        let s = toggled(s, one(2));
+        assert_eq!(mutators_label(s), text::MUTATORS[6]);
+        assert_eq!(toggled(s, MutatorSet::default()), MutatorSet::default());
+        assert_eq!(mutators_label(MutatorSet::default()), text::MUTATORS[0]);
+        assert_eq!(ticked_ids(MutatorSet::default()), ["0"]);
     }
 
     #[test]
     fn option_values_name_the_menu_ids() {
         assert_eq!(option_text(OptionValue::Bool(true)), "true");
-        assert_eq!(option_text(OptionValue::Choice(7)), "7");
+        assert_eq!(option_text(OptionValue::Set(MutatorSet::default().with(3, true))), "8");
     }
 }

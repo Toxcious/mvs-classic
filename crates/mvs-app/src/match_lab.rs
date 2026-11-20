@@ -12,6 +12,7 @@
 //! `update_lab_bots`), the ahead job that warms the next fighters' effects (the restart's load does it), the views'
 //! meshes made during the delay.
 
+use mvs_protocol::lobby_rules::MutatorSet;
 use mvs_sim::World;
 use mvs_sim::fighter::common::latent_frames;
 use mvs_ui::menu::MenuScreen;
@@ -188,6 +189,8 @@ pub struct LabControl {
     /// TrainingGameState Respond To Pause Status: ConfigAtLastPause (@2788).
     config_at_pause: Vec<LabPlayerConfig>,
     map_at_pause: String,
+    /// (the port's own) The mutators at the pause: another set at the unpause respawns into a restart.
+    mutators_at_pause: MutatorSet,
     /// Ticks of HandleAllPlayerDataAcked's Delay(1.0); 0 = no spawn pending.
     spawn_left: u32,
     /// What the match runs with (rosterOf at its start).
@@ -205,6 +208,7 @@ impl LabControl {
             paused: false,
             unpaused_this_frame: false,
             config_at_pause: Vec::new(),
+            mutators_at_pause: MutatorSet::default(),
             map_at_pause: String::new(),
             spawn_left: 0,
             roster,
@@ -271,6 +275,7 @@ impl LabControl {
         self.paused = on;
         if on {
             self.config_at_pause = st.config.players.clone();
+            self.mutators_at_pause = st.config.mutators;
             self.map_at_pause = st.config.selected_map.clone();
             self.map_roll = None;
             out.push(LabEffect::Paused(true));
@@ -294,7 +299,8 @@ impl LabControl {
             .players
             .iter()
             .enumerate()
-            .any(|(n, p)| self.config_at_pause.get(n).is_none_or(|old| !lab_players_equal(p, old)));
+            .any(|(n, p)| self.config_at_pause.get(n).is_none_or(|old| !lab_players_equal(p, old)))
+            || st.config.mutators != self.mutators_at_pause;
         if changed {
             self.respawn(st, i, &mut out);
         }
@@ -441,6 +447,26 @@ mod tests {
             c.set_pause(&st, false, i);
             let spawn = (0..100).find_map(|_| c.tick(&st, i));
             assert!(matches!(spawn, Some(LabEffect::Restart(_))));
+        });
+    }
+
+    /// Mutators ticked in the pause: the unpause respawns into a restart whose set-up runs them.
+    #[test]
+    fn other_mutators_restart_with_them() {
+        with_inputs(|i| {
+            let mut st = LabState::new(config(), None);
+            let mut c = LabControl::new(lab_roster_skins(i, &st.config, &LabRoll::default()), LabRoll::default());
+            c.set_pause(&st, true, i);
+            let mut new = st.config.clone();
+            new.mutators = MutatorSet::default().with(2, true).with(6, true);
+            st.request_config_update(new);
+            let e = c.set_pause(&st, false, i);
+            assert!(e.contains(&LabEffect::AbductAll));
+            let spawn = (0..100).find_map(|_| c.tick(&st, i));
+            let Some(LabEffect::Restart(roll)) = spawn else { panic!("a restart: {spawn:?}") };
+            let setup = crate::lab_setup::lab_setup(i, &st.config, &roll);
+            assert_eq!(setup.mutators, st.config.mutators.names());
+            assert_eq!(setup.mutators.len(), 2);
         });
     }
 

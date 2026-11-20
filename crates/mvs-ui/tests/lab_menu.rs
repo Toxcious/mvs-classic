@@ -535,3 +535,83 @@ fn the_row_shows_its_perks_and_a_tile_opens_the_perk_page() {
     s.with_cx(&mut e.run(&mut lab), |cx| cx.visit::<LabPauseMenu, _>(menu, |m, cx| m.hidden(cx)));
     s.remove(&mut e.run(&mut lab));
 }
+
+/// The context menu rows up now: (row widget, its label text).
+fn context_rows(s: &MenuScreen) -> Vec<(mvs_ui::slate::WidgetId, String)> {
+    let t = s.view.tree();
+    t.ids()
+        .filter(|&w| t.user_class(w) == Some("UI_ContextButton") && t.widget(w).parent.is_some())
+        .map(|w| (w, t.widget(t.find_in(w, "label")).text.clone()))
+        .collect()
+}
+
+/// Experimental Settings under Move List opens the mutators' page; its list is a checklist: each click ticks one
+/// more into the Lab's config, the list stays up, the ticked rows have their mark and the row its count.
+#[test]
+fn the_labs_experimental_settings_tick_mutators_into_the_config() {
+    use mvs_protocol::lobby_rules::MutatorSet;
+    use mvs_ui::menu::custom_text;
+    use mvs_ui::menu::screens::lab::LAB_EXPERIMENTAL_MODAL;
+    use mvs_ui::menu::widgets::controls::buttons::ButtonSecondary;
+    use mvs_ui::menu::widgets::controls::interactor::{set_focused, submit};
+
+    let Some(mut e) = env() else { return };
+    let mut lab = fake();
+    let view = MenuView::new(e.bundle.clone(), e.text.clone(), [1600, 900]);
+    let mut s = MenuScreen::new(view, &mut e.run(&mut lab));
+    let menu = s.with_cx(&mut e.run(&mut lab), |cx| {
+        let w = MenuView::create(cx, "UI_LAB_PauseMenu");
+        MenuView::add_to_viewport(cx, w, 0);
+        cx.visit::<LabPauseMenu, _>(w, |m, cx| m.shown(cx));
+        w
+    });
+    for i in 0..4 {
+        tick(&mut s, &mut e, &mut lab, 1.0 + i as f64 * 0.02);
+    }
+    let press = |s: &mut MenuScreen, e: &mut Env, lab: &mut Fake, i: mvs_ui::slate::WidgetId| {
+        s.with_cx(&mut e.run(lab), |cx| {
+            set_focused(cx, i, false);
+            cx.view.manager.interactor_mut(i).unwrap().is_focused = true;
+            submit(cx, i, 0);
+        });
+    };
+    let b = s.with_cx(&mut e.run(&mut lab), |cx| {
+        let lp = cx.view.tree().find_in(menu, "UI_LAB_Panel");
+        let b = cx.view.tree().find_in(lp, "Btn_Experimental");
+        let label = cx.view.tree().find_in(b, "label");
+        assert_eq!(cx.view.tree().widget(label).text, custom_text::EXPERIMENTAL_BUTTON);
+        ButtonSecondary::interactor(cx, b)
+    });
+    tick(&mut s, &mut e, &mut lab, 3.0);
+    press(&mut s, &mut e, &mut lab, b);
+    tick(&mut s, &mut e, &mut lab, 4.0);
+    let m = s.view.manager.get_modal(LAB_EXPERIMENTAL_MODAL).expect("the page is up");
+    let row = s.view.tree().find_in(m, "Option_Mutators");
+    let open = s.view.tree().find_in(row, "mainInteractor");
+    press(&mut s, &mut e, &mut lab, open);
+    tick(&mut s, &mut e, &mut lab, 5.0);
+    let rows = context_rows(&s);
+    assert_eq!(rows.len(), custom_text::MUTATORS.len(), "the list has Off and every mutator");
+    for (k, n) in [(2, 1u32), (6, 2)] {
+        let (w, _) = rows.iter().find(|(_, l)| l.ends_with(custom_text::MUTATORS[k])).cloned().expect("the row");
+        let i = s.view.tree().find_in(w, "UI_Interactor");
+        press(&mut s, &mut e, &mut lab, i);
+        tick(&mut s, &mut e, &mut lab, 5.0 + f64::from(n));
+        assert_eq!(lab.config.mutators.len(), n as usize, "click {n} ticks one more");
+    }
+    assert_eq!(lab.config.mutators, MutatorSet::default().with(2, true).with(6, true));
+    let rows = context_rows(&s);
+    assert_eq!(rows.len(), custom_text::MUTATORS.len(), "the list stays up");
+    let ticked: Vec<&str> = rows.iter().filter(|(_, l)| l.starts_with('\u{2022}')).map(|(_, l)| l.as_str()).collect();
+    assert_eq!(ticked.len(), 2, "the two ticked rows have their mark: {ticked:?}");
+    let label = s.view.tree().widget(s.view.tree().find_in(row, "WrapSelectionLabel")).text.clone();
+    assert_eq!(label, custom_text::mutator_count(2));
+    // Off clears the list
+    let (w, _) = rows.iter().find(|(_, l)| l.ends_with(custom_text::MUTATORS[0])).cloned().expect("Off");
+    let i = s.view.tree().find_in(w, "UI_Interactor");
+    press(&mut s, &mut e, &mut lab, i);
+    tick(&mut s, &mut e, &mut lab, 8.0);
+    assert!(lab.config.mutators.is_empty());
+    s.with_cx(&mut e.run(&mut lab), |cx| cx.visit::<LabPauseMenu, _>(menu, |m, cx| m.hidden(cx)));
+    s.remove(&mut e.run(&mut lab));
+}

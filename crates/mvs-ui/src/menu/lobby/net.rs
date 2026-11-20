@@ -556,11 +556,11 @@ impl NetLobby {
             OptionKey::Public => "public",
             OptionKey::Stocks => "stocks",
             OptionKey::InvitedOnly => "invitedOnly",
-            OptionKey::Mutator => "mutator",
+            OptionKey::Mutators => "mutators",
         };
         let value = match value {
             OptionValue::Bool(b) => OptionWire::Bool(b),
-            OptionValue::Choice(n) => OptionWire::Number(u32::try_from(n).unwrap_or(0)),
+            OptionValue::Set(m) => OptionWire::Number(m.0),
         };
         self.send(ClientMessage::LobbySetOption { key: key.to_string(), value });
     }

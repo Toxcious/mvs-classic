@@ -7,6 +7,7 @@
 
 use std::any::Any;
 
+use mvs_protocol::lobby_rules::{LobbyOptions, OptionValue};
 use serde_json::json;
 
 use crate::bundle::{MapInfo, Rgba, RosterEntry, SkinInfo};
@@ -29,6 +30,7 @@ use crate::menu::widgets::controls::drop_menu::DropMenu;
 use crate::menu::widgets::controls::interactor::{FocusedCommon, batch_set_context, set_focused, set_interactable};
 use crate::menu::widgets::controls::tooltip::close_all_tooltips;
 use crate::menu::widgets::controls::{bind, find, prop, prop_f64, quad_color, wd};
+use crate::menu::widgets::custom_settings::{CustomGameSettings, LobbyView, OptionRequest, lab_experimental_page};
 use crate::menu::widgets::nav::GlobalNav;
 use crate::menu::widgets::perks::{
     LoadoutPick, Perk, PerksEquipper, PerksLoadout, PerksSaved, perk_data, perk_list_pictures, perk_pictures,
@@ -1105,6 +1107,11 @@ const LP_QUIT_CONFIRM: u32 = 14;
 const LP_HIDE_PERKS: u32 = 15;
 const LP_PERKS_SAVED: u32 = 16;
 const LP_PERKS_EXITED: u32 = 17;
+const LP_EXPERIMENTAL: u32 = 18;
+const LP_MUTATORS: u32 = 19;
+
+/// (the port's own) The Lab's Experimental Settings page: the mutators (`lab_experimental_page`).
+pub const LAB_EXPERIMENTAL_MODAL: &str = "labExperimental";
 
 /// Deviation: Move List and the online session button are not wired; Show Hitstun Combo, Show Juggle Combo, Instant
 /// Cooldowns and Hazards Enabled keep their state but the port has no such feature yet.
@@ -1190,10 +1197,34 @@ impl LabPanel {
         });
         Self::set_toggle(cx, "toggleNoCooldowns", c.instant_cooldowns);
         Self::set_toggle(cx, "toggleSameAttack", c.same_attack_penalty);
+        // (the port's own) the Experimental Settings page, while it is up
+        if let Some(m) = cx.view.manager.get_modal(LAB_EXPERIMENTAL_MODAL) {
+            let view = Self::experimental_view(c, leader);
+            cx.visit::<CustomGameSettings, _>(m, |s, cx| s.refresh(cx, Some(view)));
+        }
         // @12543-12640: the active match config's AllowHazards
         if let Some(h) = cx.lab.as_mut().map(|s| s.toggles().hazards) {
             Self::set_toggle(cx, "toggleHazardsEnabled", h);
         }
+    }
+
+    /// (the port's own) What the Experimental Settings page reads of the Lab: its mutators, the leader's to change.
+    fn experimental_view(c: &LabConfig, leader: bool) -> LobbyView {
+        let options = LobbyOptions { mutators: c.mutators, ..LobbyOptions::default() };
+        LobbyView { leader, team_style: 0, options }
+    }
+
+    /// (the port's own) Experimental Settings: the mutators' page over the menu; a change goes to the config at once
+    /// and restarts the match at the unpause.
+    fn show_experimental(&mut self, cx: &mut Cx<'_>) {
+        let Some(s) = cx.lab.as_ref() else { return };
+        let view = Self::experimental_view(s.config(), s.config().leader_account_id == s.me());
+        let Some(m) = Manager::show_modal(cx, "CustomGameSettings", LAB_EXPERIMENTAL_MODAL, "", "") else { return };
+        let me = cx.w;
+        cx.visit::<CustomGameSettings, _>(m, |s, cx| {
+            s.on_option.add(Handler { owner: me, id: LP_MUTATORS });
+            s.bind(cx, view, lab_experimental_page());
+        });
     }
 
     /// SetFocused @6867.
@@ -1217,6 +1248,7 @@ impl LabPanel {
         let mut l = vec![inter(cx, "buttonResume")];
         l.extend(toggles.iter().map(|n| inter(cx, n)));
         l.push(inter(cx, "Btn_MovesList"));
+        l.push(inter(cx, "Btn_Experimental"));
         batch_set_context(cx, &l, ctx);
         for p in Self::panels(cx) {
             let c = ctx.to_string();
@@ -1372,6 +1404,42 @@ impl Controller for LabPanel {
         on_click_of::<ButtonMain>(cx, "buttonResume", |b| &mut b.on_click, LP_RESUME);
         // Btn_MovesList OnClick @15747: TrainingGameState.ToggleMovelist
         on_click_of::<ButtonSecondary>(cx, "Btn_MovesList", |b| &mut b.on_click, LP_MOVES);
+        // (the port's own) Experimental Settings, a button of Btn_MovesList's kind under it
+        let moves = find(cx, "Btn_MovesList");
+        let (user, props, parent, at) = {
+            let t = cx.view.tree();
+            let parent = t.widget(moves).parent;
+            let at = parent.and_then(|p| t.widget(p).children.iter().position(|c| *c == moves));
+            (t.user_class(moves).map(str::to_string), t.props(moves).clone(), parent, at)
+        };
+        if let (Some(user), Some(parent)) = (user, parent) {
+            let b = MenuView::create(cx, &user);
+            {
+                let (pad, ha, va, fill) = {
+                    let m = cx.view.tree().widget(moves);
+                    (m.pad, m.h_align, m.v_align, m.fill)
+                };
+                let t = cx.view.tree_mut();
+                if let Some(o) = props.as_object() {
+                    for (k, v) in o {
+                        t.set_prop(b, k, v.clone());
+                    }
+                }
+                // (Move List's icon is a list's: none here)
+                t.set_prop(b, "icon", serde_json::Value::Null);
+                let w = t.widget_mut(b);
+                w.name = "Btn_Experimental".into();
+                w.pad = pad;
+                w.h_align = ha;
+                w.v_align = va;
+                w.fill = fill;
+            }
+            MenuView::add_child(cx, parent, b, at.map(|a| a + 1));
+            cx.visit::<ButtonSecondary, _>(b, |x, cx| {
+                x.init(cx, custom_text::EXPERIMENTAL_BUTTON);
+                x.on_click.add(Handler { owner: me, id: LP_EXPERIMENTAL });
+            });
+        }
         // PlayerRemovedEvent -> OnPlayerRemoved @10040; EditPerksEvent -> OnEditPerks (@5347 / @5429)
         for p in Self::panels(cx) {
             cx.visit::<LabPlayerPanel, _>(p, |p, _| {
@@ -1471,6 +1539,16 @@ impl Controller for LabPanel {
             }
             LP_RESUME => self.resume(cx),
             LP_MOVES => toggle_movelist(cx),
+            LP_EXPERIMENTAL => self.show_experimental(cx),
+            LP_MUTATORS => {
+                if let Some(&(_, OptionValue::Set(m))) = arg.downcast_ref::<OptionRequest>()
+                    && let Some(s) = cx.lab.as_mut()
+                {
+                    let mut c = s.config().clone();
+                    c.mutators = m;
+                    s.request_config_update(c);
+                }
+            }
             LP_REMOVED => {
                 if let Some((panel, account)) = arg.downcast_ref::<(WidgetId, String)>() {
                     if let Some(s) = cx.lab.as_mut() {

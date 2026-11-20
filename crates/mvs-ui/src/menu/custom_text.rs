@@ -7,8 +7,12 @@ pub const EXPERIMENTAL_TITLE: &str = "Experimental";
 pub const STOCK_MODE: &str = "Stock Mode";
 pub const OFF: &str = "Off";
 pub const ON: &str = "On";
-pub const MUTATOR: &str = "Mutator";
-/// The mutator row's values, in the order of mvs_protocol::lobby_rules::LOBBY_MUTATORS.
+pub const MUTATOR: &str = "Mutators";
+/// The mutators row's label with more than one ticked.
+pub fn mutator_count(n: usize) -> String {
+    format!("{n} Mutators")
+}
+/// The mutators row's values, in the order of mvs_protocol::lobby_rules::LOBBY_MUTATORS: Off clears the list.
 pub const MUTATORS: [&str; 18] = [
     "Off",
     "Silly (Random)",

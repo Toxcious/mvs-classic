@@ -512,3 +512,44 @@ fn picked_maps_count_in_the_selectors_accept_button() {
     l.click(c);
     assert!(l.accept_text().contains("(0 "), "Clear All again: {}", l.accept_text());
 }
+
+/// The experimental page's Mutators row is a checklist: each click on a row of its list asks the lobby for the set
+/// with one more ticked (the second from the page's own copy, before the lobby answers the first), and the list stays
+/// up for the next.
+#[test]
+fn the_mutators_list_ticks_more_than_one() {
+    use mvs_protocol::messages::{ClientMessage, OptionWire};
+    use mvs_ui::menu::custom_text;
+    use mvs_ui::menu::online::OnlineCmd;
+    let Some(mut l) = Lobby::new(env()) else { return };
+    let b = l.find("customGame", "ResetToDefaultsButton");
+    l.click(b);
+    assert!(l.up("customGameExperimental"));
+    let row = l.find("customGameExperimental", "Option_Mutators");
+    let open = l.screen.view.tree().find_in(row, "mainInteractor");
+    l.click(open);
+    l.frames(30, &[]);
+    let _ = l.screen.view.take_online_cmds();
+    let rows = |l: &Lobby| -> Vec<(WidgetId, String)> {
+        let t = l.screen.view.tree();
+        t.ids()
+            .filter(|&w| t.user_class(w) == Some("UI_ContextButton") && t.widget(w).parent.is_some())
+            .map(|w| (w, t.widget(t.find_in(w, "label")).text.clone()))
+            .collect()
+    };
+    let mut sent = Vec::new();
+    for k in [2, 6] {
+        let (w, _) = rows(&l).into_iter().find(|(_, t)| t.ends_with(custom_text::MUTATORS[k])).expect("the row");
+        l.click(w);
+        l.frames(20, &[]);
+        for c in l.screen.view.take_online_cmds() {
+            if let OnlineCmd::Send(m) = c
+                && let ClientMessage::LobbySetOption { key, value: OptionWire::Number(n) } = *m
+            {
+                sent.push((key, n));
+            }
+        }
+        assert_eq!(rows(&l).len(), custom_text::MUTATORS.len(), "the list stays up after a tick");
+    }
+    assert_eq!(sent, [("mutators".to_string(), 1 << 2), ("mutators".to_string(), (1 << 2) | (1 << 6))]);
+}

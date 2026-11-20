@@ -15,7 +15,7 @@ use crate::online::{MatchStartMsg, PlayerCosmetics, PmBegin, PmPick, QueueFoundM
 use crate::profile::{MatchRecord, MatchReportPlayer, ProfileWire, TrackerCounts};
 use crate::setup::MatchSetupWire;
 
-/// A lobby setting's value as `lobby.setOption` carries it: a bool row's true or false, a choice row's number.
+/// A lobby setting's value as `lobby.setOption` carries it: a bool row's true or false, a set row's bits.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum OptionWire {

@@ -6,6 +6,10 @@ EXPERIMENTAL SETTINGS button (in the place of the beta's Reset To Defaults) open
 (online the host core keeps it). A lobby kept across its matches keeps its options. The page's rows are
 `experimental_page` in `mvs-ui` `menu/widgets/custom_settings.rs`; their words are in `menu/custom_text.rs`.
 
+The Lab has the same page with the Mutators row alone: its EXPERIMENTAL SETTINGS button under Move List in the
+pause menu (`lab_experimental_page`, `mvs-ui` `menu/screens/lab.rs`). The Lab's config holds the set
+(`LabConfig::mutators`); a change restarts the match at the unpause, as another roster does.
+
 None of them changes a fighter's moves or feel (`AGENTS.md` "What the game is").
 
 ## Stock Mode (`stocks`)
@@ -25,12 +29,13 @@ drop reads Stocks). The match set-up carries `rules.stocks` (`mvs-protocol` `set
 - A lost teammate cannot take a life from a partner.
 - The match record's plausibility check (`mvs-protocol` `record.rs`) runs without a count to win for the rule.
 
-## Mutator (`mutator`)
+## Mutators (`mutators`)
 
-One mutator for the whole match, picked from the row's list (`mvs-protocol` `lobby_rules::LOBBY_MUTATORS`, value 0
-is Off). The match set-up carries it as `mutators: [key]` (`mvs-protocol` `setup.rs`), the same path the Silly queue
-uses, so the sim runs the build's own mutator code (`mvs-sim` `world/mutators.rs`). Works in every team style and
-with Stock Mode.
+Any number of mutators for the whole match, ticked in the row's list (`mvs-protocol` `lobby_rules::MutatorSet`, a
+bit per entry of `LOBBY_MUTATORS`). The match set-up carries them as `mutators: [key, ...]` in the list's order
+(`mvs-protocol` `setup.rs`), the same path the Silly queue uses, so the sim runs the build's own mutator code
+(`mvs-sim` `world/mutators.rs`), which applies each in turn as the build's InitializeMutators does. Works in every
+team style and with Stock Mode.
 
 - The list: Silly (Random) is the build's `Mutator_RandomMutatorSelector` as the Silly queue plays it (Big Head or
   Grow for every fighter, random items, the final point shrink); then the fighter mutators one by one (Big Head,
@@ -38,7 +43,11 @@ with Stock Mode.
   Armor, Extra Air Special, Weaken on Hit, Charge Freeze, Ice Gauntlets) and two world ones (Random Items, Final
   Point Shrink). Mutators the port does not run yet (Chicken, Heart, Snowball Fight, Exploding Egg, Reindog Buddy,
   Fast Charge: no asset in the build) are not offered.
-- One at a time: the row is a single choice.
+- The row is a checklist: a click ticks or unticks a mutator and the list stays up for the next; Off clears it.
+  A ticked row is white with a bullet (the menu's faces have no tick mark). The row reads Off, the one mutator's
+  name, or the count.
+- Mutators that act on the same thing (Grow and Miniature, Big Head and Silly) are not kept apart: each applies as
+  the build's code would with both in the list.
 - Final Point Shrink (and Silly's) under Stock Mode: the build's test reads the score, so under stocks the shrink
   comes when the match is one ring-out from its end (two teams left with lives, one on its last), checked at each
   life lost, a respawn or not.

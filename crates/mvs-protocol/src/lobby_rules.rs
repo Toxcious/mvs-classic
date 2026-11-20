@@ -47,23 +47,70 @@ pub enum OptionKey {
     Stocks,
     /// Only the players a member invited may join.
     InvitedOnly,
-    /// An experimental rule: the match's one mutator, an index in `LOBBY_MUTATORS` (0 none).
-    Mutator,
+    /// An experimental rule: the match's mutators, a set of `LOBBY_MUTATORS` (`MutatorSet`), each run at once.
+    Mutators,
 }
 
 impl OptionKey {
-    pub const ALL: [OptionKey; 4] = [OptionKey::Public, OptionKey::Stocks, OptionKey::InvitedOnly, OptionKey::Mutator];
+    pub const ALL: [OptionKey; 4] = [OptionKey::Public, OptionKey::Stocks, OptionKey::InvitedOnly, OptionKey::Mutators];
 }
 
-/// One setting's value: a bool row's true or false, a choice row's listed value.
+/// One setting's value: a bool row's true or false, a set row's set.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum OptionValue {
     Bool(bool),
-    Choice(usize),
+    Set(MutatorSet),
 }
 
-/// The count of values of the mutator choice (LOBBY_OPTIONS.mutator.values 0..=17).
+/// The count of `LOBBY_MUTATORS`' entries, the empty one at 0 with them.
 pub const MUTATOR_CHOICES: usize = 18;
+
+/// A set of `LOBBY_MUTATORS`, by index: bit n is entry n (bit 0, the empty entry, never set). On the wire, the
+/// number.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct MutatorSet(pub u32);
+
+impl MutatorSet {
+    /// Every listed mutator's bit.
+    pub const ALL: u32 = ((1 << MUTATOR_CHOICES) - 1) & !1;
+
+    /// The set of these bits, None when one is not a listed mutator's.
+    pub fn of(bits: u32) -> Option<MutatorSet> {
+        (bits & !Self::ALL == 0).then_some(MutatorSet(bits))
+    }
+
+    pub fn has(self, n: usize) -> bool {
+        n < MUTATOR_CHOICES && self.0 & (1 << n) != 0
+    }
+
+    /// The set with entry `n` in (`on`) or out; a value past the list is ignored.
+    #[must_use]
+    pub fn with(self, n: usize, on: bool) -> MutatorSet {
+        if n == 0 || n >= MUTATOR_CHOICES {
+            return self;
+        }
+        MutatorSet(if on { self.0 | (1 << n) } else { self.0 & !(1 << n) })
+    }
+
+    pub fn is_empty(self) -> bool {
+        self.0 == 0
+    }
+
+    pub fn len(self) -> usize {
+        self.0.count_ones() as usize
+    }
+
+    /// The indexes in the set, in the list's order.
+    pub fn indexes(self) -> impl Iterator<Item = usize> {
+        (1..MUTATOR_CHOICES).filter(move |&n| self.has(n))
+    }
+
+    /// The MutatorData_Map keys of the set, in the list's order: the match's mutators.
+    pub fn names(self) -> Vec<String> {
+        self.indexes().map(|n| LOBBY_MUTATORS[n].to_string()).collect()
+    }
+}
 
 /// The lobby settings' values (LobbyOptions). A new lobby starts with every option at its initial value; a lobby
 /// kept across its matches keeps them.
@@ -73,7 +120,7 @@ pub struct LobbyOptions {
     pub public: bool,
     pub stocks: bool,
     pub invited_only: bool,
-    pub mutator: usize,
+    pub mutators: MutatorSet,
 }
 
 impl LobbyOptions {
@@ -82,26 +129,26 @@ impl LobbyOptions {
             OptionKey::Public => OptionValue::Bool(self.public),
             OptionKey::Stocks => OptionValue::Bool(self.stocks),
             OptionKey::InvitedOnly => OptionValue::Bool(self.invited_only),
-            OptionKey::Mutator => OptionValue::Choice(self.mutator),
+            OptionKey::Mutators => OptionValue::Set(self.mutators),
         }
     }
 
-    /// `set` as the lobby takes a member's request (optionValue): a bool row takes a bool, a choice row a listed
-    /// value; anything else is refused (false).
+    /// `set` as the lobby takes a member's request (optionValue): a bool row takes a bool, the mutators a set of
+    /// listed ones; anything else is refused (false).
     pub fn set(&mut self, key: OptionKey, value: OptionValue) -> bool {
         match (key, value) {
             (OptionKey::Public, OptionValue::Bool(b)) => self.public = b,
             (OptionKey::Stocks, OptionValue::Bool(b)) => self.stocks = b,
             (OptionKey::InvitedOnly, OptionValue::Bool(b)) => self.invited_only = b,
-            (OptionKey::Mutator, OptionValue::Choice(n)) if n < MUTATOR_CHOICES => self.mutator = n,
+            (OptionKey::Mutators, OptionValue::Set(m)) if MutatorSet::of(m.0).is_some() => self.mutators = m,
             _ => return false,
         }
         true
     }
 }
 
-/// The mutators the lobby's mutator option offers, by its value: MutatorData_Map keys, the ones the port runs. ''
-/// at 0: none.
+/// The mutators the lobby's mutators option offers, by index (`MutatorSet`'s bits): MutatorData_Map keys, the ones
+/// the port runs. '' at 0: none.
 pub const LOBBY_MUTATORS: [&str; MUTATOR_CHOICES] = [
     "",
     "Mutator_RandomMutatorSelector",
@@ -517,7 +564,6 @@ impl LobbyRules {
     pub fn match_setup(&self) -> StartedMatch {
         let ffa = self.team_style == STYLE_FFA;
         let stocks = self.options.stocks;
-        let mutator = LOBBY_MUTATORS.get(self.options.mutator).copied().unwrap_or("");
         let mut order: Vec<&LobbyPlayer> = Vec::new();
         if ffa {
             order.extend(self.players());
@@ -549,7 +595,7 @@ impl LobbyRules {
                 },
                 flow: true,
                 allow_hazards: self.allow_hazards,
-                mutators: if mutator.is_empty() { Vec::new() } else { vec![mutator.to_string()] },
+                mutators: self.options.mutators.names(),
             },
             usernames: order.iter().map(|p| p.username.clone()).collect(),
             ids: order.iter().map(|p| p.account_id.clone()).collect(),
@@ -619,8 +665,22 @@ mod tests {
         assert_eq!(r.match_setup().setup.rules.knockouts_to_win, 0);
         assert!(r.set_option(OptionKey::Stocks, OptionValue::Bool(true)));
         assert_eq!(r.match_setup().setup.rules.knockouts_to_win, 4);
-        assert!(!r.set_option(OptionKey::Mutator, OptionValue::Choice(99)));
-        assert!(!r.set_option(OptionKey::Public, OptionValue::Choice(1)));
+        assert!(!r.set_option(OptionKey::Mutators, OptionValue::Set(MutatorSet(1))));
+        assert!(!r.set_option(OptionKey::Mutators, OptionValue::Set(MutatorSet(1 << MUTATOR_CHOICES))));
+        assert!(!r.set_option(OptionKey::Public, OptionValue::Set(MutatorSet(2))));
+    }
+
+    #[test]
+    fn the_mutators_run_together_in_the_lists_order() {
+        let mut r = lobby();
+        assert!(r.match_setup().setup.mutators.is_empty());
+        let m = MutatorSet::default().with(6, true).with(4, true).with(0, true).with(99, true);
+        assert_eq!(m, MutatorSet((1 << 4) | (1 << 6)), "no bit for the empty entry or one past the list");
+        assert!(r.set_option(OptionKey::Mutators, OptionValue::Set(m)));
+        assert_eq!(r.match_setup().setup.mutators, vec!["Mutator_Giant", "Mutator_LowGravity"]);
+        assert!(r.set_option(OptionKey::Mutators, OptionValue::Set(MutatorSet(MutatorSet::ALL))));
+        assert_eq!(r.match_setup().setup.mutators.len(), MUTATOR_CHOICES - 1);
+        assert_eq!(serde_json::to_value(r.options).unwrap()["mutators"], serde_json::json!(MutatorSet::ALL));
     }
 
     #[test]

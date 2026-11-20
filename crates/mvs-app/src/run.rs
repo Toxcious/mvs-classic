@@ -1733,7 +1733,11 @@ impl MatchLoop {
     fn lab_swap_ready(&mut self, sh: &mut Shell) -> Result<Option<Box<LabCarry>>> {
         let current = self.lab.as_ref().map(|l| &l.menu.session.config);
         let left = |n: &LabNext| {
-            current.is_none_or(|c| c.players != n.config.players || c.selected_map != n.config.selected_map)
+            current.is_none_or(|c| {
+                c.players != n.config.players
+                    || c.selected_map != n.config.selected_map
+                    || c.mutators != n.config.mutators
+            })
         };
         if self.lab_next.as_ref().is_some_and(|n| n.asked && left(n)) {
             self.lab_next = None;

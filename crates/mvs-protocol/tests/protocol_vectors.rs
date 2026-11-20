@@ -11,7 +11,7 @@
 use mvs_protocol::chat::{self, ChatGate};
 use mvs_protocol::loadout::{self, NetLoadout};
 use mvs_protocol::lobby_listing::{self, LobbyListing};
-use mvs_protocol::lobby_rules::{LobbyRules, OptionKey, OptionValue};
+use mvs_protocol::lobby_rules::{LobbyRules, MutatorSet, OptionKey, OptionValue};
 use mvs_protocol::online::{QueueMode, QueuePlayer};
 use mvs_protocol::queue_rules as qr;
 use mvs_protocol::setup::{self, InputPrefsWire, MatchPlayerWire};
@@ -374,11 +374,12 @@ fn lobby_data() {
                         "public" => OptionKey::Public,
                         "stocks" => OptionKey::Stocks,
                         "invitedOnly" => OptionKey::InvitedOnly,
-                        _ => OptionKey::Mutator,
+                        _ => OptionKey::Mutators,
                     };
+                    // (the oracle's lobby had one mutator, 0 none: here the set of it)
                     let value = match op[2].as_bool() {
                         Some(b) => OptionValue::Bool(b),
-                        None => OptionValue::Choice(usize::try_from(num(2)).unwrap()),
+                        None => OptionValue::Set(MutatorSet::default().with(usize::try_from(num(2)).unwrap(), true)),
                     };
                     lobby.set_option(key, value);
                 }
@@ -397,6 +398,13 @@ fn lobby_data() {
                         p.as_object_mut().unwrap().remove("icon");
                     }
                 }
+            }
+            // (the oracle's one mutator, 0 none, is the set of it here)
+            if let Some(o) = want["options"].as_object_mut()
+                && let Some(n) = o.remove("mutator")
+            {
+                let n = usize::try_from(n.as_u64().unwrap()).unwrap();
+                o.insert("mutators".into(), json!(MutatorSet::default().with(n, true).0));
             }
             same(&lobby.data(), &want, "lobby data", s * 100 + i);
             steps += 1;

@@ -342,7 +342,7 @@ pub fn lab_setup(i: &mut LabInputs<'_>, c: &LabConfig, rolled: &LabRoll) -> Matc
         }
         with_cosmetics(p, taunts, &ring_out, &banner);
     }
-    MatchSetup { team_style, players, ..MatchSetup::default() }
+    MatchSetup { team_style, players, mutators: c.mutators.names(), ..MatchSetup::default() }
 }
 
 /// The config's random fighters rolled: a Random slot of an occupied account takes a random
@@ -399,6 +399,10 @@ pub fn lab_roster_skins(i: &LabInputs<'_>, c: &LabConfig, rolled: &LabRoll) -> S
             s.push_str(&lab_skin(i, c, rolled, n));
         }
         s.push('/');
+    }
+    // (the port's own) the mutators: another set restarts the match as another roster does
+    if !c.mutators.is_empty() {
+        s.push_str(&format!("m{}", c.mutators.0));
     }
     s
 }
@@ -555,7 +559,17 @@ pub fn first_config(
         selected_map: "map_training".into(),
         instant_cooldowns: false,
         same_attack_penalty: same_attack,
+        mutators: setup_mutators(setup),
     }
+}
+
+/// The first set-up's mutators as the config's set (none for a Lab opened from the menus).
+fn setup_mutators(setup: &MatchSetup) -> mvs_protocol::lobby_rules::MutatorSet {
+    use mvs_protocol::lobby_rules::{LOBBY_MUTATORS, MutatorSet};
+    setup
+        .mutators
+        .iter()
+        .fold(MutatorSet::default(), |s, m| LOBBY_MUTATORS.iter().position(|x| x == m).map_or(s, |n| s.with(n, true)))
 }
 
 #[cfg(test)]
