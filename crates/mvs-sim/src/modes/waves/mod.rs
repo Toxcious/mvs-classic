@@ -25,7 +25,7 @@
 //! - the alive cap: [`CAP_START`] (3), one more every [`CAP_STEP`] (15) ring-outs, up to [`CAP_MAX`] (6);
 //! - an enemy's starting damage: [`DAMAGE_START`] (250) less [`DAMAGE_FALL`] (1) per ring-out so far, never below
 //!   [`DAMAGE_MIN`];
-//! - the heal: [`HEAL`] = [`GIANT_HEAL`] = 1000, back to 0 at each ring-out;
+//! - the heal: [`HEAL`] = [`GIANT_HEAL`] = 20;
 //! - the first enemy at [`FIRST_SPAWN`] ticks, then one at most every [`SPAWN_GAP`] (120) ticks.
 //!
 //! Why these numbers. The bot takes about 150 damage a minute from three Easy enemies and rings out only 5 to 10 a
@@ -80,9 +80,9 @@ pub const DAMAGE_MIN: Real = 0.0;
 /// Every this many enemies, one is a Giant.
 pub const GIANT_EVERY: i32 = 10;
 /// The damage the player loses at an enemy's ring-out (the port's own).
-pub const HEAL: Real = 1000.0;
+pub const HEAL: Real = 20.0;
 /// The damage the player loses at a Giant's ring-out.
-pub const GIANT_HEAL: Real = 1000.0;
+pub const GIANT_HEAL: Real = 20.0;
 /// The ticks before the first enemy.
 pub const FIRST_SPAWN: i32 = 60;
 /// The least ticks between two spawns.
