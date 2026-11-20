@@ -9,14 +9,14 @@ use mvs_ui::Bundle;
 use mvs_ui::bindings::Bindings;
 use mvs_ui::element::ElementList;
 use mvs_ui::menu::controller::{Controller, MenuRun};
-use mvs_ui::menu::input::{MenuInput, Pointer};
+use mvs_ui::menu::input::{MenuInput, MenuPad, Pointer};
 use mvs_ui::menu::widgets::controls::buttons::ToggleSwitch;
-use mvs_ui::menu::widgets::controls::input_binding::InputBindingSet;
+use mvs_ui::menu::widgets::controls::input_binding::{InputBinding, InputBindingSet};
 use mvs_ui::menu::widgets::preferences_graphics::PreferencesGraphics;
 use mvs_ui::menu::widgets::preferences_interface::PreferencesInterface;
 use mvs_ui::menu::widgets::section_bar::SectionBar;
 use mvs_ui::menu::{MenuScreen, MenuView, NoSound};
-use mvs_ui::slate::Vis;
+use mvs_ui::slate::{Vis, Widget, WidgetId};
 use mvs_ui::text::{Fonts, GameText};
 
 struct Env {
@@ -134,7 +134,7 @@ fn a_volume_row_writes_its_volume() {
 }
 
 /// ToggleSwitch's click (its interactor's OnClick).
-fn click_toggle(cx: &mut mvs_ui::menu::controller::Cx<'_>, w: mvs_ui::slate::WidgetId) {
+fn click_toggle(cx: &mut mvs_ui::menu::controller::Cx<'_>, w: WidgetId) {
     cx.visit::<ToggleSwitch, _>(w, |t, cx| t.handle(cx, 3, &()));
 }
 
@@ -275,4 +275,124 @@ fn the_wheel_scrolls_the_interface_page_built_after_the_panel_was_shown() {
     let input = [MenuInput::MouseMove { x: 833.0, y: 667.0 }, MenuInput::Wheel { notches: -1.0 }];
     frames(&mut e, &mut s, &input, 30);
     assert!(s.view.tree().widget(sb).scroll > 0.0, "the page scrolled");
+}
+
+/// Defaults with player 0's Attack and Jump on a key and a pad button each.
+fn input_defaults() -> mvs_data::InputDefaults {
+    let mut d = mvs_data::InputDefaults::default();
+    let row = |pairs: &[(&str, &[&str])]| {
+        pairs.iter().map(|(a, ks)| (a.to_string(), ks.iter().map(|k| k.to_string()).collect())).collect()
+    };
+    d.rows.insert(
+        "Default-P0".into(),
+        row(&[("Attack", &["J", "Gamepad_FaceButton_Left"]), ("Jump", &["SpaceBar", "Gamepad_FaceButton_Bottom"])]),
+    );
+    d
+}
+
+/// The Settings panel on the Controls page with `input_defaults`, some frames in: the screen, the panel and the
+/// frame clock.
+struct Controls {
+    e: Env,
+    s: MenuScreen,
+    panel: WidgetId,
+    t: f64,
+}
+
+impl Controls {
+    fn new() -> Option<Controls> {
+        let mut e = env()?;
+        e.bindings = Bindings::new(&input_defaults());
+        let mut s = e.screen();
+        let panel = s.with_cx(&mut e.run(), |cx| {
+            let w = MenuView::create(cx, "UI_PreferencesPanelRework");
+            MenuView::add_to_viewport(cx, w, 0);
+            w
+        });
+        let mut c = Controls { e, s, panel, t: 0.0 };
+        c.frames(10, &[], None);
+        Some(c)
+    }
+
+    /// `n` frames: `input` in the first, the pad's state `pad` in each.
+    fn frames(&mut self, n: usize, input: &[MenuInput], pad: Option<MenuPad>) {
+        for k in 0..n {
+            self.t += 1.0 / 60.0;
+            let mut i: Vec<MenuInput> = if k == 0 { input.to_vec() } else { Vec::new() };
+            if let Some(state) = pad {
+                i.push(MenuInput::Pad { pad: 0, player: 0, state });
+            }
+            self.s.frame(&mut self.e.run(), &i, self.t, &mut ElementList::default());
+        }
+    }
+
+    /// The binding row of mapping `action`.
+    fn row(&mut self, action: &str) -> WidgetId {
+        let page = self.s.view.tree().find_in(self.panel, "UI_PreferencesControlsRework");
+        let set = self.s.view.tree().find_in(page, "Bindings");
+        let rows =
+            self.s.with_cx(&mut self.e.run(), |cx| cx.visit::<InputBindingSet, _>(set, |b, _| b.rows.clone())).unwrap();
+        let name = |r| self.s.view.tree().props(r).get("Action Name").and_then(|v| v.as_str()).map(str::to_string);
+        rows.into_iter().find(|&r| name(r).as_deref() == Some(action)).expect("the action's row")
+    }
+
+    /// A click of the row's slot button `slot` (0, 1 the pad's, 2, 3 the keyboard's): the row listens.
+    fn listen(&mut self, row: WidgetId, slot: u32) {
+        self.s.with_cx(&mut self.e.run(), |cx| cx.visit::<InputBinding, _>(row, |r, cx| r.handle(cx, 1 + slot, &())));
+        // (longer than the 0.1 s in which the click's own press is not the new key)
+        self.frames(10, &[], Some(MenuPad::default()));
+    }
+
+    /// The widget `name` of the row's label `label`, when it shows.
+    fn shown(&self, row: WidgetId, label: &str, name: &str) -> Option<&Widget> {
+        let t = self.s.view.tree();
+        let l = t.find_in(row, label);
+        let w = t.widget(t.find_in(l, name));
+        (t.widget(l).vis != Vis::Collapsed && w.vis != Vis::Collapsed).then_some(w)
+    }
+}
+
+#[test]
+fn a_rebound_pad_slot_shows_its_new_button_and_the_settings_keep_it() {
+    let Some(mut c) = Controls::new() else { return };
+    let attack = c.row("Attack");
+    let icon = |c: &Controls| c.shown(attack, "UI_InputLabel_GP1", "buttonIcon").and_then(|w| w.tex.clone());
+    assert_eq!(icon(&c).as_deref(), c.s.view.input_icon("Gamepad_FaceButton_Left"));
+    // the first pad slot listens, then the pad's top face button
+    c.listen(attack, 0);
+    let top = MenuPad { axes: [0.0; 4], buttons: 1 << 3 };
+    c.frames(3, &[], Some(top));
+    c.frames(10, &[], Some(MenuPad::default()));
+    assert_eq!(c.e.bindings.action_mapping("Attack", 0).collect::<Vec<_>>(), ["J", "Gamepad_FaceButton_Top"]);
+    let saved = c.e.prefs.input.bindings.as_ref().expect("the settings' copy");
+    assert_eq!(saved["Attack-P0"], ["J", "Gamepad_FaceButton_Top"]);
+    // the slot shows the new button, and the row listens no more
+    assert_eq!(icon(&c).as_deref(), c.s.view.input_icon("Gamepad_FaceButton_Top"));
+    assert!(c.s.view.manager.handle_input);
+}
+
+#[test]
+fn a_rebound_key_slot_shows_its_new_key_and_takes_it_from_the_action_that_had_it() {
+    let Some(mut c) = Controls::new() else { return };
+    // CONTROLS > Keyboard
+    let bar = c.s.view.tree().find_in(c.panel, "mainMenuSectionBar");
+    c.s.with_cx(&mut c.e.run(), |cx| {
+        cx.visit::<SectionBar, _>(bar, |b, cx| b.button_clicked(cx, "controls_keyboard", true))
+    });
+    c.frames(10, &[], None);
+    let (attack, jump) = (c.row("Attack"), c.row("Jump"));
+    let key = |c: &Controls, row| c.shown(row, "UI_InputLabel_KB1", "keyLabel").map(|w| w.text.clone());
+    let name = |c: &Controls, k: &str| c.s.view.text.key_names().name(k);
+    assert_eq!(key(&c, attack), Some(name(&c, "J")));
+    assert_eq!(key(&c, jump), Some(name(&c, "SpaceBar")));
+    // Attack's first key slot listens, then Jump's key
+    c.listen(attack, 2);
+    c.frames(3, &[MenuInput::Key { key: "SpaceBar", down: true, repeat: false, player: 0 }], None);
+    c.frames(10, &[MenuInput::Key { key: "SpaceBar", down: false, repeat: false, player: 0 }], None);
+    assert_eq!(c.e.bindings.action_mapping("Attack", 0).collect::<Vec<_>>(), ["SpaceBar", "Gamepad_FaceButton_Left"]);
+    assert_eq!(c.e.bindings.action_mapping("Jump", 0).collect::<Vec<_>>(), ["Gamepad_FaceButton_Bottom"]);
+    assert_eq!(c.e.prefs.input.bindings.as_ref().expect("the settings' copy")["Attack-P0"].len(), 2);
+    // Attack's slot shows the key, Jump's slot is empty
+    assert_eq!(key(&c, attack), Some(name(&c, "SpaceBar")));
+    assert_eq!(key(&c, jump), None);
 }

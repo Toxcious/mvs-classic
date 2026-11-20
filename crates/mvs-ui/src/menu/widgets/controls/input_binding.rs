@@ -22,6 +22,7 @@ use crate::bundle::Rgba;
 use crate::menu::controller::{Controller, Cx, Event, Handler, InputCapture};
 use crate::menu::manager::{DialogParams, Manager, NULL_GUID};
 use crate::menu::prefs::{self, InputBool};
+use crate::menu::screens::lab_selectors::run_on;
 use crate::menu::scroll::{scroll_list, set_scrollbar_padding};
 use crate::menu::view::MenuView;
 use crate::menu::widgets::common::text;
@@ -478,7 +479,8 @@ const S_CONFIRM_DEFAULT: u32 = 6;
 /// instance).
 #[derive(Debug, Default)]
 pub struct InputBindingSet {
-    pub mode_changed: Event<()>,
+    /// (the new keyboard mode: the set is in hand while its handlers run)
+    pub mode_changed: Event<bool>,
     pub preferences_changed_dispatch: Event<()>,
     pub inputs_refreshed: Event<()>,
     /// (player, legacy)
@@ -561,7 +563,8 @@ impl InputBindingSet {
 
     fn re_init_binding(&mut self, cx: &mut Cx<'_>, row: WidgetId, play_anim: bool) {
         let (kb, player) = (self.keyboard_mode, self.player_index);
-        cx.visit::<InputBinding, _>(row, |r, cx| {
+        // (the row whose new key reached here is in hand: its own Init waits for its call to return)
+        run_on::<InputBinding>(cx, row, move |r, cx| {
             r.is_keyboard = kb;
             r.init(cx, player, play_anim);
         });
@@ -612,7 +615,7 @@ impl InputBindingSet {
     pub fn context_interactors(&self, cx: &mut Cx<'_>) -> Vec<WidgetId> {
         let mut list: Vec<WidgetId> = Self::presets(cx).iter().map(|&b| ButtonSecondary::interactor(cx, b)).collect();
         for &row in &self.rows {
-            list.extend(cx.visit::<InputBinding, _>(row, |_, cx| InputBinding::interactors(cx)).unwrap_or_default());
+            list.extend(InputBinding::interactors(&cx.with(row)));
         }
         list
     }
@@ -648,7 +651,7 @@ impl InputBindingSet {
         }
         self.keyboard_mode = keyboard;
         self.refresh_view(cx);
-        cx.emit(self, |c: &InputBindingSet| &c.mode_changed, &());
+        cx.emit(self, |c: &InputBindingSet| &c.mode_changed, &keyboard);
     }
 
     /// SaveKeyMappings, then SaveInputBindings: the settings file's copy of the bindings.
@@ -657,7 +660,9 @@ impl InputBindingSet {
         cx.prefs.input.bindings = Some(cx.bindings.save_input_bindings());
     }
 
-    /// A key belongs to one action of a player: the new binding takes it from the others.
+    /// A key belongs to one action of a player: the new binding takes it from the others. The row the key came
+    /// from is in hand: what is called on it here runs when its own call returns (`refresh_view`'s Init stores its
+    /// revert set and draws its labels then).
     fn validate_new_binding(&mut self, cx: &mut Cx<'_>, action: &str, player: usize, key: &str) {
         for (_, name) in ACTION_NAMES {
             if *name != action {
@@ -665,7 +670,7 @@ impl InputBindingSet {
             }
         }
         for row in self.rows.clone() {
-            cx.visit::<InputBinding, _>(row, |r, cx| r.store_revert_set(cx));
+            run_on::<InputBinding>(cx, row, |r, cx| r.store_revert_set(cx));
         }
         Self::save_changes(cx);
         self.refresh_view(cx);
@@ -1209,10 +1214,13 @@ impl PreferencesControls {
     pub fn update_context(&mut self, cx: &mut Cx<'_>, ctx: &str, player: i32) {
         self.context = ctx.to_string();
         self.context_player = player;
-        Self::toggles(cx, |_, cx| PreferencesToggles::update_context(cx, ctx, player));
-        Self::set(cx, |s, cx| s.update_context(cx, ctx, player));
+        let t = find(cx, "Toggles");
+        PreferencesToggles::update_context(&mut cx.with(t), ctx, player);
+        // (the set is in hand when its own InputsRefreshed reached here: its call waits for it)
+        let (set, c) = (Self::binding_set(cx), ctx.to_string());
+        run_on::<InputBindingSet>(cx, set, move |s, cx| s.update_context(cx, &c, player));
         let m = find(cx, "playerMenu");
-        cx.visit::<DropMenu, _>(m, |_, cx| DropMenu::update_context(cx, ctx, Some(player)));
+        DropMenu::update_context(&mut cx.with(m), ctx, Some(player));
         let steam = find(cx, "Btn_SteamSupport");
         let i = ButtonSecondary::interactor(cx, steam);
         batch_set_context(cx, &[i], ctx);
@@ -1306,7 +1314,7 @@ impl Controller for PreferencesControls {
             // OnBindingSetModeChanged @1497-1663: Conditional Visibilities(the controller-only rows, Keyboard Mode,
             // Collapsed, Visible)
             C_MODE => {
-                let keyboard = Self::keyboard_mode(cx);
+                let keyboard = arg.downcast_ref::<bool>().copied().unwrap_or(false);
                 let t = find(cx, "Toggles");
                 for n in CONTROLLER_ONLY_ROWS {
                     let w = cx.view.tree().find_in(t, n);
