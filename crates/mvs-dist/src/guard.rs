@@ -5,7 +5,9 @@ use std::path::Path;
 
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
-use mvs_release::{EOS_CREDENTIALS, EOS_DLL, GAME_EXE, LICENSE, LICENSES_DIR, ONLINE_JSON, SELF_CHECK_JSON, in_game};
+use mvs_release::{
+    EOS_CREDENTIALS, EOS_DLL, GAME_EXE, LICENSE, LICENSES_DIR, ONLINE_JSON, RELEASE_FILES, SELF_CHECK_JSON, in_game,
+};
 
 use mvs_release::zip::{self, Entry};
 
@@ -56,6 +58,7 @@ fn own_files(kind: Zip) -> Vec<String> {
             in_game(GAME_EXE),
             in_game(ONLINE_JSON),
             in_game(SELF_CHECK_JSON),
+            in_game(RELEASE_FILES),
             in_game(&format!("{LICENSES_DIR}/{NOTICE_IMPORTER}")),
             in_game(&format!("{LICENSES_DIR}/{LICENSE_CUE4PARSE}")),
             in_game(EOS_DLL),
