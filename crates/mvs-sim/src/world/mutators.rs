@@ -259,15 +259,42 @@ fn items_begin(w: &mut World) {
         warn_text(w, "Mutator_RandomItemSpawns: the match has no item area (`itemsOn`)");
         return;
     }
-    let list: Vec<Name> = defaults(w, ITEMS)
-        .and_then(|d| d.get("Items"))
-        .and_then(Value::as_arr)
-        .map(|a| a.iter().filter_map(Value::as_str).map(|s| w.lit(s)).collect())
-        .unwrap_or_default();
+    let list = random_items_list(w);
     let from = crate::real(w.flow.tick + 1);
     items::start_time_spawner_server(w, &list, from);
     let safe = crate::name!("BugsBunnyNeutralSafe_C");
     items::spawn_center_actor(w, &area, safe);
+}
+
+/// Mutator_RandomItemSpawns' own Items list (its class defaults), the one StartTimeSpawnerServer takes.
+pub fn random_items_list(w: &World) -> Vec<Name> {
+    defaults(w, ITEMS)
+        .and_then(|d| d.get("Items"))
+        .and_then(Value::as_arr)
+        .map(|a| a.iter().filter_map(Value::as_str).map(|s| w.lit(s)).collect())
+        .unwrap_or_default()
+}
+
+/// The fighter mutator classes the match's own mutators give each life: the set-up's list's
+/// (`initialize_mutators`) and the Silly selector's pick (its FighterMutatorMap[ChosenMutatorString]).
+pub fn match_fighter_classes(w: &World) -> Vec<String> {
+    let mut out: Vec<String> = w
+        .fixed
+        .mutators
+        .as_ref()
+        .map(|m| m.fighter.keys().map(|&c| w.names.str(c).to_owned()).collect())
+        .unwrap_or_default();
+    let mut i = 0;
+    while let Some(m) = mutator_at(w, i) {
+        i += 1;
+        if class_of(w, m.cls) == Some(Class::Selector) && m.bound {
+            let cls = map_find(&pairs(w, SELECTOR, "FighterMutatorMap"), w.names.str(m.chosen)).to_owned();
+            if !cls.is_empty() {
+                out.push(cls);
+            }
+        }
+    }
+    out
 }
 
 /// The handler's entry `i` (a pass walks the live list by index, as a `for of` does).

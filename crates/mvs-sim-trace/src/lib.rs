@@ -49,6 +49,7 @@ mod tom_and_jerry;
 mod tutorial;
 mod velma;
 pub mod waves;
+pub mod wheel;
 mod wonder_woman;
 mod world;
 
@@ -378,6 +379,7 @@ pub fn setup_of(v: &serde_json::Value) -> Result<MatchSetup, String> {
                     .collect::<Result<_, _>>()?;
             }
             "mode" => s.mode = Some(mode_of(v)?.0),
+            "wheel" => s.wheel = Some(wheel::setup_of(v)?),
             k => return Err(format!("the set-up's {k} (no rule to read it)")),
         }
     }

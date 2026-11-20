@@ -3169,6 +3169,16 @@ pub enum TutorialCall {
     StartNext,
 }
 
+/// The set-up's `wheel` of a match with the port's own Chaos Wheel rule as a header holds it: `{pool, seconds, warn}`
+/// (`mvs_sim::setup::Wheel`). The oracle has no wheel: only the Rust recorder writes one.
+#[derive(Clone, PartialEq, Debug, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WheelSpec {
+    pub pool: Vec<String>,
+    pub seconds: f64,
+    pub warn: f64,
+}
+
 /// The set-up's `mode` of a match of the port's own Waves mode as a header holds it: `{kind: 'waves', variant, cast}`,
 /// `variant` `'ringOuts100'` or `'endless'`. The oracle has no Waves mode: only the Rust recorder writes one.
 #[derive(Clone, PartialEq, Debug, serde::Serialize, serde::Deserialize)]

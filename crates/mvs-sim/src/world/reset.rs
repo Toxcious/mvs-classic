@@ -603,6 +603,7 @@ pub fn reset(w: &mut World) {
         passive_buffs(w, f, &players);
         perks::add_perks(w, f, true);
         mutators::apply_mutators_to_fighter(w, f); // SpawnCharacter @3834, after the possession
+        crate::world::wheel::wheel_fighter_spawned(w, f); // the port's own Chaos Wheel: the window's mutator
     }
     let n = usize::from(S::team_count(w.setup.team_style));
     w.flow.team_knockouts = vec![0.0; n];
@@ -685,4 +686,5 @@ pub fn reset(w: &mut World) {
     // InitializeMutators' WorldMutatorHandler and its world mutators (at the game mode's Init), then
     // AllPlayersSpawned.
     mutators::begin_world_mutators(w);
+    crate::world::wheel::wheel_reset(w); // the port's own Chaos Wheel: its item window on the new area
 }

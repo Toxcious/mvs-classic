@@ -14,7 +14,6 @@ use crate::fighter::anim::SetRef;
 use crate::fighter::control::DodgeBy;
 use crate::math;
 use crate::names::Name;
-use crate::setup::{MatchSetup, TeamStyle};
 use crate::world::World;
 use mvs_data::CharData;
 use mvs_data::def::{CharDef, CrouchRun, EdgeIdle, SetExtra};
@@ -294,12 +293,6 @@ pub fn sound_at_for(w: &mut World, inst: Option<FighterId>, ev: Name, x: Real, y
     w.events.push(Event::Sound { fighter, ev, x: Some(x), y: Some(y), hit: None, pooled, key: None });
 }
 
-/// `itemsOn`: a match with items (FFAGameMode's spawner or an item mutator).
-fn items_on(setup: &MatchSetup) -> bool {
-    (setup.team_style == TeamStyle::FreeForAll && setup.rules.is_some())
-        || setup.mutators.iter().any(|m| m == "Mutator_RandomItemSpawns" || m == "Mutator_RandomMutatorSelector")
-}
-
 /// `instigatorOf`: GetInstigator of a spawned actor that keeps its instigator's id
 /// (`inst`): `None` once that pawn is gone (a mode's pawn despawned while the actor lives); the caller takes the
 /// failed cast's or IsValid's path.
@@ -336,7 +329,7 @@ pub fn actor_data<'a>(w: &World, data: &'a mvs_data::GameData, own: ActorRef, cl
     if let Some(a) = data.stage.actors.as_ref().and_then(|m| m.get(key)) {
         return Some(a);
     }
-    if items_on(&w.setup)
+    if crate::setup::items_on(&w.setup)
         && let Some(a) = data.items.as_ref().and_then(|i| i.actors.get(key))
     {
         return Some(a);
@@ -471,12 +464,12 @@ fn find_buff_def(w: &World, own: ActorRef, cls: Name) -> Option<&Props> {
     }
     // (a Waves run gives its Giants the Giant mutator: `modes::waves`)
     let waves = matches!(w.setup.mode, Some(crate::setup::MatchMode::Waves { .. }));
-    if (!w.setup.mutators.is_empty() || waves)
+    if (crate::setup::reads_mutators(&w.setup) || waves)
         && let Some(d) = w.data.mutators.buffs.get(key)
     {
         return Some(d);
     }
-    if items_on(&w.setup)
+    if crate::setup::items_on(&w.setup)
         && let Some(d) = w.data.items.as_ref().and_then(|i| i.buffs.get(key))
     {
         return Some(d);

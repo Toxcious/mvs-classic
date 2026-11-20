@@ -454,6 +454,9 @@ pub fn latent(w: &mut World) {
     if w.world_mutators.is_some() {
         mutators::world_mutators_latent(w);
     }
+    if w.wheel.is_some() {
+        crate::world::wheel::wheel_latent(w); // the port's own Chaos Wheel rule
+    }
     if w.item_area.is_some() {
         crate::world::items::item_area_latent(w);
     }
@@ -1319,6 +1322,7 @@ pub fn respawn(w: &mut World, f: FighterId) {
     crate::world::reset::reset_passives(w, f, &kept);
     mutators::world_mutators_fighter_reset(w, f); // the world mutators' bindings of OnFighterReset (@1106)
     mutators::apply_mutators_to_fighter(w, f); // RespawnCharacter @1560, after BPI_ResetFighter
+    crate::world::wheel::wheel_fighter_spawned(w, f); // the port's own Chaos Wheel: the window's mutator
     let ffa = w.setup.rules.is_some() && w.setup.team_style == TeamStyle::FreeForAll;
     // BPI_RespawnFighter @27180-27812: "-1 Rungout!" when the pawn's team has points, FreeForAll
     if ffa && w.flow.stocks.is_none() && w.flow.team_knockouts[ti(w.fighter(f).team.team)] > 0.0 {
@@ -1494,7 +1498,7 @@ pub fn arcade_buff_defs(w: &World) -> Option<&ArcadeBuffs> {
 
 /// `mutatorData`: the mutators' data, read only by a World whose set-up names mutators.
 pub fn mutator_data(w: &World) -> Option<&MutatorsData> {
-    (!w.setup.mutators.is_empty()).then_some(&w.data.mutators)
+    S::reads_mutators(&w.setup).then_some(&w.data.mutators)
 }
 
 // ---- the call surface of the tutorial run

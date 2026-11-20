@@ -477,6 +477,8 @@ events! {
     "matchPoint" MatchPoint { "team" = team }
     "matchPointShow" MatchPointShow { "team" = team }
     "mutatorPopText" MutatorPopText { "cls" = cls, "field" = field, "text" ~ text }
+    "wheelNext" WheelNext { "index" = index }
+    "wheelChange" WheelChange { "index" = index }
     "matchOver" MatchOver { "team" = team }
     "abduct" Abduct { "fighter" = fighter }
     "cameraMovement" CameraMovement { "on" = on }

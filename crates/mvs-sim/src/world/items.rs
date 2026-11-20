@@ -82,9 +82,7 @@ fn char_index(w: &World, f: FighterId) -> Option<usize> {
 
 /// `itemsDataOf(w)`: the items part a match reads, only in a match with items.
 fn items_part(w: &World) -> Option<&ItemsData> {
-    let mutator =
-        w.setup.mutators.iter().any(|m| m == "Mutator_RandomItemSpawns" || m == "Mutator_RandomMutatorSelector");
-    if crate::world::flow::ffa_items_on(&w.setup) || mutator { w.data.items.as_ref() } else { None }
+    if crate::setup::items_on(&w.setup) { w.data.items.as_ref() } else { None }
 }
 
 fn idx(i: usize) -> u32 {
@@ -1550,6 +1548,8 @@ fn spawn_pending(w: &mut World) {
     }
     let alpha = min(max((game_time(w) - start) / TIME_TILL_FASTEST_SPAWN, 0.0), 1.0);
     let rate = MAX_ITEM_SPAWN_TIME + (alpha * (MIN_ITEM_SPAWN_TIME - MAX_ITEM_SPAWN_TIME));
+    // (the port's own Chaos Wheel runs the spawner at a rate of its own)
+    let rate = crate::world::wheel::item_rate(w).unwrap_or(rate);
     let at = w.flow.tick + crate::math::to_int32(crate::combat::hit::timer_ticks(Some(rate)));
     if let Some(ar) = w.item_area.as_mut() {
         ar.timer_at = at;

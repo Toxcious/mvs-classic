@@ -186,9 +186,17 @@ pub fn resolve_input_prefs(p: &MatchPlayer) -> InputPrefs {
 /// rules) has none. Mutator_RandomItemSpawns and Mutator_RandomMutatorSelector start the spawner too.
 const ITEM_MUTATORS: [&str; 2] = ["Mutator_RandomItemSpawns", "Mutator_RandomMutatorSelector"];
 
-/// `itemsOn`.
+/// `itemsOn`. The port's own Chaos Wheel whose pool may roll Random Items has the items too.
 pub fn items_on(setup: &MatchSetup) -> bool {
-    crate::world::flow::ffa_items_on(setup) || setup.mutators.iter().any(|m| ITEM_MUTATORS.contains(&m.as_str()))
+    crate::world::flow::ffa_items_on(setup)
+        || setup.mutators.iter().any(|m| ITEM_MUTATORS.contains(&m.as_str()))
+        || setup.wheel.as_ref().is_some_and(|w| w.pool.iter().any(|m| m == "Mutator_RandomItemSpawns"))
+}
+
+/// The match reads the mutators' data (`world::flow::mutator_data`): the set-up lists a mutator, or the port's own
+/// Chaos Wheel may roll one.
+pub fn reads_mutators(setup: &MatchSetup) -> bool {
+    !setup.mutators.is_empty() || setup.wheel.is_some()
 }
 
 /// `KO_POINTS`: TryUpdateTeamScore's points for the attacker's team per ring-out (before KOPointMultiplier), by

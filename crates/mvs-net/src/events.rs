@@ -134,6 +134,9 @@ impl EventKey {
             Event::CameraShake { cls } | Event::MutatorPopText { cls, .. } => {
                 p.name(Cls, *cls);
             }
+            Event::WheelNext { index } | Event::WheelChange { index } => {
+                p.int(N, *index);
+            }
             Event::SmokeTrail { fighter, on }
             | Event::RageVfx { fighter, on }
             | Event::SpawnFx { fighter, on }

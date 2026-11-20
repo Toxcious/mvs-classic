@@ -463,6 +463,7 @@ impl World {
         for f in w.players.clone() {
             crate::fighter::set_up(&mut w, f);
         }
+        w.wheel = wheel::new_state(setup, seed);
         reset::construct(&mut w);
         Ok(w)
     }

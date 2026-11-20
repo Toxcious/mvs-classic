@@ -516,6 +516,15 @@ pub enum Event {
         field: Name,
         text: Option<Name>,
     },
+    /// The port's own Chaos Wheel (`world::wheel`): the next mutator drawn, the set-up's `warn` ahead of the change
+    /// (`index` into the wheel's pool).
+    WheelNext {
+        index: i32,
+    },
+    /// The port's own Chaos Wheel: the window's mutator came on (`index` into the wheel's pool).
+    WheelChange {
+        index: i32,
+    },
     TimeUp,
     MatchOver {
         team: i32,
@@ -703,6 +712,8 @@ impl Event {
             Event::MatchPointShow { .. } => "matchPointShow",
             Event::DoublePoints => "doublePoints",
             Event::MutatorPopText { .. } => "mutatorPopText",
+            Event::WheelNext { .. } => "wheelNext",
+            Event::WheelChange { .. } => "wheelChange",
             Event::TimeUp => "timeUp",
             Event::MatchOver { .. } => "matchOver",
             Event::Abduct { .. } => "abduct",

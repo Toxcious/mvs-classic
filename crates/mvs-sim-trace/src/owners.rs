@@ -492,6 +492,7 @@ const WORLD: &[(&str, &str)] = &[
     ("runtimeSolids", "world::stage"),
     ("pawnCtl", "world::pawns"),
     ("waves", "modes::waves"),
+    ("wheel", "world::wheel"),
     ("newPawns", "world::pawns"),
 ];
 
