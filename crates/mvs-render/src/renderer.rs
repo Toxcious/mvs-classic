@@ -639,6 +639,14 @@ impl Renderer {
     }
 
     /// What a loader's warm-up made for the particle and decal passes, taken in (crate::warm).
+    /// Lets go the particle and decal materials and the mesh streams nothing has used since the last call (a
+    /// fighter's or stage's effects no longer played), before the assets' trim, which can then let their meshes
+    /// and textures go: at a match's install, after its warm-up was taken in. How many of each went.
+    pub fn trim_effects(&mut self) -> [usize; 3] {
+        let [materials, meshes] = self.particles.trim();
+        [materials, meshes, self.decals.trim()]
+    }
+
     pub(crate) fn adopt_warm(&mut self, p: crate::particles::ParticlesMade, d: crate::decal::DecalsMade) {
         self.particles.adopt(p);
         self.decals.adopt(d);

@@ -309,8 +309,10 @@ pub struct Decals {
     cube_index: Buffer,
     vs_globals: Buffer,
     ps_globals: Buffer,
-    /// By material object path.
-    materials: HashMap<String, DecalMaterial>,
+    /// By material object path, with the mark each was last used at (`trim`).
+    materials: HashMap<String, (DecalMaterial, u64)>,
+    /// The mark a use stamps a material with (`trim` moves it on).
+    mark: u64,
     /// A floor decal's material name to its object path in the material kind (made at the first floor decal).
     names: Option<Arc<HashMap<String, String>>>,
     /// The stage's decals: material path and ComponentToWorld.
@@ -376,6 +378,7 @@ impl Decals {
             vs_globals: constants(VS_ROWS)?,
             ps_globals: constants(PS_ROWS)?,
             materials: HashMap::new(),
+            mark: 0,
             names: None,
             stage: Vec::new(),
             depth_outside: depth(D3D11_COMPARISON_GREATER_EQUAL),
@@ -397,8 +400,11 @@ impl Decals {
     }
 
     fn material(&mut self, gpu: &Gpu, assets: &Assets, path: &str) -> Result<()> {
-        if !self.materials.contains_key(path) {
-            self.materials.insert(path.to_string(), DecalMaterial::new(gpu, assets, path)?);
+        match self.materials.get_mut(path) {
+            Some((_, used)) => *used = self.mark,
+            None => {
+                self.materials.insert(path.to_string(), (DecalMaterial::new(gpu, assets, path)?, self.mark));
+            }
         }
         Ok(())
     }
@@ -443,11 +449,23 @@ impl Decals {
     /// and the names when it had none.
     pub(crate) fn adopt(&mut self, made: DecalsMade) {
         for (path, m) in made.materials {
-            self.materials.entry(path).or_insert(m);
+            self.materials.entry(path).or_insert((m, 0)).1 = self.mark;
         }
         if self.names.is_none() {
             self.names = made.names;
         }
+    }
+
+    /// Lets go the materials nothing has used since the trim before and the stage does not draw (a floor decal of
+    /// a fighter or stage no longer played), so the textures they hold can go at the assets' trim. Then moves the
+    /// mark on. The materials let go.
+    pub(crate) fn trim(&mut self) -> usize {
+        let mark = self.mark;
+        self.mark += 1;
+        let before = self.materials.len();
+        let stage = &self.stage;
+        self.materials.retain(|path, (_, used)| *used >= mark || stage.iter().any(|(p, _)| p == path));
+        before - self.materials.len()
     }
 }
 
@@ -550,7 +568,7 @@ impl Decals {
         // bHasNormal as the targets give it, so it is false for DBM_AlphaComposite and DBM_Emissive, whose outputs do
         // not show a connected normal (the exe keys on the material's bHasNormal whatever the mode).
         list.sort_by_key(|d| {
-            let m = &self.materials[d.material];
+            let m = &self.materials[d.material].0;
             (m.targets != Targets::WithNormal, std::cmp::Reverse(m.mode), d.n)
         });
 
@@ -584,7 +602,7 @@ impl Decals {
         let mut bound: Option<Targets> = None;
         for d in &list {
             // A run of one render target mode shares a pass (141920950): its targets bound once.
-            let targets = self.materials[d.material].targets;
+            let targets = self.materials[d.material].0.targets;
             if bound != Some(targets) {
                 let rtvs: Vec<Option<ID3D11RenderTargetView>> = std::iter::once(t.scene_color.rtv.clone())
                     .chain(targets.gbuffer().iter().map(|&k| t.gbuffer[k].rtv.clone()))
@@ -645,7 +663,8 @@ impl Decals {
             put(&mut ps_rows, PS_GLOBALS[4].0, &[fade, 1.0]);
             gpu.write_rows(&self.ps_globals, &ps_rows);
 
-            let mat = self.materials.get_mut(d.material).expect("made above");
+            let (mat, used) = self.materials.get_mut(d.material).expect("made above");
+            *used = self.mark;
             mat.set_scalars(gpu, &d.scalars)?;
             let cbs: Vec<Option<ID3D11Buffer>> = mat
                 .cbs

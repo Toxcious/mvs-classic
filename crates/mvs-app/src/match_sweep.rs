@@ -155,7 +155,7 @@ pub fn run(sh: &mut Shell, o: &SweepOptions) -> Result<()> {
         let t0 = Instant::now();
         let r = catch_unwind(AssertUnwindSafe(|| one(sh, setup, map.clone(), o.ticks)));
         let line = match r {
-            Ok(Ok(t)) => format!("{what}: ok, {t} frames, {:.1} s", t0.elapsed().as_secs_f64()),
+            Ok(Ok(t)) => format!("{what}: ok, {t} frames, {:.1} s | {}", t0.elapsed().as_secs_f64(), memory(sh)),
             Ok(Err(e)) => format!("{what}: ERROR {e}"),
             Err(p) => {
                 let msg = p
@@ -176,6 +176,19 @@ pub fn run(sh: &mut Shell, o: &SweepOptions) -> Result<()> {
         eprintln!("  {l}");
     }
     Ok(())
+}
+
+/// The process's private memory and what the caches kept across matches hold, for the case's line.
+fn memory(sh: &Shell) -> String {
+    let content = sh.store().map_or(0, |s| s.cache().stats().bytes);
+    let media = sh.audio.as_ref().map_or(0, |a| a.media().stats().bytes);
+    let [shaders, states, layouts] = sh.renderer.as_ref().map_or([0; 3], |r| r.gpu().cached());
+    format!(
+        "mem {:.0} MB (content {} MB, media {} MB; shaders {shaders}, states {states}, layouts {layouts})",
+        crate::perf::private_mb(),
+        content >> 20,
+        media >> 20
+    )
 }
 
 /// One match: loaded as the loading screen loads it, then `ticks` frames of one step each; the frames it ran.

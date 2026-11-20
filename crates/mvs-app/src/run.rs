@@ -848,7 +848,9 @@ impl MatchLoop {
         laps.lap("rest");
         let (freed, kept) = sh.store().map_or((0, Default::default()), |s| (s.trim(), s.cache().stats()));
         laps.notes.push(format!("content kept {} MB ({} let go)", kept.bytes >> 20, freed >> 20));
-        if let Some(r) = &sh.renderer {
+        if let Some(r) = &mut sh.renderer {
+            let [p, s, d] = r.trim_effects();
+            laps.notes.push(format!("effects let go: {p} particle materials, {s} mesh streams, {d} decal materials"));
             let t = r.assets().trim();
             laps.notes.push(format!("meshes and textures kept {} MB ({} let go)", t.kept >> 20, t.freed >> 20));
         }

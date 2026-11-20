@@ -549,8 +549,13 @@ pub(crate) struct ParticlesMade {
 #[derive(Debug)]
 pub struct Particles {
     materials: Vec<ParticleMaterial>,
+    /// Per material: the mark it was last used at (`trim`).
+    used: Vec<u64>,
     by_path: HashMap<Arc<str>, usize>,
-    meshes: HashMap<Arc<str>, Arc<MeshStreams>>,
+    /// The mesh emitters' streams by mesh, with the mark each was last used at.
+    meshes: HashMap<Arc<str>, (Arc<MeshStreams>, u64)>,
+    /// The mark a use stamps a material or mesh stream with (`trim` moves it on).
+    mark: u64,
     params: Vec<DrawParams>,
     items: Vec<Item>,
     /// The scalar lists of the last frame's items, kept for the next.
@@ -848,8 +853,10 @@ impl Particles {
         };
         Ok(Particles {
             materials: Vec::new(),
+            used: Vec::new(),
             by_path: HashMap::new(),
             meshes: HashMap::new(),
+            mark: 0,
             params: Vec::new(),
             items: Vec::new(),
             spare_scalars: Vec::new(),
@@ -899,26 +906,26 @@ impl Particles {
             let k = match self.by_path.get(path) {
                 Some(&k) => k,
                 None => match ParticleMaterial::try_new(gpu, assets, path) {
-                    Ok(m) => {
-                        self.materials.push(m);
-                        self.by_path.insert(Arc::from(path), self.materials.len() - 1);
-                        self.materials.len() - 1
-                    }
+                    Ok(m) => self.push_material(path, m),
                     Err(e) => {
                         out.push(e);
                         continue;
                     }
                 },
             };
+            self.used[k] = self.mark;
             let (vf, streams) = match kind {
                 EmitterKind::Sprite => (VertexFactory::Sprite, None),
                 EmitterKind::Mesh { mesh } => {
-                    let s = match self.meshes.get(mesh) {
-                        Some(s) => s.clone(),
+                    let s = match self.meshes.get_mut(mesh) {
+                        Some((s, used)) => {
+                            *used = self.mark;
+                            s.clone()
+                        }
                         None => match assets.mesh(mesh).and_then(|m| MeshStreams::new(gpu, m)) {
                             Ok(s) => {
                                 let s = Arc::new(s);
-                                self.meshes.insert(mesh.clone(), s.clone());
+                                self.meshes.insert(mesh.clone(), (s.clone(), self.mark));
                                 s
                             }
                             Err(e) => {
@@ -964,20 +971,55 @@ impl Particles {
         let mut materials: Vec<(Arc<str>, ParticleMaterial)> =
             self.by_path.into_iter().filter_map(|(p, k)| slots[k].take().map(|m| (p, m))).collect();
         materials.sort_by(|a, b| a.0.cmp(&b.0));
-        ParticlesMade { materials, meshes: self.meshes.into_iter().collect() }
+        ParticlesMade { materials, meshes: self.meshes.into_iter().map(|(m, (s, _))| (m, s)).collect() }
     }
 
     /// What a loader thread's warm-up made taken in: the materials and mesh streams this pass has not made yet.
     pub(crate) fn adopt(&mut self, made: ParticlesMade) {
         for (path, m) in made.materials {
-            if !self.by_path.contains_key(&path) {
-                self.materials.push(m);
-                self.by_path.insert(path, self.materials.len() - 1);
-            }
+            let k = match self.by_path.get(&path) {
+                Some(&k) => k,
+                None => self.push_material(&path, m),
+            };
+            self.used[k] = self.mark;
         }
         for (mesh, s) in made.meshes {
-            self.meshes.entry(mesh).or_insert(s);
+            self.meshes.entry(mesh).or_insert((s, 0)).1 = self.mark;
         }
+    }
+
+    fn push_material(&mut self, path: &str, m: ParticleMaterial) -> usize {
+        self.materials.push(m);
+        self.used.push(self.mark);
+        self.by_path.insert(Arc::from(path), self.materials.len() - 1);
+        self.materials.len() - 1
+    }
+
+    /// Lets go the materials and mesh streams nothing has used since the trim before (a fighter's or stage's
+    /// effects no longer played: what the match being installed warmed was used since and stays), so the meshes
+    /// and textures they hold can go at the assets' trim. Then moves the mark on. The materials and streams let go.
+    pub(crate) fn trim(&mut self) -> [usize; 2] {
+        let mark = self.mark;
+        self.mark += 1;
+        // (the last frame's items name materials by index)
+        self.items.clear();
+        let before = [self.materials.len(), self.meshes.len()];
+        let mut at = vec![usize::MAX; self.materials.len()];
+        let materials = std::mem::take(&mut self.materials);
+        let used = std::mem::take(&mut self.used);
+        for (k, (m, u)) in materials.into_iter().zip(used).enumerate() {
+            if u >= mark {
+                at[k] = self.materials.len();
+                self.materials.push(m);
+                self.used.push(u);
+            }
+        }
+        self.by_path.retain(|_, k| {
+            *k = at[*k];
+            *k != usize::MAX
+        });
+        self.meshes.retain(|_, (_, u)| *u >= mark);
+        [before[0] - self.materials.len(), before[1] - self.meshes.len()]
     }
 
     /// The particle materials and the mesh emitters' streams made so far (a warm-up's check).
@@ -1014,11 +1056,14 @@ impl Particles {
             let (vf, stride, kind) = match &e.kind {
                 EmitterKind::Sprite => (VertexFactory::Sprite, SPRITE_STRIDE, Kind::Sprite),
                 EmitterKind::Mesh { mesh } => {
-                    let streams = match self.meshes.get(mesh) {
-                        Some(s) => s.clone(),
+                    let streams = match self.meshes.get_mut(mesh) {
+                        Some((s, used)) => {
+                            *used = self.mark;
+                            s.clone()
+                        }
                         None => {
                             let s = Arc::new(MeshStreams::new(gpu, assets.mesh(mesh)?)?);
-                            self.meshes.insert(mesh.clone(), s.clone());
+                            self.meshes.insert(mesh.clone(), (s.clone(), self.mark));
                             s
                         }
                     };
@@ -1039,12 +1084,14 @@ impl Particles {
             let material = match self.by_path.get(path) {
                 Some(&k) => k,
                 None => {
-                    let m = ParticleMaterial::new(gpu, assets, path)?;
-                    self.materials.push(m);
+                    // (not push_material: the loop holds self.params)
+                    self.materials.push(ParticleMaterial::new(gpu, assets, path)?);
+                    self.used.push(self.mark);
                     self.by_path.insert(Arc::from(path), self.materials.len() - 1);
                     self.materials.len() - 1
                 }
             };
+            self.used[material] = self.mark;
             // The player writes each vertex's dynamic parameter after it; the vertex factories stream it apart.
             let offset = self.bytes.len() as u32;
             let dynamic = self.dynamic_bytes.len() as u32;

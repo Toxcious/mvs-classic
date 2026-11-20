@@ -385,6 +385,12 @@ impl Gpu {
         unsafe { self.ctx.ExecuteCommandList(&r.0, true) };
     }
 
+    /// The objects the device's caches hold for the process: shaders, state objects and input layouts.
+    pub fn cached(&self) -> [usize; 3] {
+        let c = self.cache();
+        [c.shaders.len(), c.states.len(), c.layouts.len()]
+    }
+
     /// The device's caches, locked (never held across a device call that creates).
     fn cache(&self) -> MutexGuard<'_, Cache> {
         self.cache.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
