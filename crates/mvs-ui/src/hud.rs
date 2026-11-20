@@ -859,7 +859,10 @@ impl Hud {
             return;
         }
         self.detach(pawn);
-        let abilities = abilities_of(w, fid, &self.res);
+        // (the port's own) A Waves enemy shows its damage only: no cooldowns (its slot's broker stands for none of the
+        // cast's characters).
+        let enemy = waves && slot != self.setup.me;
+        let abilities = if enemy { Vec::new() } else { abilities_of(w, fid, &self.res) };
         let character = w.names.str(w.fighter(fid).ch);
         let c = self.bottom_custom.as_ref();
         // (the port's own) In a Waves run the local player's fighter is a mode pawn: it takes its slot's own place,
@@ -872,7 +875,10 @@ impl Hud {
             (n..self.pawns.len()).find(|&k| self.pawns[k].is_none()).unwrap_or(self.pawns.len())
         };
         let (ui, ctx5) = (&self.ui, self.ctx5);
-        let hud = bottom_for(&self.bottom, c, character, &b, &abilities, ui, ctx5, &self.names, &self.res);
+        let mut hud = bottom_for(&self.bottom, c, character, &b, &abilities, ui, ctx5, &self.names, &self.res);
+        if enemy {
+            hud.hide_cooldowns();
+        }
         put(&mut self.huds, k, hud);
         put(&mut self.tops, k, AttachedTop::new(&self.top, &b, k));
         put(&mut self.pawns, k, Some(pawn));
@@ -2171,6 +2177,8 @@ mod tests {
                 let t = &hud.huds[k].t;
                 let digit = t.find_in(t.find("UI_IGv3_Percentage"), "digit1");
                 assert_eq!(t.widget(digit).text, "7", "its damage readout");
+                let cc = t.find_in(t.find("UI_IGv3_Cooldowns"), "cooldownContainer");
+                assert_eq!(t.widget(cc).vis, crate::slate::Vis::Hidden, "no cooldowns on an enemy");
             }
         }
         assert!(hud.pawns.len() <= hud.players.len() + 7, "{} places", hud.pawns.len());
@@ -2254,6 +2262,9 @@ mod tests {
         let (slot, cooldowns) = hud.scoreboard.slot_parts(0).expect("the player's slot");
         assert_eq!(cooldowns, abilities_of(&w, player, &hud.res).len());
         assert!(cooldowns > 0, "the player's abilities on the scoreboard");
+        let own = &hud.huds[0].t;
+        let cc = own.find_in(own.find("UI_IGv3_Cooldowns"), "cooldownContainer");
+        assert_ne!(own.widget(cc).vis, crate::slate::Vis::Hidden, "the player's own cooldowns");
         // (set after the step: no hit moves it before the HUD reads it)
         w.fighter_mut(player).stats.damage = 37.0;
         hud.observe(&w, &[], t + 0.1, t + 0.1);

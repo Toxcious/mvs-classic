@@ -1309,6 +1309,13 @@ impl AttachedBottom {
         self.t.widget_mut(r).vis = if v { Vis::SelfHitTestInvisible } else { Vis::Collapsed };
     }
 
+    /// (the port's own) No cooldowns on this pawn: its cooldownContainer Hidden, as a pawn that is not local has it.
+    pub fn hide_cooldowns(&mut self) {
+        let cds = self.t.find("UI_IGv3_Cooldowns");
+        let cc = self.t.find_in(cds, "cooldownContainer");
+        self.t.widget_mut(cc).vis = Vis::Hidden;
+    }
+
     /// UI_Broker SetCooldown...ForPlayer. row: the slot's row now, for a create.
     #[allow(clippy::too_many_arguments)]
     pub fn ability_op(
