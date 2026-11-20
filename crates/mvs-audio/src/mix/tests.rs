@@ -334,7 +334,7 @@ fn streams_as_the_decoded_medium_plays() {
     let (mut notes, _rx) = rtrb::RingBuffer::new(1024);
     let mut dsp = Dsp::new(&init());
     let load = ScopeLoad {
-        streamed: vec![crate::ctl::scope::Streamed { id: MEDIUM, entry: entry.into(), setup: setup.into() }],
+        streamed: vec![Arc::new(crate::decode::Coded::new(MEDIUM, entry.into_boxed_slice(), &setup).unwrap())],
         ..ScopeLoad::default()
     };
     dsp.hold(9, &load, &mut notes);

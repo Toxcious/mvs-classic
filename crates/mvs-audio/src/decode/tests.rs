@@ -11,7 +11,7 @@ use lewton::audio::{PreviousWindowRight, read_audio_packet_generic};
 use lewton::header::{read_header_ident, read_header_setup};
 use mvs_data::sound::{Medium, decode_medium, sound_pack};
 
-use super::{Stream, decode};
+use super::{Coded, Stream, decode};
 
 /// The developer store's sound kind.
 fn native_pack() -> Option<std::sync::Arc<mvs_store::Pack>> {
@@ -177,9 +177,8 @@ fn decodes_and_seeks_as_lewton() {
         if let Some([a, _]) = m.header.loop_points {
             at.push(a.min(frames));
         }
-        let entry: Arc<[u8]> = entry.into();
-        let setup: Arc<[u8]> = setup.into();
-        let mut s = Stream::open(1, entry.clone(), setup.clone(), at[0]).unwrap();
+        let coded = Arc::new(Coded::new(1, entry.clone().into_boxed_slice(), &setup).unwrap());
+        let mut s = Stream::open(coded, at[0]).unwrap();
         for (k, &from) in at.iter().enumerate() {
             if k > 0 {
                 s.seek(from);

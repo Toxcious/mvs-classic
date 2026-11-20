@@ -1,13 +1,14 @@
 //! What a music event holds on the game's side: the media its playlists can reach under some switch values, read from
 //! the store as streamed entries (the mixer decodes them as they play) with the event's bank.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use indexmap::IndexSet;
-use mvs_data::sound::{ActionKind, BANK_KIND, EventBank, Id, Obj, decode_medium, load_bank, short_id, sound_pack};
+use mvs_data::sound::{ActionKind, BANK_KIND, EventBank, Id, Obj, load_bank, short_id, sound_pack};
 
-use crate::ctl::scope::{ScopeLoad, Streamed};
+use crate::ctl::scope::ScopeLoad;
+use crate::decode::cache::MediaCache;
 use crate::{AudioError, MusicFlow};
 
 /// The media of the playlists the given switch values can reach under a music switch container (any value of a group
@@ -117,6 +118,7 @@ pub(crate) fn reached(bank: &EventBank, values: &[Id]) -> Vec<Id> {
 pub(crate) fn load(
     store: &mvs_store::Store,
     init: &mvs_data::sound::InitBank,
+    media: &MediaCache,
     event: &str,
     values: &[Id],
     reach: Reach,
@@ -137,21 +139,10 @@ pub(crate) fn load(
         }
     }
     let pack = sound_pack(store)?;
-    let mut setups: HashMap<String, Arc<[u8]>> = HashMap::new();
     let mut streamed = Vec::with_capacity(ids.len());
     for id in ids {
         let Some(m) = bank.media.get(&id) else { continue };
-        let bytes = pack.bytes(&m.path)?;
-        let setup_path = decode_medium(&bytes, &m.path)?.header.setup;
-        let setup = match setups.get(&setup_path) {
-            Some(s) => s.clone(),
-            None => {
-                let s: Arc<[u8]> = pack.bytes(&setup_path)?.into();
-                setups.insert(setup_path, s.clone());
-                s
-            }
-        };
-        streamed.push(Streamed { id, entry: bytes.into(), setup });
+        streamed.push(media.coded(&pack, id, &m.path).map_err(|e| AudioError::Call(format!("medium {id}: {e}")))?);
     }
     Ok(ScopeLoad { banks: vec![(name, Arc::new(bank))], streamed, ..ScopeLoad::default() })
 }

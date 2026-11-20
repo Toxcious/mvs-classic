@@ -273,8 +273,8 @@ pub enum Garbage {
     Media(Arc<decode::Pcm>),
     /// A lazy media command's list (the mixer holds its own references).
     MediaList(Box<[Arc<decode::Pcm>]>),
-    /// A streamed medium's entry or setup header the mixer held.
-    Bytes(Arc<[u8]>),
+    /// A streamed medium the mixer held.
+    Coded(Arc<decode::Coded>),
 }
 
 /// A note from the mixer thread to the game.
@@ -410,6 +410,8 @@ impl ScopeSource {
             media: load.media.len(),
             decoded,
             bytes: load.media.iter().map(|p| p.data.len() * size_of::<f32>()).sum(),
+            streamed: load.streamed.len(),
+            streamed_bytes: load.streamed.iter().map(|c| c.entry.len()).sum(),
         };
         let owned = |v: &[&str]| v.iter().map(|&x| x.to_owned()).collect();
         Ok(PreparedScope { name: name.to_owned(), keep: owned(keep), lazy: owned(lazy), load: Box::new(load), stat })
@@ -422,7 +424,7 @@ impl ScopeSource {
         values: &[&str],
         flow: Option<MusicFlow>,
     ) -> Result<PreparedMusic, AudioError> {
-        let media = Box::new(music_scope_load(&self.store, &self.init, event, values, flow.as_ref())?);
+        let media = Box::new(music_scope_load(&self.store, &self.init, &self.media, event, values, flow.as_ref())?);
         let values = values.iter().map(|&v| v.to_owned()).collect();
         Ok(PreparedMusic { event: event.to_owned(), values, flow, media })
     }
@@ -467,18 +469,24 @@ pub struct ScopeStat {
     pub decoded: usize,
     /// Its media's decoded bytes.
     pub bytes: usize,
+    /// Its media kept compressed (decoded as they play), and their bytes.
+    pub streamed: usize,
+    pub streamed_bytes: usize,
 }
 
 impl ScopeStat {
-    /// "scope <name> <ms> ms (<media> media, <decoded> decoded, <MB> MB)".
+    /// "scope <name> <ms> ms (<media> media, <decoded> decoded, <MB> MB; <n> streamed, <MB> MB)".
     pub fn line(&self) -> String {
+        let mb = |b: usize| b as f64 / (1024.0 * 1024.0);
         format!(
-            "scope {} {:.0} ms ({} media, {} decoded, {:.0} MB)",
+            "scope {} {:.0} ms ({} media, {} decoded, {:.0} MB; {} streamed, {:.0} MB)",
             self.name,
             self.ms,
             self.media,
             self.decoded,
-            self.bytes as f64 / (1024.0 * 1024.0)
+            mb(self.bytes),
+            self.streamed,
+            mb(self.streamed_bytes)
         )
     }
 }
@@ -494,7 +502,10 @@ impl Audio {
             Backend::Wasapi => out::wasapi::Wasapi::device_channels()?,
             Backend::Offline => 2,
         };
-        let mixer = Box::new(mix::Mixer::new(init.clone(), cmds, notes, rtpc.clone(), channels));
+        let mut mixer = Box::new(mix::Mixer::new(init.clone(), cmds, notes, rtpc.clone(), channels));
+        if backend == Backend::Offline {
+            mixer.inline_streams();
+        }
         let run = match backend {
             Backend::Wasapi => out::Run::Wasapi(out::wasapi::Wasapi::start(mixer)?),
             Backend::Offline => out::Run::Offline { mixer, out: Vec::new() },
@@ -764,7 +775,7 @@ impl Audio {
     pub fn preload_music(&mut self, tick: u32, event: &str, values: &[&str]) -> Result<(), AudioError> {
         use ctl::music::{Reach, event_id, load};
         let values: Box<[Id]> = values.iter().map(|v| mvs_data::sound::short_id(v)).collect();
-        let media = Box::new(load(&self.store, &self.init, event, &values, Reach::Preload)?);
+        let media = Box::new(load(&self.store, &self.init, &self.media, event, &values, Reach::Preload)?);
         self.send_music(tick, MusicCmd::Preload { event: event_id(event), values, media });
         Ok(())
     }
@@ -782,7 +793,7 @@ impl Audio {
         let offer = self.offered.music.iter().position(|p| p.event == event && p.values == values && p.flow == flow);
         let media = match offer {
             Some(k) => self.offered.music.swap_remove(k).media,
-            None => Box::new(music_scope_load(&self.store, &self.init, event, values, flow.as_ref())?),
+            None => Box::new(music_scope_load(&self.store, &self.init, &self.media, event, values, flow.as_ref())?),
         };
         let values: Box<[Id]> = values.iter().map(|v| mvs_data::sound::short_id(v)).collect();
         let flow = flow.map(Box::new);
@@ -841,6 +852,7 @@ impl Audio {
 fn music_scope_load(
     store: &mvs_store::Store,
     init: &InitBank,
+    media: &decode::cache::MediaCache,
     event: &str,
     values: &[&str],
     flow: Option<&MusicFlow>,
@@ -851,7 +863,7 @@ fn music_scope_load(
         (Some(f), false) => flow_values(&values, f),
         _ => values,
     };
-    load(store, init, event, &held, Reach::Scope)
+    load(store, init, media, event, &held, Reach::Scope)
 }
 
 #[cfg(test)]

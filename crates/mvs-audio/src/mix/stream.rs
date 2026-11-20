@@ -1,18 +1,17 @@
 //! Streamed voices: a thread of its own decodes their media ahead of them (lewton allocates per packet, the mixer
 //! thread may not) into one ring per stream slot, the voice's source frames in order, its loops already laid out.
-//! The mixer reads a slot's ring as the voice plays.
+//! The mixer reads a slot's ring as the voice plays. Offline (the checks) the streamer runs inline instead, on the
+//! mixer's thread at each open and after each quantum, so a render does not hang on a thread's timing.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::thread::JoinHandle;
 
-use mvs_data::sound::Id;
-
-use crate::decode::Stream;
+use crate::decode::{Coded, Stream};
 use crate::spec::MAX_CHANNELS;
 
-/// Streamed voices that can play at once.
-pub const MAX_STREAMS: usize = 16;
+/// Streamed voices that can play at once (every medium of a second or longer streams).
+pub const MAX_STREAMS: usize = 64;
 /// A slot's ring, samples (interleaved): about 0.34 s of stereo at the mixer's rate.
 const RING: usize = 32_768;
 /// Frames the streamer decodes in one go.
@@ -20,16 +19,7 @@ const CHUNK: usize = 1024;
 
 /// What the mixer asks of the streamer through the ring (a close goes by the slot's own word: [`Shared::close`]).
 enum Req {
-    Open {
-        slot: usize,
-        epoch: u32,
-        id: Id,
-        entry: Arc<[u8]>,
-        setup: Arc<[u8]>,
-        from: u32,
-        loops: u16,
-        loop_points: Option<[u32; 2]>,
-    },
+    Open { slot: usize, epoch: u32, coded: Arc<Coded>, from: u32, loops: u16, loop_points: Option<[u32; 2]> },
 }
 
 /// What a slot's two sides share.
@@ -64,10 +54,29 @@ pub(crate) struct Streamer {
     pub(crate) slots: Vec<Slot>,
     stop: Arc<AtomicBool>,
     thread: Option<JoinHandle<()>>,
+    /// Offline: the streamer's side, run on the mixer's thread.
+    inline: Option<Box<Inline>>,
+}
+
+/// The streamer's side when it runs inline.
+struct Inline {
+    reqs: rtrb::Consumer<Req>,
+    sides: Vec<Side>,
+    planar: Vec<Vec<f32>>,
 }
 
 impl Streamer {
+    /// The streamer on a thread of its own.
     pub(crate) fn new() -> Streamer {
+        Streamer::make(false)
+    }
+
+    /// The streamer run on the mixer's thread (offline: decoding allocates).
+    pub(crate) fn inline() -> Streamer {
+        Streamer::make(true)
+    }
+
+    fn make(inline: bool) -> Streamer {
         let (reqs, req_rx) = rtrb::RingBuffer::new(4 * MAX_STREAMS);
         let stop = Arc::new(AtomicBool::new(false));
         let mut slots = Vec::with_capacity(MAX_STREAMS);
@@ -79,23 +88,23 @@ impl Streamer {
             slots.push(Slot { rx, shared: shared.clone(), epoch: 0, busy: false, channels: 0 });
             sides.push(Side { tx, shared, epoch: 0, open: None });
         }
+        if inline {
+            let inline = Inline { reqs: req_rx, sides, planar: vec![vec![0.0f32; CHUNK]; MAX_CHANNELS] };
+            return Streamer { reqs, slots, stop, thread: None, inline: Some(Box::new(inline)) };
+        }
         let s = stop.clone();
         let thread = std::thread::Builder::new()
             .name("audio-streamer".into())
             .spawn(move || run(req_rx, sides, &s))
             .expect("audio: the streamer thread starts");
-        Streamer { reqs, slots, stop, thread: Some(thread) }
+        Streamer { reqs, slots, stop, thread: Some(thread), inline: None }
     }
 
     /// Opens a stream on a free slot: the voice's source from medium frame `from`, `loops` times (0: until closed)
     /// over its loop region. None when no slot is free.
-    #[allow(clippy::too_many_arguments)]
     pub(crate) fn open(
         &mut self,
-        id: Id,
-        entry: &Arc<[u8]>,
-        setup: &Arc<[u8]>,
-        channels: usize,
+        coded: &Arc<Coded>,
         from: u32,
         loops: u16,
         loop_points: Option<[u32; 2]>,
@@ -109,22 +118,11 @@ impl Streamer {
         while s.rx.pop().is_ok() {}
         s.epoch = s.epoch.wrapping_add(1);
         s.busy = true;
-        s.channels = channels;
+        s.channels = usize::from(coded.channels);
         s.shared.ended.store(false, Ordering::Release);
-        let req = Req::Open {
-            slot,
-            epoch: s.epoch,
-            id,
-            entry: entry.clone(),
-            setup: setup.clone(),
-            from,
-            loops,
-            loop_points,
-        };
+        let req = Req::Open { slot, epoch: s.epoch, coded: coded.clone(), from, loops, loop_points };
         let _ = self.reqs.push(req);
-        if let Some(t) = &self.thread {
-            t.thread().unpark();
-        }
+        self.wake();
         Some(slot)
     }
 
@@ -137,10 +135,13 @@ impl Streamer {
         s.shared.close.store(s.epoch, Ordering::Release);
     }
 
-    /// Wakes the streamer (once a quantum: the rings were read).
-    pub(crate) fn wake(&self) {
+    /// Wakes the streamer (once a quantum: the rings were read); inline, runs it.
+    pub(crate) fn wake(&mut self) {
         if let Some(t) = &self.thread {
             t.thread().unpark();
+        }
+        if let Some(i) = &mut self.inline {
+            step(&mut i.reqs, &mut i.sides, &mut i.planar);
         }
     }
 }
@@ -177,41 +178,47 @@ struct Open {
 fn run(mut reqs: rtrb::Consumer<Req>, mut sides: Vec<Side>, stop: &AtomicBool) {
     let mut planar = vec![vec![0.0f32; CHUNK]; MAX_CHANNELS];
     while !stop.load(Ordering::Acquire) {
-        while let Ok(r) = reqs.pop() {
-            match r {
-                Req::Open { slot, epoch, id, entry, setup, from, loops, loop_points } => {
-                    let side = &mut sides[slot];
-                    side.epoch = epoch;
-                    side.open = match Stream::open(id, entry, setup, from) {
-                        Ok(stream) => {
-                            let frames = stream.frames;
-                            // clamped to the medium, the whole medium where empty (as a decoded medium's)
-                            // The loop count and the loop region are exact to the sample, as a decoded medium's.
-                            let [a, b] = loop_points.unwrap_or([0, frames]);
-                            let (a, b) = (a.min(frames), b.min(frames));
-                            let region = if b > a { [a, b] } else { [0, frames] };
-                            let total = if loops > 1 { u64::from(frames) * u64::from(loops) } else { u64::MAX };
-                            Some(Open { stream, loops, region, written: 0, total })
-                        }
-                        Err(e) => {
-                            eprintln!("audio: stream {id}: {e}");
-                            side.shared.ended.store(true, Ordering::Release);
-                            None
-                        }
-                    };
-                }
-            }
-        }
-        for side in &mut sides {
-            // (a close of the generation opened: after its open, which the ring brought first)
-            let close = side.shared.close.load(Ordering::Acquire);
-            if close == side.epoch && side.shared.closed.load(Ordering::Acquire) != close {
-                side.open = None;
-                side.shared.closed.store(close, Ordering::Release);
-            }
-            fill(side, &mut planar);
-        }
+        step(&mut reqs, &mut sides, &mut planar);
         std::thread::park_timeout(std::time::Duration::from_millis(2));
+    }
+}
+
+/// Takes the opens asked for and the closes, and fills the open streams' rings.
+fn step(reqs: &mut rtrb::Consumer<Req>, sides: &mut [Side], planar: &mut [Vec<f32>]) {
+    while let Ok(r) = reqs.pop() {
+        match r {
+            Req::Open { slot, epoch, coded, from, loops, loop_points } => {
+                let id = coded.id;
+                let side = &mut sides[slot];
+                side.epoch = epoch;
+                side.open = match Stream::open(coded, from) {
+                    Ok(stream) => {
+                        let frames = stream.frames;
+                        // clamped to the medium, the whole medium where empty (as a decoded medium's)
+                        // The loop count and the loop region are exact to the sample, as a decoded medium's.
+                        let [a, b] = loop_points.unwrap_or([0, frames]);
+                        let (a, b) = (a.min(frames), b.min(frames));
+                        let region = if b > a { [a, b] } else { [0, frames] };
+                        let total = if loops > 1 { u64::from(frames) * u64::from(loops) } else { u64::MAX };
+                        Some(Open { stream, loops, region, written: 0, total })
+                    }
+                    Err(e) => {
+                        eprintln!("audio: stream {id}: {e}");
+                        side.shared.ended.store(true, Ordering::Release);
+                        None
+                    }
+                };
+            }
+        }
+    }
+    for side in sides {
+        // (a close of the generation opened: after its open, which the ring brought first)
+        let close = side.shared.close.load(Ordering::Acquire);
+        if close == side.epoch && side.shared.closed.load(Ordering::Acquire) != close {
+            side.open = None;
+            side.shared.closed.store(close, Ordering::Release);
+        }
+        fill(side, planar);
     }
 }
 
@@ -266,13 +273,17 @@ mod tests {
     /// request ring) and the slots come back.
     #[test]
     fn closes_free_the_slots() {
+        let Some((entry, setup)) = crate::decode::tests::oracle_entry(0) else {
+            eprintln!("stream slots test: no oracle store, skipped");
+            return;
+        };
+        let coded = Arc::new(Coded::new(1, entry.into_boxed_slice(), &setup).unwrap());
         let mut s = Streamer::new();
-        let bytes: Arc<[u8]> = Arc::from(&[0u8; 4][..]);
         for round in 0..3 {
             let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
             let mut opened = Vec::new();
             while opened.len() < MAX_STREAMS {
-                match s.open(1, &bytes, &bytes, 1, 0, 1, None) {
+                match s.open(&coded, 0, 1, None) {
                     Some(k) => opened.push(k),
                     None => {
                         assert!(

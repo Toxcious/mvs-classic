@@ -1,6 +1,7 @@
-//! Media to samples: a `sound` entry's Vorbis packets through lewton. A medium held in memory is decoded whole on a
-//! worker when its scope loads; a streamed one (music, long loops) packet by packet on the streamer thread as it plays
-//! (lewton allocates per packet, so not on the mixer thread).
+//! Media to samples: a `sound` entry's Vorbis packets through lewton. A short medium is decoded whole on a worker
+//! when its scope loads; a long one (a second or more: `cache::STREAM_FROM_SECS`) and a streamed one (music) are
+//! kept compressed and decoded packet by packet on the streamer thread as they play (lewton allocates per packet, so
+//! not on the mixer thread).
 //!
 //! A packet's decoded output starts at the frame the previous packet's granule names: the first packet of a decode
 //! gives none (it only primes the window overlap), so a seek decodes from the packet before the one that holds the
@@ -27,6 +28,38 @@ impl Pcm {
     pub fn channel(&self, c: usize) -> &[f32] {
         let n = self.frames as usize;
         &self.data[c * n..(c + 1) * n]
+    }
+}
+
+/// A medium kept compressed and decoded as it plays (the streamer's): its entry and the setup header parsed for it.
+pub struct Coded {
+    pub id: Id,
+    pub rate: u32,
+    pub channels: u16,
+    pub frames: u32,
+    pub entry: Box<[u8]>,
+    setup: Arc<SetupHeader>,
+}
+
+impl std::fmt::Debug for Coded {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Coded").field("id", &self.id).field("bytes", &self.entry.len()).finish()
+    }
+}
+
+impl Coded {
+    /// Medium `id`'s entry, its setup header parsed from `setup`'s bytes.
+    pub fn new(id: Id, entry: Box<[u8]>, setup: &[u8]) -> Result<Coded, DecodeError> {
+        let m = decode_medium(&entry, &format!("medium {id}"))?;
+        let ident = read_ident(id, &m.header)?;
+        let setup = Arc::new(read_setup(id, &ident, setup)?);
+        Coded::with_setup(id, entry, setup)
+    }
+
+    /// Medium `id`'s entry with its setup header parsed already (shared by the media of one setup and ident).
+    fn with_setup(id: Id, entry: Box<[u8]>, setup: Arc<SetupHeader>) -> Result<Coded, DecodeError> {
+        let h = decode_medium(&entry, &format!("medium {id}"))?.header;
+        Ok(Coded { id, rate: h.rate, channels: h.channels, frames: h.frames, entry, setup })
     }
 }
 
@@ -123,10 +156,10 @@ pub fn load(pack: &mvs_store::Pack, id: Id, path: &str) -> Result<Pcm, DecodeErr
     decode(id, &m, &setup)
 }
 
-/// A streamed medium: its entry's bytes and the decoder's place, read ahead of the voice.
+/// A streamed medium: its entry and the decoder's place, read ahead of the voice.
 pub struct Stream {
     pub(crate) id: Id,
-    entry: Arc<[u8]>,
+    coded: Arc<Coded>,
     hd: Headers,
     pub(crate) channels: usize,
     pub(crate) frames: u32,
@@ -146,12 +179,13 @@ pub struct Stream {
 }
 
 impl Stream {
-    /// The stream of a medium's entry bytes, at frame `from`.
-    pub fn open(id: Id, entry: Arc<[u8]>, setup: Arc<[u8]>, from: u32) -> Result<Stream, DecodeError> {
+    /// The stream of a medium, at frame `from`.
+    pub fn open(coded: Arc<Coded>, from: u32) -> Result<Stream, DecodeError> {
+        let id = coded.id;
         let what = format!("medium {id}");
-        let m = decode_medium(&entry, &what)?;
-        let hd = Headers::read(id, &m.header, &setup)?;
-        let base = entry.as_ptr() as usize;
+        let m = decode_medium(&coded.entry, &what)?;
+        let hd = Headers { ident: read_ident(id, &m.header)?, setup: coded.setup.clone() };
+        let base = coded.entry.as_ptr() as usize;
         let packets = (0..m.packets())
             .map(|i| {
                 let p = m.packet(i);
@@ -172,7 +206,7 @@ impl Stream {
         let h = m.header;
         let mut s = Stream {
             id,
-            entry: entry.clone(),
+            coded: coded.clone(),
             hd,
             channels: usize::from(h.channels),
             frames: h.frames,
@@ -193,7 +227,7 @@ impl Stream {
         let Some(&[a, b]) = self.packets.get(self.next) else { return false };
         let i = self.next;
         let first = self.pwr.is_empty();
-        let pkt = &self.entry[a as usize..b as usize];
+        let pkt = &self.coded.entry[a as usize..b as usize];
         match self.hd.packet(self.id, i, pkt, &mut self.pwr) {
             Ok(pcm) => {
                 self.next += 1;

@@ -175,13 +175,11 @@ impl Dsp {
         };
         let (src, rate, channels, frames) = match self.media.get(s.medium) {
             Some(Held::Pcm(p)) => (Source::Mem(p.clone()), p.rate, usize::from(p.channels), p.frames),
-            Some(Held::Stream { entry, setup }) => {
-                let h = stream_header(entry);
-                let opened = (h.1 > 0)
-                    .then(|| self.streamer.open(s.medium, entry, setup, h.1, s.offset, s.loops, s.loop_points))
-                    .flatten();
+            Some(Held::Stream(c)) => {
+                let ch = usize::from(c.channels);
+                let opened = (ch > 0).then(|| self.streamer.open(c, s.offset, s.loops, s.loop_points)).flatten();
                 match opened {
-                    Some(k) => (Source::Stream(k), h.0, h.1, h.2),
+                    Some(k) => (Source::Stream(k), c.rate, ch, c.frames),
                     None => {
                         let _ = notes.push(Note::Warn { what: "no stream slot free", id: u64::from(s.medium) });
                         (Source::None, 0, 0, 0)
@@ -297,16 +295,6 @@ impl Dsp {
     }
 }
 
-/// A medium entry's rate, channels and frames, read in place (the entry's fixed head; zeros for a bad entry).
-fn stream_header(e: &[u8]) -> (u32, usize, u32) {
-    let word = |a: usize| e.get(a..a + 4).map_or(0, |s| u32::from_le_bytes([s[0], s[1], s[2], s[3]]));
-    if e.get(..4) != Some(mvs_data::sound::MEDIUM_MAGIC.as_slice()) {
-        return (0, 0, 0);
-    }
-    let channels = e.get(8..10).map_or(0, |s| usize::from(u16::from_le_bytes([s[0], s[1]])));
-    (word(4), channels, word(16))
-}
-
 /// Writes the stereo mix to the output's channels: left and right to the first two, silence on the rest; a mono
 /// output takes their mean.
 // Unverified: a device with more than two channels gets the front pair only.
@@ -350,6 +338,11 @@ pub struct Mixer {
 }
 
 impl Mixer {
+    /// Runs the streamer on the mixer's thread (offline: a render then hangs on no thread's timing).
+    pub fn inline_streams(&mut self) {
+        self.dsp.streamer = Streamer::inline();
+    }
+
     pub fn new(
         init: Arc<InitBank>,
         cmds: rtrb::Consumer<Stamped>,

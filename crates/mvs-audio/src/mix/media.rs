@@ -7,7 +7,7 @@ use std::sync::Arc;
 use mvs_data::sound::Id;
 
 use crate::ctl::scope::ScopeLoad;
-use crate::decode::Pcm;
+use crate::decode::{Coded, Pcm};
 use crate::{Garbage, Note};
 
 /// The most media the table holds (its capacity, reserved up front).
@@ -17,11 +17,8 @@ pub const MAX_MEDIA: usize = 32_768;
 #[derive(Clone)]
 pub(crate) enum Held {
     Pcm(Arc<Pcm>),
-    /// A streamed medium: its entry and setup header.
-    Stream {
-        entry: Arc<[u8]>,
-        setup: Arc<[u8]>,
-    },
+    /// A streamed medium.
+    Stream(Arc<Coded>),
 }
 
 struct Entry {
@@ -71,7 +68,7 @@ impl Media {
         }
         for s in &load.streamed {
             if !self.owns(sorted, owner, s.id) {
-                self.push(s.id, owner, Held::Stream { entry: s.entry.clone(), setup: s.setup.clone() }, notes);
+                self.push(s.id, owner, Held::Stream(s.clone()), notes);
             }
         }
         // one sort in place (no allocation; which of a medium's equal entries comes first does not matter)
@@ -138,9 +135,8 @@ pub(crate) fn free(held: Held, notes: &mut rtrb::Producer<Note>) {
         Held::Pcm(p) => {
             let _ = notes.push(Note::Free(Garbage::Media(p)));
         }
-        Held::Stream { entry, setup } => {
-            let _ = notes.push(Note::Free(Garbage::Bytes(entry)));
-            let _ = notes.push(Note::Free(Garbage::Bytes(setup)));
+        Held::Stream(c) => {
+            let _ = notes.push(Note::Free(Garbage::Coded(c)));
         }
     }
 }

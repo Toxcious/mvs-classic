@@ -1,6 +1,6 @@
 //! Scopes: the banks and media a part of the game holds while it runs (a match's characters, a stage, the menus),
-//! read and decoded on the game's side and handed to the mixer whole; a scope's lazy events' media decoded when one
-//! is first posted.
+//! read on the game's side and handed to the mixer whole: the short media decoded, the long ones compressed (the
+//! streamer decodes them as they play); a scope's lazy events' short media decoded when one is first posted.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -9,31 +9,23 @@ use std::time::{Duration, Instant};
 use indexmap::IndexMap;
 use mvs_data::sound::{ActionKind, EventBank, Id, InitBank, Obj, short_id};
 
-use crate::decode::Pcm;
-use crate::decode::cache::MediaCache;
+use crate::decode::cache::{Hold, MediaCache};
 use crate::decode::worker::Done;
+use crate::decode::{Coded, Pcm};
 use crate::{AudioError, Cmd, Key, Note, Post};
 
-/// A scope's load: its banks by index name, its in-memory media decoded, the entries of its streamed media (with
-/// their setup headers) for the mixer thread to decode as they play, and its lazy events with the media a post of
-/// one decodes first (those not kept by the load and not streamed), with their entries' paths, and its events that
-/// hold a Stop action (a post of one with a stop key cancels the lazy posts of that key still waiting).
+/// A scope's load: its banks by index name, its short media decoded, its long and streamed media compressed for the
+/// streamer to decode as they play, and its lazy events with the media a post of one decodes first (the short ones
+/// not kept by the load), with their entries' paths, and its events that hold a Stop action (a post of one with a
+/// stop key cancels the lazy posts of that key still waiting).
 #[derive(Debug, Default)]
 pub struct ScopeLoad {
     pub banks: Vec<(String, Arc<EventBank>)>,
     pub media: Vec<Arc<Pcm>>,
-    pub streamed: Vec<Streamed>,
+    pub streamed: Vec<Arc<Coded>>,
     pub lazy: Vec<(Id, Box<[Id]>)>,
     pub lazy_paths: Vec<(Id, Box<str>)>,
     pub stops: Vec<Id>,
-}
-
-/// A streamed medium's entry and setup header.
-#[derive(Debug)]
-pub struct Streamed {
-    pub id: Id,
-    pub entry: Arc<[u8]>,
-    pub setup: Arc<[u8]>,
 }
 
 /// The banks of `names` and of the events their PlayEvent actions post, in order (each name's, then the ones it
@@ -106,9 +98,10 @@ pub(crate) fn media_for(merged: &super::bank::Banks, banks: &[(String, Arc<Event
     out
 }
 
-/// Reads the banks of the events of `keep` and `lazy`, decodes the media of `keep`'s and lists those of `lazy`'s
-/// and a streamed medium of either is held as its entry and setup header. A medium `media`
-/// holds decoded already is taken from it; with the load, how many media it decoded.
+/// Reads the banks of the events of `keep` and `lazy` and holds their media: a long medium of either, and a
+/// streamed one, compressed (decoded as it plays), a short one of `keep`'s decoded, and a short one of `lazy`'s
+/// listed for its first post. A medium `media` holds already is taken from it; with the load, how many media it
+/// decoded.
 pub fn load(
     store: &mvs_store::Store,
     init: &InitBank,
@@ -124,53 +117,62 @@ pub fn load(
     let mut load = ScopeLoad::default();
     let mut decoded = 0;
     let mut done = HashSet::new();
-    let stream = |m: Id, r: &mvs_data::sound::MediaRef, load: &mut ScopeLoad| -> Result<(), AudioError> {
-        let entry: Arc<[u8]> = pack.bytes(&r.path)?.into();
-        let setup = mvs_data::sound::decode_medium(&entry, &r.path)?.header.setup;
-        load.streamed.push(Streamed { id: m, setup: pack.bytes(&setup)?.into(), entry });
-        Ok(())
-    };
-    // (the kept media in the order the events list them, decoded on the loader's threads: the cache's misses at once)
-    let mut wanted: Vec<(Id, &str)> = Vec::new();
+    let call = |m: Id| move |e: crate::decode::DecodeError| AudioError::Call(format!("medium {m}: {e}"));
+    // (the kept media in the order the events list them, read and decoded on the loader's threads: the cache's
+    // misses at once)
+    let mut wanted: Vec<(Id, &str, bool)> = Vec::new();
     for ev in keep {
         for m in media_for(&merged, &banks, &ev.to_lowercase()) {
             if !done.insert(m) {
                 continue;
             }
             let Some(r) = merged.media(m) else { continue };
-            if merged.streamed(m) {
-                stream(m, r, &mut load)?;
-            } else {
-                wanted.push((m, r.path.as_str()));
-            }
+            wanted.push((m, r.path.as_str(), merged.streamed(m)));
         }
     }
-    let got = mvs_load::map(&wanted, |&(m, path)| media.medium(&pack, m, path));
-    for (got, (m, _)) in got.into_iter().zip(&wanted) {
-        let got = got.map_err(|e| AudioError::Call(format!("medium {m}: {e}")))?;
-        decoded += usize::from(got.decoded);
-        load.media.push(got.pcm);
-    }
-    // (a lazy medium is listed under each lazy event that plays it; its path once)
-    let mut listed = HashSet::new();
-    for ev in lazy {
-        let ev = ev.to_lowercase();
-        let mut list = Vec::new();
-        for m in media_for(&merged, &banks, &ev) {
-            if done.contains(&m) {
-                continue;
+    let got = mvs_load::map(&wanted, |&(m, path, streamed)| media.hold(&pack, m, path, streamed));
+    for (got, &(m, ..)) in got.into_iter().zip(&wanted) {
+        match got.map_err(call(m))? {
+            Hold::Pcm(got) => {
+                decoded += usize::from(got.decoded);
+                load.media.push(got.pcm);
             }
-            let Some(r) = merged.media(m) else { continue };
-            if merged.streamed(m) {
+            Hold::Coded(c) => load.streamed.push(c),
+        }
+    }
+    // (the lazy media: a long one held at once, a short one listed under each lazy event that plays it, its path
+    // once)
+    let mut lazy_media: Vec<(Id, &str, bool)> = Vec::new();
+    let mut seen = HashSet::new();
+    let lazy: Vec<(String, Vec<Id>)> = lazy
+        .iter()
+        .map(|ev| {
+            let ev = ev.to_lowercase();
+            let list: Vec<Id> = media_for(&merged, &banks, &ev).into_iter().filter(|m| !done.contains(m)).collect();
+            for &m in &list {
+                if let Some(r) = merged.media(m)
+                    && seen.insert(m)
+                {
+                    lazy_media.push((m, r.path.as_str(), merged.streamed(m)));
+                }
+            }
+            (ev, list)
+        })
+        .collect();
+    let got = mvs_load::map(&lazy_media, |&(m, path, streamed)| {
+        if streamed { media.coded(&pack, m, path).map(Some) } else { media.long(&pack, m, path) }
+    });
+    for (got, &(m, path, _)) in got.into_iter().zip(&lazy_media) {
+        match got.map_err(call(m))? {
+            Some(c) => {
                 done.insert(m);
-                stream(m, r, &mut load)?;
-                continue;
+                load.streamed.push(c);
             }
-            if listed.insert(m) {
-                load.lazy_paths.push((m, r.path.as_str().into()));
-            }
-            list.push(m);
+            None => load.lazy_paths.push((m, path.into())),
         }
+    }
+    for (ev, list) in lazy {
+        let list: Vec<Id> = list.into_iter().filter(|m| !done.contains(m) && merged.media(*m).is_some()).collect();
         if !list.is_empty() {
             load.lazy.push((short_id(&ev), list.into_boxed_slice()));
         }
@@ -439,13 +441,19 @@ mod tests {
     use crate::{Audio, Backend, Note, QUANTUM};
 
     /// An offline Audio whose lazy posts take the live path (the worker, held posts), a lazy scope of three of
-    /// Shaggy's system lines, and the lines; None without a store.
+    /// Shaggy's lines of one short medium each (a long one streams: not lazy), and the lines; None without a store.
     fn live() -> Option<(Audio, Vec<String>)> {
         let store = mvs_store::Store::open(mvs_store::dev_store_dir()).ok()?;
         let mut a = Audio::new(std::sync::Arc::new(store), Backend::Offline).ok()?;
         a.lazy.live = true;
-        let mut lines: Vec<String> =
-            a.init().events.keys().filter(|e| e.starts_with("vo_shaggy_sys_")).take(3).cloned().collect();
+        let mut names: Vec<&String> = a.init().events.keys().filter(|e| e.starts_with("vo_shaggy_")).collect();
+        names.sort();
+        let short = |e: &str| {
+            let (l, _) = super::load(a.store(), a.init(), &super::MediaCache::new(), &[], &[e]).ok()?;
+            (l.streamed.is_empty() && l.lazy.len() == 1 && l.lazy[0].1.len() == 1).then_some(())
+        };
+        let mut lines: Vec<String> = names.into_iter().filter(|e| short(e).is_some()).take(3).cloned().collect();
+        assert_eq!(lines.len(), 3, "three of Shaggy's lines with short media");
         lines.sort();
         a.call(&Line { tick: 0, call: Call::Scope { name: "match".into(), keep: Vec::new(), lazy: lines.clone() } })
             .unwrap();
