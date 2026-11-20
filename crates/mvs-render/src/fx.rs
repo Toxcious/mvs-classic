@@ -764,7 +764,9 @@ impl Fx {
         let f = w.fighter(fid);
         let id = f.id;
         let d = &w.char_data(fid).fighter;
-        let pick = w.setup.players.get(id as usize).and_then(|p| p.skin.as_deref());
+        // (a Waves run's pawns: the player's skin is set-up player 0's by its bound slot, as the view picks it)
+        let player = if mvs_sim::modes::waves::on(w) { mvs_sim::world::pawns::slot_of(w, fid) } else { id };
+        let pick = usize::try_from(player).ok().and_then(|i| w.setup.players.get(i)).and_then(|p| p.skin.as_deref());
         let look = skin_of(d, pick).ok();
         // (skin_intro.rs mutedByIntro: what of the sim's default intro a skin's own intro does not present)
         let intro = look.as_ref().and_then(|s| IntroMute::of(d, s));
