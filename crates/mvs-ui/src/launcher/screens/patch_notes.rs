@@ -10,7 +10,7 @@ use crate::launcher::paint::{CLEAR, Fill, Kind, Rgba, Shape, hex, rgba};
 
 /// The cards on Home: how many, their place under the tagline, their size and the space between them.
 const CARDS: usize = 2;
-const CARDS_AT: [f32; 2] = [64.0, 362.0];
+const CARDS_AT: [f32; 2] = [64.0, 355.0];
 const CARD: [f32; 2] = [232.0, 132.0];
 const CARD_GAP: f32 = 16.0;
 /// The window's list holds this many releases.

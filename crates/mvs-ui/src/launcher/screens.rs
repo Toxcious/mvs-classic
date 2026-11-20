@@ -1112,8 +1112,8 @@ fn home(c: &mut Canvas, m: &Model, st: &mut PageState, stars: &[Star], out: &mut
     }
 }
 
-/// (the port's own) Home's left: a moon high up with its glow, a cloud drifting slowly across its foot, and under
-/// them the wordmark, lit a little by the moon, with a gold rule and the tagline.
+/// (the port's own) Home's top left: the wordmark at the page's top, lit a little by the moon, with a gold rule and
+/// the tagline; right of it a moon with its glow, a cloud drifting slowly across its foot.
 fn moon_and_logo(c: &mut Canvas) {
     let t = c.t as f32;
     // (a glow's gradient stays fixed and its breathing is the shape's opacity: the painter keeps every gradient it
@@ -1126,7 +1126,7 @@ fn moon_and_logo(c: &mut Canvas) {
         c.push(s);
     };
     // The moon: its glow breathing slowly, a disc lit from its upper left, a few soft craters.
-    let (m, r) = ([440.0, 92.0], 36.0);
+    let (m, r) = ([490.0, 92.0], 36.0);
     let breathe = 0.92 + 0.08 * (t * 0.35).sin();
     soft(c, m, [190.0, 190.0], rgba(150, 180, 255, 0.16), breathe);
     soft(c, m, [88.0, 88.0], rgba(205, 220, 255, 0.22), breathe);
@@ -1176,7 +1176,7 @@ fn moon_and_logo(c: &mut Canvas) {
         c.push(sh);
     }
     // The wordmark, its moonlight, the rule and the tagline.
-    let (x, y) = (64.0, 96.0);
+    let (x, y) = (64.0, 36.0);
     soft(c, [x + 120.0, y + 40.0], [230.0, 120.0], rgba(150, 180, 255, 0.07), breathe);
     let [_, wh] = sky::wordmark(c, x - 4.0, y, 104.0);
     let ry = y + wh + 26.0;
