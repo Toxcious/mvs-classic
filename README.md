@@ -99,7 +99,7 @@ The port also has a few features of its own. None of them change the characters 
    3. Paste this into the console and press Enter:
 
       ```
-      download_depot 1818750 1818751 4062948038835516814
+      download_depot 1818750 1818751 8780239795816477473
       ```
 
    4. Wait for the message "Depot download complete", which names the folder it was saved to. The console shows no
