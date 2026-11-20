@@ -345,6 +345,7 @@ impl ArcadeState {
             set_score: None,
             arcade: Some(run.clone()),
             net: None,
+            solo: None,
         })
     }
 

@@ -16,7 +16,7 @@ use crate::menu::controller::{Cx, Handler};
 use crate::menu::lobby::loadout::{local_banner, local_ring_out, picked_skin, ported_setup, with_local_loadout};
 use crate::menu::lobby::{LobbyMatch, PreMatchPick};
 use crate::menu::manager::{DialogId, DialogParams, Manager};
-use crate::menu::screens::pre_match::setup::{PreMatchPlayer, PreMatchSetup};
+use crate::menu::screens::pre_match::setup::{PreMatchPlayer, PreMatchSetup, SoloMode};
 
 /// The mode's state across screens (`Session::waves`).
 #[derive(Debug, Default)]
@@ -148,10 +148,11 @@ impl WavesState {
 /// The local player's account id on the pre-match screen (the arcade's).
 pub const ME_ID: &str = crate::menu::arcade::ME_ID;
 
-/// The pre-match screen's set-up for a run: the local player (`username`) alone on team 0 (a 1v1's style), the
-/// picked map and its level. Deviation: the screen runs as a custom game's whose leader is this player (its Back to
-/// Lobby button goes to the main menu, and its 45 s timer runs); the run has no lobby of its own.
-pub fn pre_match_setup(username: &str, map: Option<String>, level: String) -> PreMatchSetup {
+/// The pre-match screen's set-up for a run: the local player (`username`) alone on team 0 (a 1v1's style) in the
+/// screen's solo layout titled with the mode and `variant` (`title`), the picked map and its level. Deviation: the
+/// screen runs as a custom game's whose leader is this player (its Back to Lobby button goes to the main menu, and
+/// its 45 s timer runs); the run has no lobby of its own.
+pub fn pre_match_setup(username: &str, variant: WavesVariant, map: Option<String>, level: String) -> PreMatchSetup {
     PreMatchSetup {
         players: vec![PreMatchPlayer {
             account_id: ME_ID.to_string(),
@@ -165,8 +166,19 @@ pub fn pre_match_setup(username: &str, map: Option<String>, level: String) -> Pr
         leader: true,
         map,
         level,
+        solo: Some(SoloMode { title: title(variant) }),
         ..PreMatchSetup::default()
     }
+}
+
+/// The mode's name with the variant's ("Waves - 100 Ring-Outs"): the pre-match screen's and the result page's title.
+pub fn title(variant: WavesVariant) -> String {
+    use crate::menu::custom_text as t;
+    let v = match variant {
+        WavesVariant::RingOuts100 => t::WAVES_100,
+        WavesVariant::Endless => t::WAVES_ENDLESS,
+    };
+    format!("{} - {v}", t::WAVES_RESULT_TITLE)
 }
 
 /// What a run's match is made from besides the pick: the player's preferences and the menu data.
@@ -251,11 +263,7 @@ pub const WAVES_LEVEL: &str = "Waves";
 /// best).
 pub fn result_text(r: &WavesResult, fighter: &str) -> (String, String) {
     use crate::menu::custom_text as t;
-    let variant = match r.variant {
-        WavesVariant::RingOuts100 => t::WAVES_100,
-        WavesVariant::Endless => t::WAVES_ENDLESS,
-    };
-    let title = format!("{} - {variant}", t::WAVES_RESULT_TITLE);
+    let title = title(r.variant);
     let mut lines = Vec::new();
     match r.variant {
         WavesVariant::RingOuts100 if r.cleared => {
@@ -432,6 +440,14 @@ mod tests {
         // (the time floors as the match's clock does)
         let won = WavesResult { cleared: true, seconds: 61.999, best: Some(61.999), ..fell };
         assert!(result_text(&won, "Shaggy").1.contains("1:01.99"));
+    }
+
+    #[test]
+    fn the_pre_match_is_solo_with_the_modes_title() {
+        let s = pre_match_setup("me", WavesVariant::Endless, Some("M011".into()), "Level".into());
+        assert_eq!(s.players.len(), 1);
+        assert_eq!(s.solo.as_ref().map(|m| m.title.as_str()), Some("Waves - Endless"));
+        assert_eq!(title(WavesVariant::RingOuts100), "Waves - 100 Ring-Outs");
     }
 
     #[test]

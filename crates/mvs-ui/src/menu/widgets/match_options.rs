@@ -1214,8 +1214,13 @@ impl MatchOptions {
     fn waves_map(&mut self, cx: &mut Cx<'_>, m: &MapInfo) {
         cx.view.session.waves.stage = Some(m.name.clone());
         cx.view.session.waves.choosing = true;
-        let setup =
-            crate::menu::waves::pre_match_setup(&cx.prefs.profile.name, Some(m.name.clone()), m.data.level.clone());
+        let variant = cx.view.session.waves.variant.unwrap_or(WavesVariant::RingOuts100);
+        let setup = crate::menu::waves::pre_match_setup(
+            &cx.prefs.profile.name,
+            variant,
+            Some(m.name.clone()),
+            m.data.level.clone(),
+        );
         self.request_dismiss_self(cx);
         crate::menu::lobby::with_carry(|c| {
             c.pre_match = Some(Box::new(crate::menu::screens::pre_match::setup::PreMatchStart { setup, lobby: None }));

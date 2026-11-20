@@ -55,6 +55,16 @@ pub struct PreMatchSetup {
     pub arcade: Option<ArcadeRun>,
     /// An online pre-match or the queue's (the program fills it; None: offline).
     pub net: Option<crate::menu::online::PreMatchNet>,
+    /// (the port's own) A single-player mode's screen: the mode's title (`SoloMode`). None: the build's layouts.
+    pub solo: Option<SoloMode>,
+}
+
+/// (the port's own) The solo layout of a single-player mode (Waves): the local player alone with no opposing side,
+/// and the mode's name where the screen names the mode.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SoloMode {
+    /// The mode's name ("Waves - 100 Ring-Outs"), shown as the mode label's mode.
+    pub title: String,
 }
 
 /// What the program opens the pre-match screen with: a local custom game's
@@ -142,6 +152,7 @@ impl LocalLobby {
             set_score: None,
             net: None,
             arcade: None,
+            solo: None,
         }
     }
 

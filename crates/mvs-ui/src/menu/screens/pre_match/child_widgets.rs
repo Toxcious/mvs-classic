@@ -459,6 +459,8 @@ pub struct PMStateInfo {
     arcade_continues: i32,
     /// The queue's modes (PreMatchSetup.queue): the screen runs the matchmaking path.
     queue: Option<Vec<mvs_protocol::online::QueueMode>>,
+    /// (the port's own) A single-player mode's title (PreMatchSetup.solo): the mode label's mode.
+    solo_title: Option<String>,
 }
 
 /// QueueLabel: the multiqueue configs' ToDisplayText @1275 (native). Unverified: read as the mode card's name that
@@ -499,6 +501,7 @@ impl PMStateInfo {
             arcade_round: 0,
             arcade_continues: 0,
             queue: setup.as_ref().and_then(|s| s.net.as_ref()).and_then(|n| n.queue.as_ref()).map(|q| q.modes.clone()),
+            solo_title: setup.as_ref().and_then(|s| s.solo.as_ref()).map(|m| m.title.clone()),
         })
     }
 
@@ -552,7 +555,11 @@ impl PMStateInfo {
         }
         // (a queue set's rematch, on the rematch path with its set score, is a matchmade match too: not custom)
         let normal = self.queue.is_some() || self.set_score.is_some();
-        let m = cx.view.game_text(if normal { NORMAL_MODE } else { CUSTOM_MODE }).to_string();
+        // Deviation (the port's solo layout): a single-player mode's own title in place of "Custom"
+        let m = match &self.solo_title {
+            Some(t) => t.clone(),
+            None => cx.view.game_text(if normal { NORMAL_MODE } else { CUSTOM_MODE }).to_string(),
+        };
         let mode = cx.view.game_text(MODE_TEXT).replace("{mode}", &m);
         set_text(cx, "ModeLabel", &mode);
         set_vis(cx, "PlaylistLabel", Vis::Collapsed);

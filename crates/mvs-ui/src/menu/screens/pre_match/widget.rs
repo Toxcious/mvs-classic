@@ -191,6 +191,10 @@ const PERK_STAND_IN: [[[f64; 2]; 4]; 3] = [
     [[360.0, 900.0], [920.0, 900.0], [1640.0, 900.0], [2200.0, 900.0]],
 ];
 
+/// (the port's own) The solo layout's P0 point (`PreMatchSetup::solo`): right of the fighter, who stays at the
+/// middle of the character select (no face-off).
+const PERK_STAND_IN_SOLO: [f64; 2] = [1800.0, 680.0];
+
 /// HideAllWidgets PM@31892 (the names of the port's bundle).
 const HIDE_LIST: [&str; 21] = [
     "CharacterGrid",
@@ -470,6 +474,7 @@ fn stand_in(cx: &Cx<'_>) -> PreMatchSetup {
         set_score: None,
         arcade: None,
         net: None,
+        solo: None,
     }
 }
 
@@ -751,6 +756,11 @@ impl PreMatch {
     fn me_mut(&mut self) -> &mut Sel {
         let at = self.setup.me;
         &mut self.sels[at]
+    }
+
+    /// (the port's own) The solo layout of a single-player mode (`PreMatchSetup::solo`).
+    fn solo(&self) -> bool {
+        self.setup.solo.is_some()
     }
 
     fn is_me(&self, i: usize) -> bool {
@@ -1059,12 +1069,13 @@ impl PreMatch {
         local_badges(hydra, &menu.cosmetics, &mut |e| stat_tracker_count(e, &menu.cosmetics, &trackers, hard))
     }
 
-    /// UpdateHeaderLayout PM@74964.
+    /// UpdateHeaderLayout PM@74964. Deviation (the port's solo layout): Player Info 1, the 1v1 opponent's, is
+    /// Collapsed too; the build shows 0 and 1 in every 1v1.
     fn update_header_layout(&self, cx: &mut Cx<'_>) {
         let solo = self.setup.team_style == 0;
         for i in 0..2 {
             let pi = Self::player_info_w(cx, i);
-            wd(cx, pi).vis = Vis::Visible;
+            wd(cx, pi).vis = if i == 1 && self.solo() { Vis::Collapsed } else { Vis::Visible };
         }
         for i in 2..4 {
             let pi = Self::player_info_w(cx, i);
@@ -1214,6 +1225,9 @@ impl PreMatch {
                 if self.setup.arcade.is_some() {
                     self.arcade_locked(cx);
                     cx.visit::<PMStateInfo, _>(si, |s, cx| s.set_info(cx, "", 0.0, false, 10.0, false, ""));
+                } else if self.solo() {
+                    // Deviation (the port's solo layout): no "Waiting for Other Players": there are none
+                    cx.visit::<PMStateInfo, _>(si, |s, cx| s.set_info(cx, "", 0.0, false, 10.0, false, ""));
                 } else if self.queue() {
                     // a queue's: no time, no spinner
                     let t = cx.view.game_text(TEXT_WAITING_PARTY).to_string();
@@ -1265,7 +1279,9 @@ impl PreMatch {
                 // PM@39691: "Waiting for Other Players" (wrapped: not free for all), InputContainer Collapsed, the
                 // local loadout's Enter, and in 2v2 the ally preview's Exit Ally Header and ShiftAllyPerkPosition
                 let wrap = self.setup.team_style != 2 && !self.queue();
-                let t = cx.view.game_text(TEXT_WAITING_OTHERS_PERKS).to_string();
+                // Deviation (the port's solo layout): no header: there are no others to wait for
+                let t =
+                    if self.solo() { String::new() } else { cx.view.game_text(TEXT_WAITING_OTHERS_PERKS).to_string() };
                 cx.visit::<PMStateInfo, _>(si, |s, cx| s.set_state(cx, &t, wrap, ""));
                 set_vis(cx, "InputContainer", Vis::Collapsed);
                 self.refresh_loadout_stacks(cx);
@@ -1300,7 +1316,9 @@ impl PreMatch {
                 // Refresh Loadout Stacks PM@37098 (2v2). Unverified: the build runs it before the reveal's other
                 // branches; here after the fill above, which stands for the native OnPerksDetermined.
                 self.refresh_loadout_stacks(cx);
-                for &i in revealed(self.setup.team_style) {
+                // (the port's solo layout: no other card to reveal)
+                let others: &[usize] = if self.solo() { &[] } else { revealed(self.setup.team_style) };
+                for &i in others {
                     let lo = self.loadout(cx, i);
                     cx.visit::<PerksLoadout, _>(lo, |l, cx| l.enter(cx));
                 }
@@ -1497,7 +1515,9 @@ impl PreMatch {
     fn apply_perk_locations(&self, cx: &mut Cx<'_>) {
         let stand = &PERK_STAND_IN[usize::from(self.setup.team_style).min(2)];
         for (i, &widget) in LOCATION_WIDGET.iter().enumerate() {
+            // (the port's solo layout: the card beside the fighter, not at its banner's point: no banner comes up)
             let p = match self.projected(&point_key(true, i)) {
+                _ if widget == 0 && self.solo() => PERK_STAND_IN_SOLO,
                 None => stand[i],
                 Some(None) => return,
                 Some(Some(p)) => p,
@@ -2665,6 +2685,10 @@ impl PreMatch {
     fn opponents_revealed(&mut self, cx: &mut Cx<'_>) {
         self.map_players_to_widgets(cx, true);
         self.players_found = true;
+        if self.solo() {
+            self.solo_face_off(cx);
+            return;
+        }
         if self.level {
             // The level's: the game state's skin data by preview slot (SkinDataReceived), then PlayersFound, whose
             // sequence shows each preview's fighter (BPI_ShowPlayer)
@@ -2698,6 +2722,20 @@ impl PreMatch {
             return;
         }
         self.timed_face_off(cx);
+    }
+
+    /// (the port's own) The solo layout's face-off: none. Deviation: the build's 1v1 sends the level PlayersFound,
+    /// whose Seq_AnimInRed puts the two banners and VS up; alone, the fighter stays where the character select put
+    /// it, with no banner, and the screen goes on as the sequence's events would: the local plate's diamond (event
+    /// "1" PM@86534), the face-off's end (BPI_TransitionComplete("FaceOff")) and the perks after ShowVS's Delay(2.0)
+    /// PM@87518, here at once.
+    fn solo_face_off(&mut self, cx: &mut Cx<'_>) {
+        let p0 = Self::player_info_w(cx, 0);
+        cx.visit::<PMPlayerInfo, _>(p0, |p, cx| p.force_show_diamond(cx));
+        self.diamond_once = true;
+        self.transition_complete(cx, "FaceOff");
+        let me = cx.w;
+        cx.view.delay(0.0, Handler { owner: me, id: D_TO_PERKS });
     }
 
     /// bannerSlugOf: the local player's equipped banner, another's as the server handed it
@@ -2839,9 +2877,12 @@ impl PreMatch {
             return;
         }
         let solo = self.setup.team_style == 0;
+        // (the port's solo layout: the local player's card alone)
+        let alone = self.solo();
         for i in 0..4 {
             let lo = self.loadout(cx, i);
-            wd(cx, lo).vis = if i >= 2 && solo { Vis::Collapsed } else { Vis::Visible };
+            let hide = (i >= 2 && solo) || (i >= 1 && alone);
+            wd(cx, lo).vis = if hide { Vis::Collapsed } else { Vis::Visible };
             let a = self.sels.iter().position(|x| x.widget == i as i32);
             let sel = a.and_then(|a| self.selection_of(cx, a));
             let fighter = a.and_then(|a| self.sels[a].character.as_ref().and_then(|c| c.fighter.clone()));
