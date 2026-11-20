@@ -170,6 +170,25 @@ pub const LOBBY_MUTATORS: [&str; MUTATOR_CHOICES] = [
     "Mutator_ShrinkBlastBoxLastPoint",
 ];
 
+/// The mutators the port's own Chaos Wheel rule may roll, as MutatorData_Map keys: the ones a fighter can gain and
+/// lose in the middle of a life, and the item spawner. Left out: Grow With Damage (20 seconds barely shows it),
+/// Instant Kill (its damage stays after its window) and the whole-match rules (Silly, Final Point Shrink).
+pub const WHEEL_MUTATORS: [&str; 13] = [
+    "Mutator_Giant",
+    "Mutator_Miniature",
+    "Mutator_BigHeadAbilityBoost",
+    "Mutator_LowGravity",
+    "Mutator_Boost_UnlimitedJumps",
+    "Mutator_Boost_CooldownReductionLarge",
+    "Mutator_Boost_AttacksBreakArmor",
+    "Mutator_Boost_WeakenOnHit",
+    "Mutator_Boost_ChargeFreeze",
+    "Mutator_Boost_IceGauntlets",
+    "Mutator_Boost_AdditionalAirSpecial",
+    "Mutator_GreyHealth",
+    "Mutator_RandomItemSpawns",
+];
+
 /// The blocker texts of the build (exe strings CustomGameLobbyError_*), in the order of the native table.
 pub const BLOCKER_NOT_ENOUGH: &str = "Not enough players for selected game mode";
 pub const BLOCKER_TOO_MANY: &str = "Too many players for selected game mode";

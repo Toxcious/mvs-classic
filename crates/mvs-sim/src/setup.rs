@@ -110,6 +110,30 @@ pub enum WavesVariant {
     Endless,
 }
 
+/// The port's own Chaos Wheel rule (`world/wheel.rs`): the match plays `seconds` plain, then every `seconds` one
+/// mutator of `pool` comes on for every fighter and the one before it ends.
+#[derive(Clone, PartialEq, Debug)]
+pub struct Wheel {
+    /// The MutatorData_Map keys that may be rolled; the rule's indexes (`world::wheel::WheelStatus`) are into it.
+    pub pool: Vec<String>,
+    /// A window's length, in seconds.
+    pub seconds: Real,
+    /// How long ahead of a change the next mutator is drawn, so the HUD can name it, in seconds.
+    pub warn: Real,
+}
+
+impl Wheel {
+    /// A custom game's window.
+    pub const SECONDS: Real = 20.0;
+    /// A custom game's warning.
+    pub const WARN: Real = 3.0;
+
+    /// A custom game's rule over `pool`.
+    pub fn of(pool: Vec<String>) -> Wheel {
+        Wheel { pool, seconds: Wheel::SECONDS, warn: Wheel::WARN }
+    }
+}
+
 /// `MatchSetup`.
 #[derive(Clone, PartialEq, Debug, Default)]
 pub struct MatchSetup {
@@ -123,6 +147,8 @@ pub struct MatchSetup {
     pub mutators: Vec<String>,
     pub arcade: Option<ArcadeRound>,
     pub mode: Option<MatchMode>,
+    /// The port's own Chaos Wheel rule, or None (off).
+    pub wheel: Option<Wheel>,
 }
 
 /// `MATCH_START_TICKS`: BPI_SetMatchStarted, counted from the first game tick.

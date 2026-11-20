@@ -25,6 +25,7 @@ pub mod stage;
 pub mod stage_actors;
 pub mod stage_query;
 pub mod wall_bp;
+pub mod wheel;
 
 pub use blast::{BlastBounds, KoBox, Shrunk};
 pub use flow::{BonusTracker, MatchState, Timer, TimerCmd, VoShared};
@@ -341,6 +342,8 @@ pub struct World {
     pub tutorial: Option<Box<crate::modes::tutorial::TutorialRun>>,
     /// The port's own Waves run (`modes/waves/`), set by `modes::waves::start`.
     pub waves: Option<Box<crate::modes::waves::WavesRun>>,
+    /// The port's own Chaos Wheel rule (`world/wheel.rs`), in a match whose set-up has a wheel.
+    pub wheel: Option<wheel::WheelState>,
     /// `mode`: the set-up mode's hooks. Skipped from the state: they
     /// are `fn` pointers bound from the set-up's mode at `World::new` and never changed, so a save would copy the
     /// same value.
@@ -444,6 +447,7 @@ impl World {
             runtime_solids: None,
             tutorial: None,
             waves: None,
+            wheel: None,
             mode: None,
             predicted: false,
             bot_trees: None,
