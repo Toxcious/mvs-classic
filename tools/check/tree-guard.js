@@ -15,6 +15,8 @@ const KINDS = new Set([
   'ttf', 'ico', 'png',
   // the README's screenshots
   'jpg',
+  // the Expert bot's trained network (our own weights) and the scripts that train it
+  'net', 'py',
 ]);
 // Files with no extension the repo holds, by name.
 const NAMES = new Set(['LICENSE', 'NOTICE', 'README', 'Jamfile', 'commit-msg', '.gitignore', '.gitattributes']);
