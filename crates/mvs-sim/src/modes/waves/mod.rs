@@ -7,7 +7,7 @@
 //! same on a replay of its inputs.
 
 use crate::State;
-use crate::setup::WavesVariant;
+use crate::setup::{MatchMode, MatchPlayer, MatchSetup, WavesVariant};
 use crate::world::World;
 
 /// The HUD slot every enemy is bound to (`pawns::bind_slot`): the HUD gives a slot's pawns their damage readout,
@@ -56,6 +56,18 @@ pub fn start(w: &mut World) {
 pub fn status(w: &World) -> Option<WavesStatus> {
     w.waves.as_ref()?;
     crate::unported!("waves::status", w)
+}
+
+/// A Waves run's set-up: `player` (the local player, its character, perks, skin and input preferences) alone on
+/// team 0, hazards on, no rules (the mode ends the run), and the enemies' `cast` (`draw_cast`). The menus' start and
+/// the app's `--waves` switch both build it here.
+pub fn setup(variant: WavesVariant, player: MatchPlayer, cast: Vec<String>) -> MatchSetup {
+    MatchSetup {
+        players: vec![MatchPlayer { bot: false, team: Some(0), ..player }],
+        allow_hazards: true,
+        mode: Some(MatchMode::Waves { variant, cast }),
+        ..MatchSetup::default()
+    }
 }
 
 /// The run's cast: `CAST_SIZE` keys of `roster` drawn from `seed` (fewer when the roster is shorter), in draw order.
