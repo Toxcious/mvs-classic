@@ -595,7 +595,14 @@ impl MatchLoop {
     pub fn new(sh: &mut Shell, start: MatchStart, o: &MatchOptions) -> Result<MatchLoop> {
         let load_start = Instant::now();
         let mut laps = crate::perf::LoadLaps::new();
-        let MatchStart { setup, mut kind, seed, mut stage, map, me, usernames, humans, prepared, lab_ahead } = start;
+        let MatchStart { mut setup, mut kind, seed, mut stage, map, me, usernames, humans, mut prepared, lab_ahead } =
+            start;
+        // (the port's own, dev) `--wheel`: the rule added to the set-up the menus made; parts prepared off the frame
+        // were built for the set-up without it.
+        if sh.wheel && crate::wheel::switched(&kind) && setup.wheel.is_none() {
+            setup.wheel = Some(crate::wheel::whole_pool());
+            prepared = None;
+        }
         // (a match prepared off the frame began its load at its job: `PrepareJob::of`)
         if prepared.is_none() {
             sh.begin_load();
@@ -1234,6 +1241,7 @@ impl MatchLoop {
             u.hud.set_lab_combos(self.lab.as_ref().map(LabHost::combos));
             // (the port's own) a Waves run's counter and clock (a replay's too)
             u.hud.set_waves(mvs_sim::modes::waves::status(&self.world).map(|s| crate::waves::hud_of(&s)));
+            u.hud.set_wheel(crate::wheel::hud(&self.world));
             u.hud.observe(&self.world, &self.world.events, self.hud_time, self.real);
             for p in pops {
                 u.hud.scenery_pop(p, self.hud_time + STEP);

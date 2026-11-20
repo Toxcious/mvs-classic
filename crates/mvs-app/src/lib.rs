@@ -37,6 +37,7 @@ pub mod tape;
 pub mod tutorial;
 pub mod update;
 pub mod waves;
+pub mod wheel;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {

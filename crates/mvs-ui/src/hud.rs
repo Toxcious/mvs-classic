@@ -117,6 +117,18 @@ pub struct WavesHud {
     pub seconds: f64,
 }
 
+/// (the port's own) The Chaos Wheel as the HUD reads it each frame (`Hud::set_wheel`). A mutator is its index in
+/// `mvs_protocol::lobby_rules::LOBBY_MUTATORS`, the order of the menus' names.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct WheelHud {
+    /// The mutator that is on, or None in the plain first window.
+    pub current: Option<usize>,
+    /// The next mutator, once it is drawn.
+    pub next: Option<usize>,
+    /// Seconds to the next change; None before the match starts and once it is over.
+    pub seconds: Option<f64>,
+}
+
 /// An arcade round as the HUD reads it (AXFunctions GetArcadeInfo's round, GetNumArcadeLevels).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct HudArcade {
@@ -459,6 +471,7 @@ pub struct Hud {
     ctx5: bool,
     /// (the port's own) The Waves run's counter, set each frame by the app in context `MODE_WAVES`.
     waves: Option<WavesHud>,
+    wheel: Option<WheelHud>,
     names: PlayerNumbers,
     /// A minion's own queue (BPI_PopText on the Watermelon, the pawn's AddPopTextToQueue), by its id.
     minion_queues: IndexMap<Fid, VecDeque<Queued>>,
@@ -753,6 +766,7 @@ impl Hud {
             ui,
             ctx5,
             waves: None,
+            wheel: None,
             names,
             minion_queues: IndexMap::new(),
             minion_pops: Vec::new(),
@@ -828,6 +842,11 @@ impl Hud {
     /// (the port's own) The Waves run's counter for the frames that follow (context `MODE_WAVES`).
     pub fn set_waves(&mut self, w: Option<WavesHud>) {
         self.waves = w;
+    }
+
+    /// (the port's own) The Chaos Wheel's card for the frames that follow; None in a match with no wheel.
+    pub fn set_wheel(&mut self, w: Option<WheelHud>) {
+        self.wheel = w;
     }
 
     /// What the input labels read of the players' input: `menu`, the bundle with
@@ -1916,6 +1935,10 @@ impl Hud {
             let counter = custom_text::waves_counter(r.ring_outs, r.target);
             self.scoreboard.waves(&counter, &custom_text::waves_clock(r.seconds, r.target.is_some()));
         }
+        if let Some(r) = self.wheel {
+            let name = |i: Option<usize>| i.and_then(|i| crate::menu::custom_text::MUTATORS.get(i).copied());
+            self.scoreboard.wheel(&custom_text::wheel_card(name(r.current), name(r.next), r.seconds));
+        }
         self.scoreboard.tick(&self.res, now, real, f.round_time_remaining, &mut self.sounds);
         if self.scoreboard.draw(fonts, out, size[0], size[1], dpi) {
             self.drawn.push(Part::Scoreboard);
@@ -2071,6 +2094,17 @@ mod tests {
     }
 
     /// A Waves run's words: the counter with and without a target, the clock with hundredths against the clock.
+    #[test]
+    fn wheel_words() {
+        assert_eq!(custom_text::wheel_card(None, None, Some(19.2)), "WHEEL 20");
+        assert_eq!(custom_text::wheel_card(Some("Giant"), None, Some(3.01)), "GIANT 4");
+        assert_eq!(custom_text::wheel_card(Some("Giant"), Some("Low Gravity"), Some(3.0)), "NEXT: LOW GRAVITY 3");
+        assert_eq!(custom_text::wheel_card(None, Some("Big Head"), Some(0.0)), "NEXT: BIG HEAD 0");
+        assert_eq!(custom_text::wheel_card(Some("Giant"), None, None), "GIANT");
+        assert_eq!(custom_text::wheel_card(None, None, None), "");
+        assert_eq!(custom_text::wheel_card(None, None, Some(f64::NAN)), "WHEEL 0");
+    }
+
     #[test]
     fn waves_words() {
         assert_eq!(custom_text::waves_counter(12, Some(100)), "RING-OUTS 12 / 100");

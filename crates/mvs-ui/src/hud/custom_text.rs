@@ -29,6 +29,24 @@ pub fn waves_clock(seconds: f64, hundredths: bool) -> String {
     if hundredths { format!("{m}:{s:02}.{:02}", cs % 100) } else { format!("{m}:{s:02}") }
 }
 
+/// (Chaos Wheel) The card's line over the scoreboard: the next mutator once it is drawn, else the one that is on,
+/// else the wheel's own name in the plain first window, each with the whole seconds left to the change (none
+/// before the match starts and once it is over). The names are the menus' (`menu::custom_text::MUTATORS`).
+pub fn wheel_card(current: Option<&str>, next: Option<&str>, seconds: Option<f64>) -> String {
+    let what = match (next, current) {
+        (Some(n), _) => format!("NEXT: {}", n.to_uppercase()),
+        (None, Some(c)) => c.to_uppercase(),
+        (None, None) if seconds.is_some() => "WHEEL".to_owned(),
+        (None, None) => String::new(),
+    };
+    match seconds {
+        // (a count that reaches 0 only at the change)
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss, reason = "a clamped, rounded-up count")]
+        Some(s) => format!("{what} {}", s.max(0.0).ceil().min(f64::from(u32::MAX)) as u64),
+        None => what,
+    }
+}
+
 /// (online) The plate over the scoreboard portrait of a player whose link dropped (the referee's away).
 pub const AWAY: &str = "Away";
 

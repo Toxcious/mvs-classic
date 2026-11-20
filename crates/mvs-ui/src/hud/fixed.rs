@@ -878,6 +878,15 @@ impl Scoreboard {
         }
     }
 
+    /// (the port's own) The Chaos Wheel's card: its line in modeLabel, shown in every context, each frame.
+    pub fn wheel(&mut self, line: &str) {
+        let x = self.t.widget_mut(self.mode_label);
+        x.vis = Vis::SelfHitTestInvisible;
+        if x.text != line {
+            x.text = line.to_owned();
+        }
+    }
+
     /// (the port's own) A player slot's cooldowns made again for the abilities of the fighter that stands for the
     /// player now: a Waves run's player is a mode pawn, bound after the scoreboard was made.
     pub fn set_abilities(&mut self, player: usize, b: &BrokerPlayer, abilities: &[HudAbility], ui: &Prefs) {

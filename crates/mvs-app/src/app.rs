@@ -128,6 +128,8 @@ pub struct Shell {
     pub net: Option<mvs_net::service::NetHandle>,
     /// `--feed` with `--online-config`: a menus' online match's local inputs are that trace's.
     pub online_feed: Option<String>,
+    /// (the port's own, dev) `--wheel`: the matches of `crate::wheel::switched` run the Chaos Wheel rule.
+    pub wheel: bool,
     want_ui: bool,
     want_audio: bool,
     audio_backend: Backend,
@@ -180,6 +182,7 @@ impl Shell {
             online: None,
             net: None,
             online_feed: None,
+            wheel: false,
             want_ui: o.ui,
             want_audio: o.audio,
             audio_backend: if o.audio_offline { Backend::Offline } else { Backend::Wasapi },

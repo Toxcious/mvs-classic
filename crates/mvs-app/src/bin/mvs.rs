@@ -11,6 +11,7 @@
 //!   [--bench <secs>] [--stage <key>] [--shot-results <secs>] [--press-results <secs>] [--no-audio] [--input-script <jsonl>] [--menu-tape <out>]
 //!   [--shot-frames <frame>[,..]] [--live-loads] [--audio-tape <file>]
 //!   [--waves endless|100 [--character <key>] [--waves-bot <level>]]   (a Waves run on `--stage`, cast from `--seed`)
+//!   [--wheel]   (with `--play` too: the Chaos Wheel rule in the command line's match, a Lab and Local Play)
 //!   [--relay <addr> (--host | --join <lobby>) [--key <file>] [--feed <trace match>]]
 //!   [--online-config <file> [--direct-loopback] [--online-open host|join:<code>|queue:<mode>[,..]] [--online-lag <ms>]
 //!   [--online-desync-at <tick>] [--feed <trace match>]]
@@ -59,7 +60,7 @@ mvs --play --store <dir> [--data <dir>] [--size 1920x1080] [--full-screen] [--ad
 mvs [--data <dir>] [--store <dir>] [--size 1920x1080] [--full-screen] [--adapter <text>] [--seed <n>] [--no-ui] \
 [--replay <trace match> [--trace-out <file>]] [--real-pace] [--shot <tick>[,..]] [--out <dir>] [--throttle <rate>] \
 [--bench <secs>] [--shot-results <secs>] [--no-audio] [--input-script <jsonl>] [--menu-tape <out>] [--shot-frames <frame>[,..]] \
-[--live-loads] [--audio-tape <file>] [--waves endless|100 [--character <key>] [--waves-bot <level>]]\n[--relay <addr> (--host | --join <lobby>) [--key <file>] [--feed <trace match>]]\n\
+[--live-loads] [--audio-tape <file>] [--waves endless|100 [--character <key>] [--waves-bot <level>]] [--wheel]\n[--relay <addr> (--host | --join <lobby>) [--key <file>] [--feed <trace match>]]\n\
 [--online-config <file> [--direct-loopback] [--online-open host|join:<code>|queue:<mode>[,..]] [--online-lag <ms>] \
 [--online-desync-at <tick>] [--feed <trace match>]]
 \n[--queue-fake [--queue-bots <s>] [--queue-start <s>] [--queue-vote-no] [--queue-path <pm.path json>]]\n\
@@ -123,6 +124,8 @@ struct Args {
     character: Option<String>,
     /// (dev) `--waves-bot <level>`: a match bot of that level in the Waves run's player seat (a run that lasts).
     waves_bot: Option<u8>,
+    /// (the port's own, dev) `--wheel`: the Chaos Wheel rule in the matches of `mvs_app::wheel::switched`.
+    wheel: bool,
 }
 
 /// The flags of a test or scripted run: one of them mutes the device unless `--sound` is given, so a run the agents
@@ -233,6 +236,7 @@ fn parse(mut it: impl Iterator<Item = String>) -> Result<Args, String> {
         waves: None,
         character: None,
         waves_bot: None,
+        wheel: false,
     };
     let (mut mute, mut sound, mut test, mut back, mut front) = (false, false, false, false, false);
     let (mut audio_tape, mut results_press) = (None, None);
@@ -299,6 +303,7 @@ fn parse(mut it: impl Iterator<Item = String>) -> Result<Args, String> {
                 let v = it.next().ok_or("--waves-bot: no value")?;
                 a.waves_bot = Some(v.parse().map_err(|_| format!("--waves-bot: {v} is not a bot level"))?);
             }
+            "--wheel" => a.wheel = true,
             "--shot" => {
                 for t in it.next().ok_or("--shot: no value")?.split(',') {
                     o.shots.push(num(Some(t.to_string()), "--shot")?);
@@ -378,6 +383,9 @@ fn parse(mut it: impl Iterator<Item = String>) -> Result<Args, String> {
     }
     if a.waves.is_some() && (a.play || a.replay.is_some() || relay.is_some() || a.run.script.input_script.is_some()) {
         return Err("--waves: not with --play, --replay, --relay or --input-script".to_owned());
+    }
+    if a.wheel && (a.waves.is_some() || a.replay.is_some() || relay.is_some()) {
+        return Err("--wheel: not with --waves, --replay or --relay".to_owned());
     }
     if (a.character.is_some() || a.waves_bot.is_some()) && a.waves.is_none() {
         return Err("--character, --waves-bot: no --waves".to_owned());
@@ -507,6 +515,7 @@ fn run(a: Args) -> mvs_app::Result<()> {
         None => None,
     };
     let mut shell = Shell::new(&a.shell)?;
+    shell.wheel = a.wheel;
     if a.load_bench {
         return mvs_app::load_bench::run(&mut shell);
     }
