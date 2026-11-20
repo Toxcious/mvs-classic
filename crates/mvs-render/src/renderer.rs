@@ -1309,10 +1309,15 @@ impl Renderer {
         let g = &t.gbuffer;
         let rtvs: [Option<ID3D11RenderTargetView>; 6] =
             [&t.scene_color, &g[0], &g[1], &g[2], &g[3], &g[4]].map(|x| x.rtv.clone());
+        // SceneColor's clear colour (the stage fog's inscatter colour where it would cover an empty pixel); the
+        // G-buffers' black.
+        let clear = if menu { [0.0; 4] } else { self.post.clear_colour() };
         // SAFETY: views of this device's targets; the clear colours are four floats.
         unsafe {
-            for r in rtvs.iter().flatten() {
-                gpu.ctx.ClearRenderTargetView(r, &[0.0; 4]);
+            for (k, r) in rtvs.iter().enumerate() {
+                if let Some(r) = r {
+                    gpu.ctx.ClearRenderTargetView(r, if k == 0 { &clear } else { &[0.0; 4] });
+                }
             }
             let dsv = t.depth.dsv.as_ref().expect("a depth view");
             gpu.ctx.ClearDepthStencilView(dsv, D3D11_CLEAR_DEPTH.0 | D3D11_CLEAR_STENCIL.0, 0.0, 0);

@@ -76,6 +76,21 @@ impl HeightFog {
         }
     }
 
+    /// SceneColor's clear colour under this fog: a pixel nothing covers is the far depth (1e8 cm), past a non-zero
+    /// cutoff distance (Sky Arena), where the fog leaves it black; without a cutoff the fog would cover it, so it is
+    /// the inscatter colour (Batcave's openings past its walls).
+    // Unverified (as the TS, app/stage-scene.ts): the pass skips far-depth pixels (bOnlyOnRenderedOpaque 1, the TS's
+    // value), so the clear colour stands in for the fog over them at full opacity; the build's own value of
+    // bOnlyOnRenderedOpaque for the game view is not read, and if it is 0 the cooked shader fogs those pixels by
+    // their ray's height (thinner looking up) instead.
+    pub(super) fn clear_colour(&self) -> [f32; 4] {
+        if self.cutoff_distance > 0.0 {
+            return [0.0; 4];
+        }
+        let [r, g, b] = self.inscatter;
+        [r, g, b, 0.0]
+    }
+
     /// FogStruct's rows for a camera at height `camera_z` (cm): FFogUniformParameters (static init 140665a00)
     /// ExponentialFogParameters, ExponentialFogParameters2, ExponentialFogColorParameter, ExponentialFogParameters3;
     /// the rest (directional inscattering, the inscattering cubemap, volumetric fog) left 0.
@@ -195,6 +210,23 @@ mod tests {
         let second = mvs_data::stage::SecondFog { density: 0.02, height_falloff: 0.2, height_offset: 50.0 };
         let r = HeightFog::of(&mvs_data::stage::Fog { second: Some(second), ..f }).rows(100.0);
         assert_eq!(r.0[1].map(f32::from_bits), [0.00002 * (-0.0002f32 * -50.0).exp2(), 0.0002, 0.00002, 150.0]);
+    }
+
+    #[test]
+    fn fog_clear_colour() {
+        let f = mvs_data::stage::Fog {
+            density: 0.02,
+            height_falloff: 2.0,
+            inscatter: vec![0.25, 0.5, 1.0],
+            start_distance: 20000.0,
+            height: 0.0,
+            max_opacity: 1.0,
+            cutoff_distance: 0.0,
+            second: None,
+        };
+        assert_eq!(HeightFog::of(&f).clear_colour(), [0.25, 0.5, 1.0, 0.0]);
+        let cut = mvs_data::stage::Fog { cutoff_distance: 2.0e7, ..f };
+        assert_eq!(HeightFog::of(&cut).clear_colour(), [0.0; 4]);
     }
 
     #[test]

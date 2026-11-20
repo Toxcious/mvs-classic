@@ -216,6 +216,11 @@ impl Post {
         self.stage.fog.as_ref().map(|f| f.rows(camera_z).0)
     }
 
+    /// SceneColor's clear colour on the stage: what a pixel nothing covers shows (app/stage-scene.ts stageView).
+    pub(crate) fn clear_colour(&self) -> [f32; 4] {
+        self.stage.fog.as_ref().map_or([0.0; 4], HeightFog::clear_colour)
+    }
+
     /// The atmospheric fog (when the stage has one) and the height fog over SceneColor; `view` the frame's View
     /// rows.
     pub fn fog(&mut self, fr: &mut Frame, view: &[[u32; 4]; crate::view::VIEW_ROWS]) -> Result<()> {
