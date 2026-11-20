@@ -284,6 +284,8 @@ pub struct Widget {
     pub font_mid: Option<Mid>,
     /// OutlineSettings.bSeparateFillAlpha.
     pub separate_fill: bool,
+    /// (the port's own) Every ASCII digit in the widest digit's width, so a changing number keeps its place.
+    pub even_digits: bool,
     /// LineHeightPercentage, Justification, WrapTextAt (Slate units, 0: none), AutoWrapText.
     pub line_height: f64,
     pub justify: Justify,
@@ -408,6 +410,7 @@ impl Default for Widget {
             font_mat: None,
             font_mid: None,
             separate_fill: false,
+            even_digits: false,
             line_height: 1.0,
             justify: Justify::Left,
             wrap_at: 0.0,
@@ -633,7 +636,7 @@ impl LayoutKey {
             w.shadow_offset[1].to_bits(),
             b(w.auto_wrap),
             w.wrap_at.to_bits(),
-            b(w.separate_fill),
+            b(w.separate_fill) | b(w.even_digits) << 1,
             b(w.upper),
             w.min_text_w.to_bits(),
             w.line_height.to_bits(),
@@ -1944,6 +1947,7 @@ fn font_info(w: &Widget, last_width: f64) -> FontInfo {
         shadow: w.shadow_offset,
         wrap: crate::text::wrap_width(w.auto_wrap, last_width, w.wrap_at),
         separate_fill_alpha: w.separate_fill,
+        even_digits: w.even_digits,
     }
 }
 

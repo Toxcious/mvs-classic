@@ -78,6 +78,7 @@ impl Style {
             shadow: self.shadow,
             wrap: 0.0,
             separate_fill_alpha: false,
+            even_digits: false,
         }
     }
 }

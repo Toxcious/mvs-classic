@@ -101,6 +101,9 @@ pub struct FontInfo {
     pub shadow: [f64; 2],
     /// The wrapping width, Slate units (`wrap_width`); 0: no wrapping.
     pub wrap: f64,
+    /// (the port's own) Every ASCII digit laid out in the widest digit's advance, the glyph centred in it, with no
+    /// kerning on its sides: a clock's changing digits keep the text's width.
+    pub even_digits: bool,
 }
 
 /// A run's metrics at a layout scale: in Slate units.
@@ -290,6 +293,7 @@ struct LayoutKey {
     shadow_y: u64,
     wrap: u64,
     scale: u64,
+    even_digits: bool,
     text: String,
 }
 
@@ -540,6 +544,7 @@ impl Fonts {
             shadow_y: f.shadow[1].to_bits(),
             wrap: f.wrap.to_bits(),
             scale: scale.to_bits(),
+            even_digits: f.even_digits,
             text: text.to_string(),
         };
         if !self.layouts.contains_key(&key) {
@@ -569,6 +574,16 @@ impl Fonts {
         // JustificationWidth is the trimmed one. Unverified: that the TextBlock's desired width is the DrawWidth
         // (FTextLayout::GetSize, not GetWrappedSize) is from the 4.26 source.
         let wrap = if f.wrap > 0.0 { f.wrap * s } else { f64::INFINITY };
+        // (the port's own even digits: the widest of the face's digits, by advance)
+        let digit_cell = if f.even_digits {
+            let mut cell = 0;
+            for (_, gf, g) in self.glyphs_of(face, "0123456789") {
+                cell = cell.max(self.advance(gf, p, g));
+            }
+            Some(cell)
+        } else {
+            None
+        };
         let mut lines = Vec::new();
         let mut glyph_lines = Vec::new();
         // Hard line breaks (CR LF or LF) make separate lines; a CR not followed by LF stays a character.
@@ -586,7 +601,8 @@ impl Fonts {
                     // table, (x + 0x20) >> 6 added to the previous glyph.
                     // Deviation: no kerning on a pair with a space (the faces' kern tables pull T, K, O... toward it,
                     // so the narrow spaces of the condensed faces read as missing).
-                    let k = if kerning && pc != ' ' && ch != ' ' && pf == face && gf == face {
+                    let even = digit_cell.is_some() && (pc.is_ascii_digit() || ch.is_ascii_digit());
+                    let k = if kerning && !even && pc != ' ' && ch != ' ' && pf == face && gf == face {
                         let v = self.lib.kerning(id, pg, g).unwrap_or_else(|e| panic!("text: kerning: {e}"));
                         (v + 0x20) >> 6
                     } else {
@@ -595,7 +611,12 @@ impl Fonts {
                     x += adv + k + sp;
                 }
                 adv = self.advance(gf, p, g);
-                px.push((ch, (gf, g), x, adv));
+                let mut pen = x;
+                if let Some(cell) = digit_cell.filter(|_| ch.is_ascii_digit()) {
+                    pen += (cell - adv) / 2;
+                    adv = cell;
+                }
+                px.push((ch, (gf, g), pen, adv));
                 prev = Some((ch, gf, g));
             }
             if (x + adv) as f64 <= wrap {

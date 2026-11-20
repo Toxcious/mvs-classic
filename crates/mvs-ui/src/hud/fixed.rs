@@ -866,10 +866,12 @@ impl Scoreboard {
         Some([m.transform[4], m.transform[5], m.size[0] * m.transform[0], m.size[1] * m.transform[3]])
     }
 
-    /// (the port's own) A Waves run's counter in modeLabel and its clock in the clock's label, each frame.
+    /// (the port's own) A Waves run's counter in modeLabel and its clock in the clock's label, each frame; the clock's
+    /// digits even, so the centred clock does not shake as its hundredths change.
     pub fn waves(&mut self, counter: &str, clock: &str) {
         for (w, s) in [(self.mode_label, counter), (self.clock.label, clock)] {
             let x = self.t.widget_mut(w);
+            x.even_digits = w == self.clock.label;
             if x.text != s {
                 x.text = s.to_owned();
             }
