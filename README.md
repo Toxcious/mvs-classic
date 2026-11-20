@@ -200,7 +200,8 @@ For day-to-day work, `play.bat` builds both and opens the launcher on your dev s
   repo; players bring their own copy and the importer reads it. `content/` is ignored by git for this reason.
 - **Updates.** A build checks for updates only when `MVS_UPDATE_FEED` is set at build time, to the GitHub API
   address of a repository's latest release (`https://api.github.com/repos/<owner>/<repo>/releases/latest`). Point
-  it at your fork's releases, or leave it unset and the build never checks.
+  it at your fork's releases, or leave it unset and the build never checks. The launcher's patch notes are the
+  text of the same repository's releases.
 - **Online.** [`online.json`](online.json) holds the relay the game connects to by default and the id of its key.
   Change it to your own relay ([docs/relay.md](docs/relay.md)) if your fork plays differently online, so its
   players don't meet players of this one. Epic Online Services needs credentials of your own; without them it stays

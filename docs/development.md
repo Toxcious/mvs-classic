@@ -34,6 +34,13 @@ and tests find the dev store by themselves; `CONTENT_STORE=<dir>` points them at
 - `play.bat` builds the launcher and the game and opens the launcher on the dev store, at its Home: PLAY starts the
   game. `play.bat --play` goes straight into the game. Arguments the launcher does not know go on to the game, for
   example `play.bat --size 1920x1080 --no-audio`.
+- The launcher's Home shows the latest releases' patch notes: the text of each release on GitHub, read from the
+  list of releases beside the update feed and kept in the data folder (`patch-notes.json`). A dev build has no
+  update feed and shows none; set `MVS_NOTES_FEED` to a list's address
+  (`https://api.github.com/repos/<owner>/<repo>/releases`) to see them. To see how a release's text will read
+  before it is published, write it into a file and draw the launcher's screens with it:
+  `cargo run --profile trace -p mvs-ui --bin launcher-shots -- --out <dir> --store content/.store --notes <file>`
+  (the file's shape is in the tool's header). A `## Download` section is the page's and is left out.
 
 It builds the `trace` profile: release code built incrementally, so a rebuild after a small change takes seconds,
 not minutes. `--release` is for timings and what ships.

@@ -13,6 +13,7 @@ pub mod game;
 pub mod host;
 pub mod link;
 pub mod net_test;
+pub mod notes;
 pub mod online;
 pub mod setup_os;
 
@@ -23,6 +24,7 @@ use std::time::Instant;
 use mvs_ui::launcher::import_view::{
     CountLine, GroupName, ImportEvent, ImportState, ImportView, LogLevel, Say, SourceInfo, SourceKind, Why,
 };
+use mvs_ui::launcher::notes::PICTURES;
 use mvs_ui::launcher::{
     Action, Build, HomeState, LauncherUi, LogLine, Model, Phase, PhaseState, Screen, Source, Tone, clock_at, clock_now,
     words as w,
@@ -95,6 +97,9 @@ enum Picture {
     Failed,
 }
 
+/// A note picture's entry read: `PICTURES`' index and its bytes.
+type NotePicture = (usize, std::result::Result<Vec<u8>, String>);
+
 /// The launcher running.
 pub struct Launcher {
     ui: LauncherUi,
@@ -114,6 +119,12 @@ pub struct Launcher {
     picture: Picture,
     /// The picture's entry being read.
     picture_load: Option<Receiver<std::result::Result<Vec<u8>, String>>>,
+    /// The releases the patch notes show (the latest first), and their list being read from the feed.
+    notes: Vec<mvs_release::ReleaseNotes>,
+    notes_load: Option<Receiver<std::result::Result<Vec<mvs_release::ReleaseNotes>, String>>>,
+    /// The notes' pictures asked of the store (`PICTURES`' indices) and their entries being read.
+    note_pictures: Vec<usize>,
+    note_picture_loads: Vec<Receiver<NotePicture>>,
     /// The pointer's left button last frame.
     was_down: bool,
     /// The Online tab's look at a typed relay address and online.json's values.
@@ -170,6 +181,10 @@ impl Launcher {
             game: None,
             picture: Picture::None,
             picture_load: None,
+            notes: notes::kept(&host.data),
+            notes_load: None,
+            note_pictures: Vec::new(),
+            note_picture_loads: Vec::new(),
             was_down: false,
             online: Box::new(online::OnlineTab::new(&host.online_defaults)),
             updating: false,
@@ -188,6 +203,8 @@ impl Launcher {
             l.m.checking = true;
             l.update.check(mvs_release::VERSION);
         }
+        l.m.notes = notes::model(&l.notes, mvs_release::VERSION);
+        l.fetch_notes(host);
         // (join links open this launcher; a developer's or a test's run, `--store`, `--data` or the dev tree's
         // `.dev` data folder, leaves them alone)
         if host.store.is_none()
@@ -444,6 +461,11 @@ impl Launcher {
         self.ui.set_picture(None);
         self.picture = Picture::None;
         self.picture_load = None;
+        for k in 0..PICTURES.len() {
+            self.ui.set_note_picture(k, None);
+        }
+        self.note_pictures.clear();
+        self.note_picture_loads.clear();
         if setup && let Some(p) = &self.chosen {
             host.settings.launcher.beta_dir = Some(p.clone());
             if let Err(e) = host.save_settings() {
@@ -627,6 +649,7 @@ impl Launcher {
         };
         h.problem = w::unreadable(&s.why.as_ref().map(w::why).unwrap_or_default());
         self.home_picture(host);
+        self.load_note_pictures(host);
     }
 
     /// Home's picture, once the store holds it and no run goes on (launcher.ts homePicture): its entry read off the
@@ -683,6 +706,97 @@ impl Launcher {
     fn picture_failed(&mut self, e: &str) {
         eprintln!("mvs-launcher: home's picture: {e}");
         self.picture = Picture::Failed;
+    }
+
+    // Patch notes (the port's own)
+
+    /// The releases' list asked of the feed, unless it is being read or this build has none.
+    fn fetch_notes(&mut self, host: &Host) {
+        if self.notes_load.is_none()
+            && let Some(url) = notes::feed()
+        {
+            self.notes_load = notes::fetch(url, host.data.clone());
+        }
+    }
+
+    /// The list taken in once read: the notes shown are its releases, their pictures asked for.
+    fn poll_notes(&mut self, host: &Host) {
+        let Some(rx) = &self.notes_load else { return };
+        let got = match rx.try_recv() {
+            Ok(r) => r,
+            Err(TryRecvError::Empty) => return,
+            Err(TryRecvError::Disconnected) => Err("its reader ended".into()),
+        };
+        self.notes_load = None;
+        match got {
+            Ok(list) if list != self.notes => {
+                self.notes = list;
+                self.m.notes = notes::model(&self.notes, mvs_release::VERSION);
+                self.load_note_pictures(host);
+            }
+            Ok(_) => {}
+            Err(e) => self.log(&w::notes_unread(&e), Tone::Warn, ""),
+        }
+    }
+
+    /// The pictures of the notes shown that were not asked for yet, under Home's picture's own conditions: their
+    /// entries read off the frame's thread, the first note's first, each uploaded when it comes
+    /// (`poll_note_pictures`). A note whose picture the store does not hold shows its plain card.
+    fn load_note_pictures(&mut self, host: &Host) {
+        let Some(s) = &self.state else { return };
+        if !s.setup || self.run.is_some() || s.new_build || s.stale.iter().any(|k| k == PICTURE_KIND) {
+            return;
+        }
+        let mut want: Vec<usize> = Vec::new();
+        for n in &self.m.notes {
+            if n.picture < PICTURES.len() && !self.note_pictures.contains(&n.picture) && !want.contains(&n.picture) {
+                want.push(n.picture);
+            }
+        }
+        if want.is_empty() {
+            return;
+        }
+        let dir = Self::store(host);
+        let asked = want.clone();
+        let (tx, rx) = mpsc::channel();
+        let read = move || {
+            let kind = mvs_store::Store::open(&dir).and_then(|st| st.kind(PICTURE_KIND)).map_err(|e| e.to_string());
+            for k in want {
+                let bytes = kind.clone().and_then(|p| p.bytes(PICTURES[k]).map_err(|e| e.to_string()));
+                if tx.send((k, bytes)).is_err() {
+                    return;
+                }
+            }
+        };
+        match std::thread::Builder::new().name("note pictures".into()).spawn(read) {
+            Ok(_) => {
+                self.note_pictures.extend(asked);
+                self.note_picture_loads.push(rx);
+            }
+            Err(e) => eprintln!("mvs-launcher: the patch notes' pictures: {e}"),
+        }
+    }
+
+    /// A note picture's entry taken in once read: uploaded and shown. One a call, so a frame uploads one picture.
+    fn poll_note_pictures(&mut self, host: &Host) {
+        let mut k = 0;
+        while k < self.note_picture_loads.len() {
+            match self.note_picture_loads[k].try_recv() {
+                Ok((i, got)) => {
+                    match got.and_then(|b| {
+                        mvs_render::assets::upload_texture(&host.gpu, &b, PICTURES[i]).map_err(|e| e.to_string())
+                    }) {
+                        Ok(t) => self.ui.set_note_picture(i, Some(std::sync::Arc::new(t))),
+                        Err(e) => eprintln!("mvs-launcher: a patch note's picture: {e}"),
+                    }
+                    return;
+                }
+                Err(TryRecvError::Empty) => k += 1,
+                Err(TryRecvError::Disconnected) => {
+                    self.note_picture_loads.remove(k);
+                }
+            }
+        }
     }
 
     /// Play (launcher.ts play, window.ts openGame): the game's program started on the store and Home showing it
@@ -769,6 +883,10 @@ impl Launcher {
                     self.checking = false;
                     self.update_asked = false;
                     self.log(&w::is_out(&v), Tone::Ok, w::EM_UPDATE);
+                    // (a release the notes do not hold yet: the list read again)
+                    if !self.notes.iter().any(|n| n.version == v) {
+                        self.fetch_notes(host);
+                    }
                     self.note_update(host, String::new());
                 }
                 UpdateEvent::None => {
@@ -1042,7 +1160,8 @@ impl Launcher {
     }
 
     /// What goes on with no frame drawn (a minimised window's too): the ops' answers, the run's events, Home's
-    /// picture, the game's end, the updater, and the boot's route once the splash has stood its time.
+    /// picture, the patch notes and their pictures, the game's end, the updater, and the boot's route once the
+    /// splash has stood its time.
     pub fn poll(&mut self, host: &mut Host) -> Next {
         // The ops' answers.
         let mut k = 0;
@@ -1065,6 +1184,8 @@ impl Launcher {
         }
         self.run_events(host);
         self.poll_picture(host);
+        self.poll_notes(host);
+        self.poll_note_pictures(host);
         self.game_events(host);
         if self.update_events(host) == Next::Quit {
             return Next::Quit;
