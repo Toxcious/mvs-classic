@@ -1347,9 +1347,8 @@ impl MatchLoop {
     }
 
     /// A rebind made on a Controls screen of the match's menus (the pause menu's, the Lab menu's) reaches the match:
-    /// the devices and the HUD's input labels read the program's bindings as they are now (UInputSettings'
-    /// AddActionMapping and RemoveActionMapping rebuild every player's key maps, by the 4.26 source). A label drawn
-    /// before keeps its keys until its input type changes (UI_InputLabel Refresh).
+    /// the devices and the HUD's input labels read the program's bindings as they are now. A label drawn before
+    /// keeps its keys until its input type changes (UI_InputLabel Refresh).
     fn follow_bindings(&mut self, sh: &mut Shell) {
         let Shell { ui, devices, .. } = sh;
         let Some(s) = ui else { return };
@@ -1357,6 +1356,9 @@ impl MatchLoop {
             return;
         }
         self.bindings_seen = s.bindings.revision();
+        // Unverified: UI_InputBinding passes bForceRebuildKeymaps true to AddActionMapping and RemoveActionMapping
+        // (@931, @462). That this rebuilds every player's key maps at once is the 4.26 source's ForceRebuildKeymaps,
+        // not read in the build, and neither is what a key held through it does: the port lets it go.
         devices.rebind(&s.bindings);
         if let Some(u) = &mut self.ui {
             let (me, lp) = (self.me, self.world.setup.local_play);
