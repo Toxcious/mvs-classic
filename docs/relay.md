@@ -1,6 +1,6 @@
 # Running a relay
 
-A relay lets players play online without Epic: they type its address in the launcher (Settings > Online, the Relay box; Epic and LAN stay on beside it)
+A relay lets players play online without Epic: they type its address in the launcher (Settings > Online, the Relay box; Epic, and LAN when it is on, keep working beside it)
 and then find each other's lobbies, invite each other and queue among the players of that relay. It runs no game
 rules and keeps no game files; it finds lobbies and passes messages and packets on. Anyone can run one, on a PC at
 home or on a rented server, with one port open.
@@ -129,7 +129,7 @@ Everyone on one relay plays together; players on Epic or on another relay are no
 
 ## Playing on one network
 
-Players in one home or at one LAN party need no relay at all. LAN is on by default (Settings > Online > LAN, with its
+Players in one home or at one LAN party need no relay at all. LAN is off until a player turns it on (Settings > Online > LAN, with its
 port box) and a custom lobby is hosted on it when neither Epic nor a relay is signed in; the app itself then serves that lobby, on port 7777 (or the next free one;
 the port box changes it). The lobby's code starts with `d` and holds the host PC's address on its network, the port
 and a check of the host's key. A Public lobby (its Privacy setting) is announced on the network
