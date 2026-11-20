@@ -100,18 +100,10 @@ fn quat_mul32(a: [f64; 4], b: [f64; 4]) -> [f64; 4] {
 
 // ---- the clips --------------------------------------------------------------------------------------------------
 
-/// A clip entry's bytes for the process: an AnimClip borrows its entry, and a view's clips live as long as the match
-/// that loaded them. Each entry is read once per store (the store's cache: a second match, or a preview, of the same
-/// store reads nothing; a store opened again after an import reads it again).
-// Deviation: the bytes stay for the process (nothing frees a clip with its scope); mvs-anim's AnimClip has no
-// owned form.
-fn interned(store: &mvs_store::Store, pack: &mvs_store::Pack, path: &str) -> Result<&'static [u8]> {
-    let b = store.cached(
-        &format!("animation:{path}"),
-        || -> Result<&'static [u8]> { Ok(Box::leak(pack.bytes(path)?.into_boxed_slice())) },
-        |_| 0,
-    )?;
-    Ok(*b)
+/// A clip entry's bytes, read once per store while a clip holds them (the store's cache, weighed by their size: a
+/// second match, or a preview, with the same clips reads nothing; the bytes go with the last clip after a trim).
+fn shared_bytes(store: &mvs_store::Store, pack: &mvs_store::Pack, path: &str) -> Result<Arc<Vec<u8>>> {
+    store.cached(&format!("animation:{path}"), || -> Result<Vec<u8>> { Ok(pack.bytes(path)?) }, Vec::len)
 }
 
 /// A Skeleton entry, parsed and checked once per store.
@@ -203,8 +195,8 @@ impl Clips {
         let mut skel_bones: Vec<usize> = Vec::new();
         let fmt = |what: &str, why: String| Error::Format { what: what.to_owned(), why };
         for (name, path) in paths {
-            let bytes = interned(store, &anims, path)?;
-            let anim = AnimClip::new(bytes, path).map_err(|e| fmt(path, e))?;
+            let bytes = shared_bytes(store, &anims, path)?;
+            let anim = AnimClip::shared(bytes, path).map_err(|e| fmt(path, e))?;
             let skel = match skel_entries.iter().position(|s| s.path == anim.skeleton) {
                 Some(k) => k,
                 None => {

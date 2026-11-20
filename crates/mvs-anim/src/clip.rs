@@ -66,6 +66,24 @@ struct Key {
     w: f64,
 }
 
+/// A clip's data section: borrowed from its entry, or shared with the entry's bytes (`AnimClip::shared`).
+enum ClipBytes<'a> {
+    Borrowed(&'a [u8]),
+    Shared(std::sync::Arc<Vec<u8>>, std::ops::Range<usize>),
+}
+
+impl std::ops::Deref for ClipBytes<'_> {
+    type Target = [u8];
+
+    #[inline]
+    fn deref(&self) -> &[u8] {
+        match self {
+            ClipBytes::Borrowed(b) => b,
+            ClipBytes::Shared(all, r) => &all[r.clone()],
+        }
+    }
+}
+
 pub struct AnimClip<'a> {
     pub path: String,
     pub skeleton: String,
@@ -85,12 +103,71 @@ pub struct AnimClip<'a> {
     pub info: Vec<i32>,
     pub root_track: i32,
     // the data section, read as u32 / f32 words (word) and as the u8 / u16 frame tables
-    bytes: &'a [u8],
+    bytes: ClipBytes<'a>,
     wide: bool,
     curve_names: Vec<String>,
     curves: Vec<Vec<AnimCurveKey>>,
     curve_index: IndexMap<String, usize>,
     fpos: f64,
+}
+
+impl AnimClip<'static> {
+    /// A clip that holds its entry's bytes (`new` borrows them): the bytes go when the last clip of them does.
+    pub fn shared(entry: std::sync::Arc<Vec<u8>>, path: &str) -> Result<AnimClip<'static>, String> {
+        let c = AnimClip::new(&entry, path)?;
+        let at = c.bytes.as_ptr() as usize - entry.as_ptr() as usize;
+        let range = at..at + c.bytes.len();
+        let AnimClip {
+            path,
+            skeleton,
+            frames,
+            length,
+            rate_scale,
+            step,
+            root_motion,
+            force_root_lock,
+            root_lock,
+            normalized_root_motion_scale,
+            additive_type,
+            tracks,
+            bone_end,
+            byte_length,
+            still,
+            info,
+            root_track,
+            bytes: _,
+            wide,
+            curve_names,
+            curves,
+            curve_index,
+            fpos,
+        } = c;
+        Ok(AnimClip {
+            path,
+            skeleton,
+            frames,
+            length,
+            rate_scale,
+            step,
+            root_motion,
+            force_root_lock,
+            root_lock,
+            normalized_root_motion_scale,
+            additive_type,
+            tracks,
+            bone_end,
+            byte_length,
+            still,
+            info,
+            root_track,
+            bytes: ClipBytes::Shared(entry.clone(), range),
+            wide,
+            curve_names,
+            curves,
+            curve_index,
+            fpos,
+        })
+    }
 }
 
 impl<'a> AnimClip<'a> {
@@ -139,7 +216,7 @@ impl<'a> AnimClip<'a> {
             still: true,
             info: vec![0; n * INFO],
             root_track: -1,
-            bytes: d,
+            bytes: ClipBytes::Borrowed(d),
             wide: h.frames > 255.0,
             curve_names,
             curves,
