@@ -293,6 +293,9 @@ pub fn latent(w: &mut World) {
                 crate::combat::holds::end_hold_buff(w, v);
             }
         }
+        // Its projectiles, items and actors go with it: a respawn would end the Die With Instigator ones, and the
+        // rest would play on with no owner in the match (a Garnet marker's bolt, a Bugs dispenser's pies).
+        crate::world::spawning::destroy_all_spawned(w, f);
         pawns::despawn_pawn(w, f, false);
         run_mut(w).gone.push((f, tick));
     }

@@ -171,6 +171,43 @@ fn a_minions_ring_out_is_the_minions_and_counts_for_nothing() {
 }
 
 #[test]
+fn a_despawned_enemy_leaves_nothing_behind() {
+    let Ok(store) = mvs_store::Store::open(mvs_store::dev_store_dir()) else { return };
+    // (casts whose moves leave actors out: Garnet's markers and zones, Bugs's dispenser and safe, Harley's box,
+    // Shaggy's sandwich and snack box)
+    let cast: Vec<String> = ["garnet", "shaggy", "batman", "bugs", "harley"].map(String::from).into();
+    let setup = run::bot_setup(WavesVariant::Endless, "superman", 3, cast);
+    let data = run::data_for(&store, &setup, "trainingroomsmall").expect("the data");
+    for seed in [7, 8] {
+        let mut w = run::world(&data, &setup, seed).expect("the World");
+        let mut despawns = 0;
+        for t in 0..60 * 60 * 3 {
+            let before = w.pawns.clone().unwrap_or_default();
+            run::step(&mut w);
+            let now = w.pawns.clone().unwrap_or_default();
+            despawns += before.iter().filter(|f| !now.contains(f)).count();
+            // (an arena slot taken again is a new enemy's: only owners out of the match are checked)
+            let gone = |f: mvs_sim::fighter::FighterId| !now.contains(&f);
+            for (_, p) in w.actors.projectiles.iter() {
+                let left = p.owner.is_some_and(gone) && !p.dead;
+                assert!(!left, "seed {seed} tick {t}: {} outlived its owner", w.names.str(p.cls));
+            }
+            for (_, a) in w.actors.actors.iter() {
+                assert!(!gone(a.owner) || a.dead, "seed {seed} tick {t}: {} outlived its owner", w.names.str(a.cls));
+            }
+            for (_, it) in w.actors.items.iter() {
+                let left = it.spawner.is_some_and(gone) && !it.dead && !it.held;
+                assert!(!left, "seed {seed} tick {t}: an item outlived its owner");
+            }
+            if w.waves.as_ref().unwrap().end.is_some() {
+                break;
+            }
+        }
+        assert!(despawns >= 3, "seed {seed}: {despawns} despawns, too few to check");
+    }
+}
+
+#[test]
 fn a_hidden_fighters_ring_out_counts_once() {
     let Some(mut w) = world(WavesVariant::Endless, 3, 10) else { return };
     while w.waves.as_ref().unwrap().enemies.is_empty() {

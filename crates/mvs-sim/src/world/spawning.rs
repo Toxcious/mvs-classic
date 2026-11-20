@@ -1306,7 +1306,18 @@ pub fn is_a(w: &World, cls: Name, of: Name) -> bool {
 /// SpawnedActors whose BPI_GetDiesWithInstigator ('Die With Instigator') is true (a respawn's OnBaseFighterReset, a
 /// minion's ReceiveEndPlay).
 pub fn destroy_with_instigator(w: &mut World, f: FighterId) {
-    let dies = |w: &World, a: ActorRef| truthy(actor_p(w, a), "Die With Instigator");
+    destroy_spawned_of(w, f, false);
+}
+
+/// (the port's own) Every actor fighter `f` spawned destroyed as `destroy_with_instigator` destroys one, whatever its
+/// 'Die With Instigator', but an item another fighter holds: a mode pawn that leaves the match for good (a Waves
+/// enemy's despawn), whose actors would otherwise go on with no owner in the match.
+pub fn destroy_all_spawned(w: &mut World, f: FighterId) {
+    destroy_spawned_of(w, f, true);
+}
+
+fn destroy_spawned_of(w: &mut World, f: FighterId, every: bool) {
+    let dies = |w: &World, a: ActorRef| every || truthy(actor_p(w, a), "Die With Instigator");
     let mut i = 0;
     while let Some(pr) = w.actors.projectiles.nth(i) {
         i += 1;
@@ -1319,7 +1330,8 @@ pub fn destroy_with_instigator(w: &mut World, f: FighterId) {
     while let Some(it) = w.actors.items.nth(i) {
         i += 1;
         let x = w.actors.items.get(it).expect("a live item id");
-        if x.spawner == Some(f) && !x.dead && !unlisted(&x.reflect) && dies(w, ActorRef::Item(it)) {
+        let kept = every && x.held && x.holder != w.fighter(f).id;
+        if x.spawner == Some(f) && !x.dead && !kept && !unlisted(&x.reflect) && dies(w, ActorRef::Item(it)) {
             crate::world::items::destroy_item(w, it);
         }
     }
