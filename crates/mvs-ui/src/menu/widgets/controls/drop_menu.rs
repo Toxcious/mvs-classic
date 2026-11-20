@@ -141,6 +141,8 @@ pub struct ContextMenu {
     move_timer: f64,
     scroll_bar_item_count: i32,
     adjust_scroll_box: bool,
+    /// (the port's own) The list was fitted to the room below its top (`fit_to_screen`).
+    fitted: bool,
 }
 
 impl ContextMenu {
@@ -161,6 +163,7 @@ impl ContextMenu {
             move_timer: -1.0,
             scroll_bar_item_count: 0,
             adjust_scroll_box: false,
+            fitted: false,
         })
     }
 
@@ -226,6 +229,56 @@ impl ContextMenu {
             cx.view.play(me, "EnterAnim", false, 1.0);
         }
         self.first_position_update = false;
+    }
+
+    /// (the port's own) Once the list is laid out: when its rows reach past the viewport's bottom (less the screen
+    /// padding), it keeps the rows that fit (MIN_ROWS at least) and scrolls the rest, with its scroll bar.
+    /// Deviation: the build caps a list only by ShowScrollBarAfterCount, which no drop menu of the bundle sets; a
+    /// list taller than the room below it ran off the screen (the custom lobby's experimental rules).
+    fn fit_to_screen(&mut self, cx: &mut Cx<'_>) {
+        const SCREEN_PADDING: f64 = 20.0;
+        const MIN_ROWS: usize = 3;
+        let (menu, sbox, container) = (find(cx, "menu"), find(cx, "SizeBox"), find(cx, "Container"));
+        let t = cx.view.tree();
+        let [_, mh] = t.arranged_size(menu);
+        let [_, sh] = t.arranged_size(sbox);
+        let first = t.widget(container).children.first().copied();
+        let row = first.map_or(0.0, |c| t.arranged_size(c)[1]);
+        if mh <= 0.0 || row <= 0.0 {
+            return;
+        }
+        self.fitted = true;
+        let m = t.widget(menu);
+        let top = m.offsets.t - m.align[1] * mh;
+        let vy = cx.view.viewport_pixels()[1] / cx.view.dpi;
+        if top + mh <= vy - SCREEN_PADDING {
+            return;
+        }
+        let extra = mh - sh;
+        let room = vy - SCREEN_PADDING - top - extra;
+        let mut rows = ((room / row).floor().max(0.0) as usize).max(MIN_ROWS);
+        if self.adjust_scroll_box && self.scroll_bar_item_count > 0 {
+            rows = rows.min(self.scroll_bar_item_count as usize);
+        }
+        let buttons = self.interactors.len();
+        if rows >= buttons {
+            return;
+        }
+        wd(cx, sbox).h_override = row * rows as f64;
+        // (a list too tall even at MIN_ROWS is moved up to the padding)
+        let over = top + extra + row * rows as f64 - (vy - SCREEN_PADDING);
+        if over > 0.0 {
+            wd(cx, menu).offsets.t -= over;
+        }
+        if !self.adjust_scroll_box {
+            self.adjust_scroll_box = true;
+            if self.params.as_ref().is_some_and(|p| p.use_position_matcher_width && p.position_matcher.is_some()) {
+                wd(cx, menu).w_override += 22.0;
+            }
+            let sb = find(cx, "ScrollBox");
+            set_scroll_bar_visibility(cx.view.tree_mut(), sb, Vis::Visible);
+        }
+        self.scroll_bar_item_count = rows as i32;
     }
 
     /// Hide Self / Hide Me (next frame, see the type).
@@ -383,6 +436,9 @@ impl Controller for ContextMenu {
             let first = cx.view.tree().widget(container).children.first().copied();
             let h = first.map_or(0.0, |c| cx.view.tree().arranged_size(c)[1]);
             wd(cx, sbox).h_override = h * f64::from(self.scroll_bar_item_count);
+        }
+        if !self.fitted {
+            self.fit_to_screen(cx);
         }
     }
 

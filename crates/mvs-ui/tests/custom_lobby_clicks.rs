@@ -231,6 +231,50 @@ fn a_click_on_the_social_tab_opens_the_panel() {
     assert_eq!(l.screen.view.tree().widget(small).vis, Vis::Collapsed, "the clicked tab opens the panel");
 }
 
+/// The painted box of `w` as (top, bottom), in device pixels.
+fn top_bottom(l: &Lobby, w: WidgetId) -> Option<(f64, f64)> {
+    let p = l.screen.view.tree().painted(w)?;
+    let m = p.transform;
+    let (a, b) = (m[5], m[3] * p.size[1] + m[5]);
+    Some((a.min(b), a.max(b)))
+}
+
+#[test]
+fn the_experimental_settings_lists_stay_on_screen() {
+    let Some(mut l) = Lobby::new(env()) else { return };
+    let b = l.find("customGame", "ResetToDefaultsButton");
+    l.click(b);
+    assert!(l.up("customGameExperimental"));
+    let rows: Vec<WidgetId> = {
+        let t = l.screen.view.tree();
+        let like = l.find("customGameExperimental", "UI_DropMenu_TeamStyle");
+        let parent = t.widget(like).parent.expect("the rows' box");
+        t.widget(parent)
+            .children
+            .iter()
+            .copied()
+            .filter(|&c| t.user_class(c) == Some("UI_DropMenuRework") && t.widget(c).vis != Vis::Collapsed)
+            .collect()
+    };
+    assert!(!rows.is_empty(), "the page has its rows");
+    for (k, row) in rows.into_iter().enumerate() {
+        let open = l.screen.view.tree().find_in(row, "mainInteractor");
+        l.click(open);
+        l.frames(30, &[]);
+        let t = l.screen.view.tree();
+        let menus: Vec<WidgetId> = t
+            .ids()
+            .filter(|&w| t.user_class(w) == Some("UI_ContextMenu") && t.widget(w).parent.is_some())
+            .map(|w| t.find_in(w, "menu"))
+            .collect();
+        assert_eq!(menus.len(), 1, "row {k} opens its list");
+        let (top, bottom) = top_bottom(&l, menus[0]).expect("the list is painted");
+        assert!(top >= 0.0 && bottom <= f64::from(SIZE[1]), "row {k}'s list spans {top}..{bottom}");
+        l.key("Escape");
+        l.frames(20, &[]);
+    }
+}
+
 #[test]
 fn each_lobby_modal_opens_after_another_closed() {
     let Some(mut l) = Lobby::new(env()) else { return };
