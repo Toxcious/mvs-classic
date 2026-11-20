@@ -191,9 +191,9 @@ const PERK_STAND_IN: [[[f64; 2]; 4]; 3] = [
     [[360.0, 900.0], [920.0, 900.0], [1640.0, 900.0], [2200.0, 900.0]],
 ];
 
-/// (the port's own) The solo layout's P0 point (`PreMatchSetup::solo`): right of the fighter, who stays at the
-/// middle of the character select (no face-off).
-const PERK_STAND_IN_SOLO: [f64; 2] = [1800.0, 680.0];
+/// (the port's own) The solo layout's P0 point (`PreMatchSetup::solo`): the bottom centre, under the fighter,
+/// who stays at the middle of the character select (no face-off), as a 1v1 card sits at the bottom of its side.
+const PERK_STAND_IN_SOLO: [f64; 2] = [1280.0, 1100.0];
 
 /// HideAllWidgets PM@31892 (the names of the port's bundle).
 const HIDE_LIST: [&str; 21] = [
@@ -1044,8 +1044,12 @@ impl PreMatch {
 
     /// The stat badges MapPlayersToWidgets gives a plate (CharacterSelectPlayerData StatTracker*Slug / Count): a
     /// bot's as its cosmetics were drawn; the local player's own (its preferences and its counts); none for another
-    /// player.
+    /// player. Deviation (the port's solo layout, `PreMatchSetup::solo`): none at all; the build's 1v1 gives each
+    /// plate its badges, which alone, with no banner under them, would float over the fighter.
     fn badges_of(&self, cx: &mut Cx<'_>, at: usize) -> Vec<BadgeRef> {
+        if self.solo() {
+            return Vec::new();
+        }
         let p = &self.setup.players[self.sels[at].player];
         if let Some(c) = &p.net_cosmetics {
             return c.badges.iter().map(|b| BadgeRef { slug: b.slug.clone(), count: f64::from(b.count) }).collect();
@@ -1515,7 +1519,7 @@ impl PreMatch {
     fn apply_perk_locations(&self, cx: &mut Cx<'_>) {
         let stand = &PERK_STAND_IN[usize::from(self.setup.team_style).min(2)];
         for (i, &widget) in LOCATION_WIDGET.iter().enumerate() {
-            // (the port's solo layout: the card beside the fighter, not at its banner's point: no banner comes up)
+            // (the port's solo layout: the card under the fighter, not at its banner's point: no banner comes up)
             let p = match self.projected(&point_key(true, i)) {
                 _ if widget == 0 && self.solo() => PERK_STAND_IN_SOLO,
                 None => stand[i],

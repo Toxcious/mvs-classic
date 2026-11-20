@@ -1,5 +1,6 @@
 //! The pre-match screen's solo layout (the port's own, `PreMatchSetup::solo`): a Waves run's screen names the mode
-//! in the mode label and builds no second side: no opponent's plate, and after the timer's lock no opponent's card.
+//! in the mode label and builds no second side: no opponent's plate, and after the timer's lock no opponent's card;
+//! its own plate shows no stat badge, even one equipped.
 //! Needs the dev store; without one the test says so and passes.
 
 use std::sync::Arc;
@@ -30,6 +31,11 @@ fn a_solo_screen_has_one_side_and_the_modes_title() {
     let text = Arc::new(GameText::load(&store).unwrap_or_default());
     let (mut prefs, mut bindings, mut sink, mut pointer) =
         (Settings::default(), Bindings::default(), NoSound, Pointer::default());
+    // a badge equipped, which the solo plate does not show
+    prefs.hydra.stat_trackers[0] = mvs_settings::AssetRef {
+        slug: "stat_tracking_tt2_games_played".into(),
+        path: "/Game/Panda_Main/Blueprints/Rewards/StatTrackingBundle/StatTracking_TT2_GamesPlayed.StatTracking_TT2_GamesPlayed".into(),
+    };
     let mut run = MenuRun {
         fonts: &mut fonts,
         prefs: &mut prefs,
@@ -59,4 +65,8 @@ fn a_solo_screen_has_one_side_and_the_modes_title() {
     assert_eq!(vis("UI_PM_PlayerInfo_1"), Vis::Collapsed, "the opponent's plate");
     assert_eq!(vis("UI_Perks_LoadoutP1"), Vis::Collapsed, "the opponent's card");
     assert_ne!(vis("UI_Perks_LoadoutP0"), Vis::Collapsed, "the player's own card");
+    let plate = tree.find_in(pm.widget, "UI_PM_PlayerInfo_0");
+    for b in ["StatBadge", "StatBadge2", "StatBadge3"] {
+        assert_eq!(tree.widget(tree.find_in(plate, b)).vis, Vis::Collapsed, "the plate's {b}");
+    }
 }
