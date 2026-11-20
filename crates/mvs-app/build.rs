@@ -12,10 +12,23 @@ const PROGRAMS: [(&str, &str, &str, &str); 2] = [
     ("mvs-launcher", "res/launcher.ico", "MVSC Launcher", "MVSC Launcher.exe"),
 ];
 
+/// The exes' manifest: the process heap is the segment heap (Windows 10 2004 on), which gives freed pages back to the
+/// system where the older heap keeps them committed (0.5 GB more after a few dozen matches).
+const MANIFEST: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
+  <application xmlns="urn:schemas-microsoft-com:asm.v3">
+    <windowsSettings>
+      <heapType xmlns="http://schemas.microsoft.com/SMI/2020/WindowsSettings">SegmentHeap</heapType>
+    </windowsSettings>
+  </application>
+</assembly>
+"#;
+
 /// The resource types and the ids used.
 const RT_ICON: u16 = 3;
 const RT_GROUP_ICON: u16 = 14;
 const RT_VERSION: u16 = 16;
+const RT_MANIFEST: u16 = 24;
 /// The icon group's id: the first, so Explorer shows it; the window class loads it by this id (platform.rs).
 const ICON_GROUP: u16 = 1;
 /// English (United States), and the version block's code page (Unicode).
@@ -45,6 +58,7 @@ fn main() {
         entry(&mut res, 0, 0, 0, &[]);
         icons(&mut res, &ico);
         entry(&mut res, RT_VERSION, 1, 0x0030, &version_info(bin, description, file, &version, parts));
+        entry(&mut res, RT_MANIFEST, 1, 0x0030, MANIFEST.as_bytes());
         let out = PathBuf::from(std::env::var("OUT_DIR").unwrap()).join(format!("{bin}.res"));
         std::fs::write(&out, &res).expect("the .res file writes");
         println!("cargo:rustc-link-arg-bin={bin}={}", out.display());
