@@ -218,9 +218,103 @@ pub fn newer(a: &str, b: &str) -> bool {
     }
 }
 
+/// A release's text, as the launcher's patch notes show it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReleaseNotes {
+    /// `x.y.z`
+    pub version: String,
+    /// The release's name ("" none).
+    pub name: String,
+    /// When it came out, ISO 8601 ("" unknown).
+    pub published_at: String,
+    /// Its text, Markdown.
+    pub body: String,
+}
+
+/// The releases the patch notes list at most.
+pub const NOTES_KEPT: usize = 10;
+
+/// The fields the patch notes read of a release in the GitHub API's list.
+#[derive(Deserialize)]
+struct GitHubNotes {
+    tag_name: String,
+    #[serde(default)]
+    name: Option<String>,
+    #[serde(default)]
+    published_at: Option<String>,
+    #[serde(default)]
+    body: Option<String>,
+    #[serde(default)]
+    draft: bool,
+    #[serde(default)]
+    prerelease: bool,
+}
+
+/// The address of the releases' list beside the update feed's latest release: the GitHub API's
+/// `.../releases/latest` gives `.../releases`. Another feed (the release check's local one) has no list.
+pub fn notes_feed(feed: &str) -> Option<String> {
+    feed.strip_suffix("/releases/latest").map(|repo| format!("{repo}/releases?per_page={NOTES_KEPT}"))
+}
+
+/// The GitHub API's list of releases (`GET /repos/<owner>/<repo>/releases`) as the patch notes' releases, the
+/// latest version first, [`NOTES_KEPT`] at most. A draft, a prerelease and a release whose tag is not `v<x.y.z>`
+/// are left out.
+pub fn notes_from_github(text: &str) -> Result<Vec<ReleaseNotes>, String> {
+    let list: Vec<GitHubNotes> = serde_json::from_str(text).map_err(|e| format!("not a list of releases: {e}"))?;
+    let mut out: Vec<([u32; 3], ReleaseNotes)> = list
+        .into_iter()
+        .filter(|g| !g.draft && !g.prerelease)
+        .filter_map(|g| {
+            let version = g.tag_name.strip_prefix('v').unwrap_or(&g.tag_name).to_owned();
+            let at = parse_version(&version)?;
+            let notes = ReleaseNotes {
+                version,
+                name: g.name.unwrap_or_default(),
+                published_at: g.published_at.unwrap_or_default(),
+                body: g.body.unwrap_or_default(),
+            };
+            Some((at, notes))
+        })
+        .collect();
+    out.sort_by_key(|n| std::cmp::Reverse(n.0));
+    out.dedup_by(|a, b| a.0 == b.0);
+    out.truncate(NOTES_KEPT);
+    Ok(out.into_iter().map(|(_, n)| n).collect())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_releases_list_is_read_for_the_notes() {
+        assert_eq!(
+            notes_feed("https://api.github.com/repos/o/r/releases/latest").as_deref(),
+            Some("https://api.github.com/repos/o/r/releases?per_page=10")
+        );
+        assert_eq!(notes_feed("http://127.0.0.1:8080/"), None);
+        let list = r#"[
+            {"tag_name":"v0.1.9","name":"Nine","published_at":"2026-02-01T10:00:00Z","body":"- a","draft":false,
+             "prerelease":false,"assets":[]},
+            {"tag_name":"v0.2.0-rc1","name":"RC","body":"x","prerelease":true},
+            {"tag_name":"v0.3.0","name":"Draft","body":"x","draft":true},
+            {"tag_name":"nightly","name":"Nightly","body":"x"},
+            {"tag_name":"v0.1.10","name":null,"published_at":null,"body":null}
+        ]"#;
+        let notes = notes_from_github(list).unwrap();
+        assert_eq!(notes.iter().map(|n| n.version.as_str()).collect::<Vec<_>>(), ["0.1.10", "0.1.9"]);
+        assert_eq!(notes[0].name, "");
+        assert_eq!(
+            notes[1],
+            ReleaseNotes {
+                version: "0.1.9".into(),
+                name: "Nine".into(),
+                published_at: "2026-02-01T10:00:00Z".into(),
+                body: "- a".into()
+            }
+        );
+        assert!(notes_from_github(r#"{"message":"Not Found"}"#).is_err());
+    }
 
     #[test]
     fn the_game_folder_is_found_under_the_release_folder() {
