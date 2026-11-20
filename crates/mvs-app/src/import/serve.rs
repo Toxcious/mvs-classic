@@ -57,7 +57,7 @@ fn write_setup(root: &Path, rec: &SetupRecord) -> std::io::Result<()> {
 }
 
 /// A time as UTC ISO 8601 with milliseconds (Date.toISOString).
-fn iso_utc(t: SystemTime) -> String {
+pub fn iso_utc(t: SystemTime) -> String {
     let d = t.duration_since(SystemTime::UNIX_EPOCH).unwrap_or_default();
     let secs = d.as_secs();
     let (days, rem) = (secs / 86_400, secs % 86_400);

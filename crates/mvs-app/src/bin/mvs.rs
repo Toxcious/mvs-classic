@@ -468,7 +468,7 @@ fn parse(mut it: impl Iterator<Item = String>) -> Result<Args, String> {
     Ok(a)
 }
 
-/// A panic's message, place and backtrace appended to `crash.log` in the data folder (beside settings.json), as well as
+/// A panic's time (UTC), message, place and backtrace appended to `crash.log` in the data folder (beside settings.json), as well as
 /// printed: a run started from Explorer closes its console with the message.
 fn log_panics(data: &std::path::Path) {
     let dir = data.to_path_buf();
@@ -477,7 +477,8 @@ fn log_panics(data: &std::path::Path) {
         printed(info);
         let thread = std::thread::current().name().unwrap_or("?").to_owned();
         let trace = std::backtrace::Backtrace::force_capture();
-        let line = format!("{}\nthread {thread}: {info}\n{trace}\n", mvs_release::version_line());
+        let at = mvs_app::import::serve::iso_utc(std::time::SystemTime::now());
+        let line = format!("{} at {at}\nthread {thread}: {info}\n{trace}\n", mvs_release::version_line());
         let _ = std::fs::create_dir_all(&dir);
         if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(dir.join("crash.log")) {
             let _ = std::io::Write::write_all(&mut f, line.as_bytes());
