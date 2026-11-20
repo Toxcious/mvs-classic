@@ -200,8 +200,10 @@ impl Player {
     /// when the index has no such system. An emitter whose material the material kind lacks is left out.
     fn template(&mut self, system: &str) -> Option<(Arc<SystemTemplate>, Vec<Option<u32>>)> {
         if !self.templates.contains_key(system) {
-            // (parsed once per store: a match's player and a loader's warm-up find the same templates)
-            let shared = self.store.cache().get_or(system, || Ok::<_, std::convert::Infallible>(self.load(system)));
+            // (parsed once per store: a match's player and a loader's warm-up find the same templates; weighed by
+            // the entry's size, so a trim lets go what no load asked for since)
+            let size = self.entry_size(system);
+            let shared = self.store.cached(system, || Ok::<_, std::convert::Infallible>(self.load(system)), |_| size);
             let loaded = match shared {
                 Ok(l) => (*l).clone(),
                 Err(never) => match never {},
@@ -245,14 +247,20 @@ impl Player {
     /// panic. None when everything is ported or the system is not found.
     pub fn unported(&self, system: &str) -> Option<String> {
         // (read once per store)
-        match self
-            .store
-            .cache()
-            .get_or(system, || Ok::<_, std::convert::Infallible>(Unported(self.read_unported(system))))
-        {
+        let size = self.entry_size(system);
+        match self.store.cached(
+            system,
+            || Ok::<_, std::convert::Infallible>(Unported(self.read_unported(system))),
+            |_| size,
+        ) {
             Ok(u) => u.0.clone(),
             Err(never) => match never {},
         }
+    }
+
+    /// The size of the system's entry in bytes (1 when it is not found): what its cached values weigh.
+    fn entry_size(&self, system: &str) -> usize {
+        self.locate(system).and_then(|(_, path)| self.particles.record(&path)).map_or(1, |r| (r.size as usize).max(1))
     }
 
     /// `unported` read from the system's entry.

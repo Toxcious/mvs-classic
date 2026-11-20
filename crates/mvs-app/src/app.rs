@@ -319,10 +319,12 @@ impl Shell {
         if let Some(r) = &mut self.renderer {
             let t = r.trim_unused();
             line += &format!(
-                ", meshes and textures {} MB ({} let go; {} particle materials, {} mesh streams, {} decal \
-                 materials)",
+                ", meshes and textures {} MB ({} let go), materials {} ({} let go; {} particle materials, {} mesh \
+                 streams, {} decal materials)",
                 t.assets.kept >> 20,
                 t.assets.freed >> 20,
+                t.assets.materials_kept,
+                t.assets.materials_freed,
                 t.particle_materials,
                 t.mesh_streams,
                 t.decal_materials

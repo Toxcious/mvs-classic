@@ -35,7 +35,9 @@ struct Shared {
     textures: Mutex<HashMap<String, Kept<Texture>>>,
     /// The load mark a look-up stamps its mesh or texture with (`Assets::begin_load` moves it on).
     mark: AtomicU64,
-    materials: Mutex<HashMap<String, Arc<mvs_material::Material>>>,
+    /// The decoded materials (bytes not counted: their shader map tables, a few hundred KB each), let go by the
+    /// load mark like the meshes and textures.
+    materials: Mutex<HashMap<String, Kept<mvs_material::Material>>>,
     codes: Mutex<HashMap<mvs_material::Sha1, Arc<mvs_material::ShaderCode>>>,
     global: OnceLock<mvs_material::GlobalShaders>,
     /// The white textures by TextureType: 2D, cube, array, volume.
@@ -97,11 +99,13 @@ struct Kept<T> {
     used: u64,
 }
 
-/// What [`Assets::trim`] let go and kept, bytes.
+/// What [`Assets::trim`] let go and kept: the meshes' and textures' bytes, the decoded materials.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Trimmed {
     pub freed: usize,
     pub kept: usize,
+    pub materials_freed: usize,
+    pub materials_kept: usize,
 }
 
 /// The anisotropy cap of an anisotropic sampler at the texture quality level in force (r.MaxAnisotropy): for the
@@ -1055,7 +1059,15 @@ impl Shared {
             + textures.values().filter(|k| unused(k, mark)).map(|k| k.bytes).sum::<usize>();
         meshes.retain(|_, k| !unused(k, mark));
         textures.retain(|_, k| !unused(k, mark));
-        Trimmed { freed, kept: kept - freed }
+        let mut materials = lock(&self.materials);
+        let before = materials.len();
+        materials.retain(|_, k| !unused(k, mark));
+        Trimmed {
+            freed,
+            kept: kept - freed,
+            materials_freed: before - materials.len(),
+            materials_kept: materials.len(),
+        }
     }
 
     fn image(&self, path: &str) -> Result<Arc<Texture>> {
@@ -1096,14 +1108,20 @@ impl Shared {
     }
 
     fn material(&self, path: &str) -> Result<Arc<mvs_material::Material>> {
-        if let Some(m) = lock(&self.materials).get(path) {
-            return Ok(m.clone());
+        let mark = self.mark.load(Ordering::Relaxed);
+        if let Some(k) = lock(&self.materials).get_mut(path) {
+            k.used = mark;
+            return Ok(k.value.clone());
         }
         let m = match mvs_material::read_entry(&self.materials_pack, path)? {
             mvs_material::Entry::Material(m) => Arc::new(*m),
             mvs_material::Entry::Global(_) => return Err(bad(path, "the global shader cache, not a material".into())),
         };
-        Ok(lock(&self.materials).entry(path.to_string()).or_insert(m).clone())
+        Ok(lock(&self.materials)
+            .entry(path.to_string())
+            .or_insert(Kept { value: m, bytes: 0, used: mark })
+            .value
+            .clone())
     }
 
     /// The global shader cache's rows.
