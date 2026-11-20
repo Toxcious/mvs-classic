@@ -235,7 +235,11 @@ pub const SLOT_READY: &str = "READY";
 pub const SLOT_NOT_READY: &str = "NOT READY";
 /// (the port's own) The invite modal's one list: every online player (the port has no friends).
 pub const ONLINE_PLAYERS: &str = "ONLINE PLAYERS";
-pub const NO_PLAYERS_ONLINE: &str = "No players online";
+/// (the port's own) The empty line of the social panel's online list and of the invite modal (the build's names friends).
+pub const NO_PLAYERS_ONLINE: &str = "No players are currently online";
+/// (the port's own) The invite modal's empty block: its title and its hint (the build's name friends).
+pub const NO_PLAYERS_AVAILABLE: &str = "NO PLAYERS AVAILABLE";
+pub const INVITE_HINT: &str = "Players can only be invited if they are online and not already in a party.";
 pub const ROOM_SETTINGS: &str = "ROOM SETTINGS";
 /// The custom game browser's buttons.
 pub const ENTER_ROOM_CODE: &str = "ENTER ROOM CODE";

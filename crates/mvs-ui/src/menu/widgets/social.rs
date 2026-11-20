@@ -480,6 +480,13 @@ impl SocialList {
         self.update_labels(cx);
     }
 
+    /// (the port's own) Replaces the list's Empty Text, the line it shows with no rows.
+    pub fn set_empty_default(&mut self, cx: &mut Cx<'_>, t: &str) {
+        let me = cx.w;
+        cx.view.tree_mut().set_prop(me, "Empty Text", serde_json::json!({ "CultureInvariantString": t }));
+        self.set_empty_text(cx, None);
+    }
+
     pub fn set_header_text(&mut self, cx: &mut Cx<'_>, t: &str) {
         let me = cx.w;
         cx.view.tree_mut().set_prop(me, "Header Text", serde_json::json!({ "CultureInvariantString": t }));
@@ -1236,9 +1243,13 @@ impl Controller for SocialPanel {
             let l = find(cx, n);
             cx.visit::<SocialList, _>(l, |l, cx| l.set_header_text(cx, t));
         }
-        // (the port's own) the one list is the relay's online players, not the build's online WB friends
+        // (the port's own) the one list is the relay's online players, not the build's online WB friends: its header
+        // and its empty line say players
         let l = find(cx, "socialListOnline");
-        cx.visit::<SocialList, _>(l, |l, cx| l.set_header_text(cx, crate::menu::custom_text::ONLINE_LIST_HEADER));
+        cx.visit::<SocialList, _>(l, |l, cx| {
+            l.set_header_text(cx, crate::menu::custom_text::ONLINE_LIST_HEADER);
+            l.set_empty_default(cx, crate::menu::custom_text::NO_PLAYERS_ONLINE);
+        });
         Self::init_quick_invite(cx);
         // the tab bar's horizontal buttons are not in the bundle: the requests tab stays
         let lb = find(cx, "listBar");
@@ -1596,9 +1607,8 @@ impl SocialInviteModal {
                 wd(cx, w).vis = if n == "UI_SocialList_friends" { Vis::Visible } else { Vis::Collapsed };
             }
         } else {
+            // (its title and hint say players: on_initialized)
             let nf = find(cx, "NoFriendsOnline");
-            // Deviation: the build's line names friends; the port has none, so the line says no players.
-            wd(cx, nf).text = crate::menu::custom_text::NO_PLAYERS_ONLINE.to_string();
             wd(cx, nf).vis = Vis::SelfHitTestInvisible;
             wd(cx, sc).vis = Vis::Hidden;
         }
@@ -1694,6 +1704,16 @@ impl Controller for SocialInviteModal {
         // One list: every online player. The platform and offline lists are never shown (refresh).
         let f = find(cx, "UI_SocialList_friends");
         cx.visit::<SocialList, _>(f, |l, cx| l.set_header_text(cx, crate::menu::custom_text::ONLINE_PLAYERS));
+        // Deviation: the build's empty block names friends (its title and its hint); the port has none, so both say
+        // players.
+        let nf = find(cx, "NoFriendsOnline");
+        for (n, t) in [
+            ("TextBlock_135", crate::menu::custom_text::NO_PLAYERS_AVAILABLE),
+            ("TextBlock", crate::menu::custom_text::INVITE_HINT),
+        ] {
+            let w = cx.view.tree().find_in(nf, n);
+            wd(cx, w).text = t.to_string();
+        }
         let sc = Self::scroll(cx);
         for n in INVITE_LISTS {
             let l = find(cx, n);

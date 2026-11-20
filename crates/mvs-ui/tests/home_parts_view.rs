@@ -159,6 +159,43 @@ fn the_social_panel_hides_itself_offline() {
     assert_eq!(s.view.tree().widget(w).vis, Vis::Hidden);
 }
 
+/// The shown texts under `w` (a Collapsed or Hidden widget hides all under it) that name friends: the port has none.
+fn friends_shown(s: &MenuScreen, w: WidgetId) -> Vec<String> {
+    let t = s.view.tree();
+    let mut out = Vec::new();
+    let mut todo = vec![w];
+    while let Some(w) = todo.pop() {
+        let wd = t.widget(w);
+        if matches!(wd.vis, Vis::Collapsed | Vis::Hidden) {
+            continue;
+        }
+        if wd.text.to_lowercase().contains("friend") {
+            out.push(format!("{}: {}", wd.name, wd.text));
+        }
+        todo.extend(wd.children.iter().copied());
+    }
+    out
+}
+
+#[test]
+fn the_social_panel_and_the_invite_modal_name_players_not_friends() {
+    use mvs_ui::menu::widgets::social::SocialPanel;
+    let Some(mut e) = env() else { return };
+    let mut s = e.screen();
+    s.view.session.online.connected = true;
+    let w = shown(&mut e, &mut s, "UI_SocialPanel");
+    frames(&mut e, &mut s, 1.0, 0.2);
+    for (k, mode) in [0, 1, 2].into_iter().enumerate() {
+        s.with_cx(&mut e.run(), |cx| cx.visit::<SocialPanel, _>(w, |p, cx| p.set_mode(cx, mode, false, true)));
+        frames(&mut e, &mut s, 1.3 + k as f64, 0.2);
+        assert_eq!(friends_shown(&s, w), Vec::<String>::new(), "the social panel in mode {mode}");
+    }
+    let m = s.with_cx(&mut e.run(), |cx| show_modal_generic(cx, true, "UI_SocialInviteModal", "socialInvite", ""));
+    let m = m.expect("the invite modal is shown");
+    frames(&mut e, &mut s, 5.0, 0.3);
+    assert_eq!(friends_shown(&s, m), Vec::<String>::new(), "the invite modal");
+}
+
 #[test]
 fn a_social_player_row_is_made_and_painted() {
     let Some(mut e) = env() else { return };
