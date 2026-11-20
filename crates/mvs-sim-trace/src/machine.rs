@@ -41,14 +41,14 @@ pub fn physical_memory() -> Option<u64> {
     }
 }
 
-/// Lowers this process's priority below normal (its threads, the jobs, inherit it): the desktop stays responsive
+/// Lowers this process's priority to idle (its threads, the jobs, inherit it): the desktop and games stay smooth
 /// while a run takes the CPU.
 pub fn lower_priority() {
     #[cfg(windows)]
     {
-        use windows::Win32::System::Threading::{BELOW_NORMAL_PRIORITY_CLASS, GetCurrentProcess, SetPriorityClass};
+        use windows::Win32::System::Threading::{GetCurrentProcess, IDLE_PRIORITY_CLASS, SetPriorityClass};
         // SAFETY: the current process's pseudo handle, which needs no closing.
-        let _ = unsafe { SetPriorityClass(GetCurrentProcess(), BELOW_NORMAL_PRIORITY_CLASS) };
+        let _ = unsafe { SetPriorityClass(GetCurrentProcess(), IDLE_PRIORITY_CLASS) };
     }
 }
 

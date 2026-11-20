@@ -24,12 +24,14 @@ const EDGE_RANGE: Real = 500.0;
 /// Standing on a spawned platform (a ship, a rocket), the bot's place is also taken this many horizons further along
 /// the way the platform carried it over the rollout: a ride out of the blast zone shows before the horizon reaches it.
 const RIDE_AHEAD: Real = 3.0;
-/// The bot off stage: points per unit outside the floor's span, per unit below its top, and back per air jump and
-/// air dodge it still has.
-const OFF_X: Real = 0.03;
-const OFF_BELOW: Real = 0.06;
+/// The bot off stage: points per unit outside the floor's span, per unit below its top, and back while it still has
+/// an air jump and while it has used no air dodge.
+const OFF_X: Real = 0.02;
+const OFF_BELOW: Real = 0.04;
 const AIR_JUMP: Real = 8.0;
 const AIR_DODGE: Real = 5.0;
+/// A rollout whose bot pressed an attack in the air with its target out of reach (`plan::air_out_of_reach`).
+const FAR_ATTACK: Real = 10.0;
 /// Per unit of horizontal distance to the nearest other fighter (close in, where the attacks reach).
 const APART: Real = 0.004;
 
@@ -114,8 +116,8 @@ fn place(w: &World, before: &Before, slot: usize, me: FighterId) -> Real {
 }
 
 /// The rollout's score for `me` (in slot `slot`): the others' standing (another team's counts for the bot, a
-/// teammate's not at all) less its own, and its place.
-pub fn score(w: &World, before: &Before, slot: usize) -> Real {
+/// teammate's not at all) less its own, its place, and the cost of an air attack out of reach (`far`).
+pub fn score(w: &World, before: &Before, slot: usize, far: bool) -> Real {
     let me = w.players[slot];
     let team = w.fighter(me).team.team;
     let mut s = 0.0;
@@ -126,5 +128,5 @@ pub fn score(w: &World, before: &Before, slot: usize) -> Real {
             s += standing(w, before, i, f);
         }
     }
-    s + place(w, before, slot, me)
+    s + place(w, before, slot, me) - if far { FAR_ATTACK } else { 0.0 }
 }

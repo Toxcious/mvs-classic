@@ -25,6 +25,8 @@ mod features;
 mod job;
 pub mod net;
 mod plan;
+
+pub use plan::air_out_of_reach;
 mod score;
 mod worker;
 
@@ -58,9 +60,12 @@ pub const REACTION: i32 = 10;
 pub const HORIZON: i32 = 15;
 /// The most candidates a decision weighs ("what the tree does" included).
 pub const MAX_CANDIDATES: usize = 6;
-/// The simulated ticks a decision costs at most: the reaction delay's and every candidate's.
-pub const BUDGET: i32 = REACTION + HORIZON * 6;
-const _: () = assert!(BUDGET <= 100 && MAX_CANDIDATES == 6);
+/// The guesses of the other players a candidate is played against at most: their Hard trees, and the attacker
+/// (`plan::chase`), where it can matter (`job`).
+pub const GUESSES: i32 = 2;
+/// The simulated ticks a decision costs at most: the reaction delay's and every candidate's under every guess.
+pub const BUDGET: i32 = REACTION + HORIZON * 6 * GUESSES;
+const _: () = assert!(BUDGET <= 200 && MAX_CANDIDATES == 6);
 /// The level of the trees standing in for the other players: Hard.
 const STAND_IN_LEVEL: i32 = 3;
 /// The Expert's random stream is the bot's seed with this mixed in, apart from the tree's own stream.
@@ -197,9 +202,13 @@ fn copy_bots(dst: &mut Vec<Option<BtBot>>, src: &[Option<BtBot>]) {
     }
 }
 
-/// The input queued for tick `t`, else the tree's.
-fn queued_input(queue: &[Queued], t: i32, tree: InputState) -> InputState {
-    queue.iter().find(|q| q.start <= t && t < q.end()).map_or(tree, |q| q.plan.input(t - q.start, tree))
+/// The input of fighter `me` queued for tick `t`, else the tree's.
+fn queued_input(queue: &[Queued], t: i32, tree: InputState, w: &World, me: FighterId) -> InputState {
+    queue.iter().find(|q| q.start <= t && t < q.end()).map_or(tree, |q| {
+        let k = t - q.start;
+        let chase = if matches!(q.plan, plan::Plan::Chase { .. }) { plan::chase(w, me, k) } else { NO_INPUT };
+        q.plan.input(k, tree, chase)
+    })
 }
 
 /// The bot can act on a plan: the match runs (with the flow: the input opens by the plan's first tick) and its
@@ -211,12 +220,22 @@ fn can_plan(w: &World, me: FighterId) -> bool {
 }
 
 /// One step of a scratch world: the bot's input `mine`, each stand-in's think, then the step; its events dropped.
-fn step(w: &mut World, slot: usize, mine: InputState, others: &mut [Option<BtBot>], inputs: &mut Vec<InputState>) {
+/// With `attacker` (the rollout's tick), the other teams' players chase the bot instead (`plan::chase`).
+fn step(
+    w: &mut World,
+    slot: usize,
+    mine: InputState,
+    others: &mut [Option<BtBot>],
+    inputs: &mut Vec<InputState>,
+    attacker: Option<i32>,
+) {
     inputs.clear();
+    let team = w.fighter(w.players[slot]).team.team;
     for i in 0..w.players.len() {
         let me = w.players[i];
-        let input = match others.get_mut(i) {
-            Some(Some(b)) if i != slot => b.think(w, me),
+        let input = match (others.get_mut(i), attacker) {
+            (Some(Some(_)), Some(k)) if i != slot && w.fighter(me).team.team != team => plan::chase(w, me, k),
+            (Some(Some(b)), _) if i != slot => b.think(w, me),
             _ if i == slot => mine,
             _ => NO_INPUT,
         };
@@ -336,7 +355,7 @@ impl Expert {
             self.queue.clear();
             self.give_up();
         }
-        let out = queued_input(&self.queue, t, tree);
+        let out = queued_input(&self.queue, t, tree, w, me);
         // the stand-ins' think of this tick, on the copy
         copy_world(&mut self.warm, w);
         let warm = self.warm.as_mut().expect("copied");

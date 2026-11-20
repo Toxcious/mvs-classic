@@ -16,7 +16,7 @@
 //! and B's, and a `clone_from` of the World into a scratch World (the look-ahead's copy), sampled every 10th tick.
 //! A game whose sim panics counts as a crash: the line names the crashes, and the first one's message and seed
 //! (`--seed` and the game's number) are printed under the table, so the arena is a crash finder too.
-//! Runs at below-normal priority; `--jobs` games at once over every pairing (half the logical processors by default).
+//! Runs at idle priority; `--jobs` games at once over every pairing (a quarter of the logical processors by default).
 
 use mvs_sim::ai::bt::BtBot;
 use mvs_sim::input::InputState;
@@ -63,6 +63,110 @@ struct Game {
     /// A's thinks and B's.
     think: [Vec<f32>; 2],
     clone: Vec<f32>,
+    /// A's habits and B's.
+    habits: [Habits; 2],
+}
+
+/// The ticks after an attack's press within which a hit of the fighter's counts as the press's.
+const WHIFF_WINDOW: usize = 40;
+
+/// What a side did that a player can exploit (`docs/expert-bot-plan.md` "X7"): attacks and specials pressed in the
+/// air, those of them that dealt no damage within `WHIFF_WINDOW` and the attacks among them pressed with the
+/// target out of reach (`mvs_sim::ai::expert::air_out_of_reach`); stretches off the stage out of hitstun (a
+/// recovery), the air dodges made in them and the hits taken in them.
+#[derive(Default, Clone, Copy)]
+struct Habits {
+    air_presses: u32,
+    air_whiffs: u32,
+    far_attacks: u32,
+    recoveries: u32,
+    recovery_dodges: u32,
+    recovery_hits: u32,
+}
+
+impl Habits {
+    fn add(&mut self, o: &Habits) {
+        self.air_presses += o.air_presses;
+        self.air_whiffs += o.air_whiffs;
+        self.far_attacks += o.far_attacks;
+        self.recoveries += o.recoveries;
+        self.recovery_dodges += o.recovery_dodges;
+        self.recovery_hits += o.recovery_hits;
+    }
+
+    /// `whiff %, whiffs a minute, out-of-reach air attacks a minute, dodges and hits a recovery`, over `ticks`.
+    fn line(&self, ticks: usize) -> String {
+        let pc = |a: u32, b: u32| if b == 0 { 0.0 } else { 100.0 * f64::from(a) / f64::from(b) };
+        let per = |a: u32, b: u32| if b == 0 { 0.0 } else { f64::from(a) / f64::from(b) };
+        #[allow(clippy::cast_precision_loss)]
+        let mins = (ticks as f64 / 3600.0).max(1e-9);
+        format!(
+            "whiff {:>3.0}% {:>5.1}/min, far {:>5.1}/min, recovery: {:>4.2} dodges {:>4.2} hits ({} recoveries)",
+            pc(self.air_whiffs, self.air_presses),
+            f64::from(self.air_whiffs) / mins,
+            f64::from(self.far_attacks) / mins,
+            per(self.recovery_dodges, self.recoveries),
+            per(self.recovery_hits, self.recoveries),
+            self.recoveries
+        )
+    }
+}
+
+/// One side's habit tracking over a game.
+#[derive(Default)]
+struct Watch {
+    last: InputState,
+    /// The presses not yet judged: their tick and the fighter's damage dealt then.
+    pending: Vec<(usize, f32)>,
+    recovering: bool,
+    damage: f32,
+    /// The fighter's air dodges used, last tick.
+    evades: i32,
+}
+
+impl Watch {
+    /// Tick `t`'s input `i` of fighter `f`, given before the step; `h` its side's counts.
+    fn before(&mut self, w: &World, f: mvs_sim::fighter::FighterId, t: usize, i: InputState, h: &mut Habits) {
+        let x = w.fighter(f);
+        let dealt = x.stats.damage_dealt;
+        self.pending.retain(|&(t0, d0)| {
+            if t - t0 < WHIFF_WINDOW {
+                return true;
+            }
+            if dealt <= d0 {
+                h.air_whiffs += 1;
+            }
+            false
+        });
+        let air = !x.body.on_floor && x.life.dead == 0.0;
+        if air && ((i.attack && !self.last.attack) || (i.special && !self.last.special)) {
+            h.air_presses += 1;
+            self.pending.push((t, dealt));
+            if i.attack && !self.last.attack && mvs_sim::ai::expert::air_out_of_reach(w, f) {
+                h.far_attacks += 1;
+            }
+        }
+        let g = &w.stage.ground;
+        let off = air
+            && (x.body.x < mvs_sim::math::narrow(g.left)
+                || x.body.x > mvs_sim::math::narrow(g.right)
+                || x.body.y < mvs_sim::math::narrow(g.top) - 50.0);
+        let recovering = off && !mvs_sim::fighter::in_hitstun(w, f);
+        if recovering && !self.recovering {
+            h.recoveries += 1;
+        }
+        // a stretch lasts through the hitstun of a hit taken in it, until the fighter is back or out
+        self.recovering = recovering || (self.recovering && off);
+        if self.recovering && x.air.air_evades > self.evades {
+            h.recovery_dodges += 1;
+        }
+        if self.recovering && x.stats.damage > self.damage {
+            h.recovery_hits += 1;
+        }
+        self.damage = x.stats.damage;
+        self.evades = x.air.air_evades;
+        self.last = i;
+    }
 }
 
 fn main() -> ExitCode {
@@ -84,7 +188,7 @@ fn args() -> Result<Args, String> {
         stage: mvs_sim_trace::TRACE_STAGE.to_owned(),
         games: 20,
         kos: 2.0,
-        jobs: std::thread::available_parallelism().map_or(2, |n| (n.get() / 2).max(1)),
+        jobs: std::thread::available_parallelism().map_or(1, |n| (n.get() / 4).max(1)),
         seed: 1,
         leads: [None, None],
     };
@@ -159,7 +263,7 @@ fn main_() -> Result<(), String> {
             p.0 += 1;
         }
     })?;
-    let Totals { mut all_step, mut all_think, mut all_clone, crashes } = totals;
+    let Totals { mut all_step, mut all_think, mut all_clone, crashes, habits, ticks } = totals;
     println!(
         "{:<28} {:>47} | {} {} {} {}",
         "all",
@@ -170,6 +274,8 @@ fn main_() -> Result<(), String> {
         stats(&mut all_clone)
     );
     println!("(each cost: mean / p99 in microseconds)");
+    println!("A: {}", habits[0].line(ticks));
+    println!("B: {}", habits[1].line(ticks));
     if let Some(first) = crashes.first() {
         println!("{} crashed games (seed {}); the first: {first}", crashes.len(), args.seed);
     }
@@ -183,6 +289,8 @@ struct Totals {
     all_think: [Vec<f32>; 2],
     all_clone: Vec<f32>,
     crashes: Vec<String>,
+    habits: [Habits; 2],
+    ticks: usize,
 }
 
 /// One pairing's line, its costs and crashes added to `t`.
@@ -202,7 +310,10 @@ fn print_pairing(a: &str, b: &str, games: &[Game], t: &mut Totals) {
         think[0].extend_from_slice(&g.think[0]);
         think[1].extend_from_slice(&g.think[1]);
         clone.extend_from_slice(&g.clone);
+        t.habits[0].add(&g.habits[0]);
+        t.habits[1].add(&g.habits[1]);
     }
+    t.ticks += ticks;
     #[allow(clippy::cast_precision_loss)]
     let n = games.len().max(1) as f64;
     #[allow(clippy::cast_precision_loss)]
@@ -361,12 +472,15 @@ fn play(data: &Arc<mvs_data::GameData>, args: &Args, a: &str, b: &str, g: usize)
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     let cap = ((DURATION + 30.0) * 60.0) as usize + usize::try_from(mvs_sim::setup::MATCH_START_TICKS).unwrap_or(0);
     let mut inputs = [InputState::default(); 2];
+    let mut watch = [Watch::default(), Watch::default()];
     for t in 0..cap {
         for (i, bot) in bots.iter_mut().enumerate() {
             let me = w.players[i];
             let at = Instant::now();
             inputs[i] = bot.think(&mut w, me);
-            game.think[usize::from(i != a_slot)].push(micros(at));
+            let side = usize::from(i != a_slot);
+            game.think[side].push(micros(at));
+            watch[i].before(&w, me, t, inputs[i], &mut game.habits[side]);
         }
         let at = Instant::now();
         w.step(&inputs);

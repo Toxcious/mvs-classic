@@ -9,8 +9,15 @@ use crate::input::{InputState, NO_INPUT};
 use crate::math;
 use crate::world::World;
 
-/// The ticks a "what the tree does" plan lasts.
+/// The ticks a "what the tree does" plan lasts, and a chase.
 pub(super) const TREE_LEN: i32 = 8;
+pub(super) const CHASE_LEN: i32 = 10;
+/// The chase's reach: within this of the target (|dx|, |dy|) it attacks, aimed up or down when the target is more
+/// than half the height away. One reach for every fighter.
+const CHASE_REACH_X: Real = 300.0;
+const CHASE_REACH_Y: Real = 260.0;
+/// The chase jumps (with a jump left) when the target is this much above it.
+const CHASE_JUMP_Y: Real = 150.0;
 /// The ticks an attack plan lasts: the gap, the press and the neutral stick while the move plays.
 pub(super) const ATTACK_LEN: i32 = 10;
 /// The ticks a move plan holds the stick.
@@ -42,25 +49,27 @@ pub struct Script {
     pub len: i32,
 }
 
-/// A plan: a script, or the tree's own input for `len` ticks.
+/// A plan: a script, the tree's own input for `len` ticks, or a chase (`chase`) for `len` ticks.
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Plan {
     Tree { len: i32 },
+    Chase { len: i32 },
     Script(Script),
 }
 
 impl Plan {
     pub fn len(&self) -> i32 {
         match self {
-            Plan::Tree { len } => *len,
+            Plan::Tree { len } | Plan::Chase { len } => *len,
             Plan::Script(s) => s.len,
         }
     }
 
-    /// The input of the plan's tick `k`; `tree` is the tree's input of that tick.
-    pub fn input(&self, k: i32, tree: InputState) -> InputState {
+    /// The input of the plan's tick `k`; `tree` is the tree's input of that tick, `chase` the chase's.
+    pub fn input(&self, k: i32, tree: InputState, chase: InputState) -> InputState {
         let s = match self {
             Plan::Tree { .. } => return tree,
+            Plan::Chase { .. } => return chase,
             Plan::Script(s) => s,
         };
         let mut i = NO_INPUT;
@@ -141,6 +150,11 @@ pub(super) fn dodge(x: Real, y: Real) -> Plan {
     Plan::Script(Script { x, y, stick: 2, drift: 0.0, btn: Some(Btn::Dodge), hold: 1, len: DODGE_LEN })
 }
 
+/// Nothing pressed, the stick neutral.
+pub(super) fn idle() -> Plan {
+    Plan::Script(Script { x: 0.0, y: 0.0, stick: 0, drift: 0.0, btn: None, hold: 0, len: MOVE_LEN })
+}
+
 /// The stick down: a fast fall.
 pub(super) fn fast_fall() -> Plan {
     Plan::Script(Script { x: 0.0, y: -1.0, stick: FAST_FALL_LEN, drift: 0.0, btn: None, hold: 0, len: FAST_FALL_LEN })
@@ -169,6 +183,45 @@ pub fn off_stage(w: &World, f: FighterId) -> bool {
     let b = &w.fighter(f).body;
     !b.on_floor
         && (b.x < math::narrow(g.left) || b.x > math::narrow(g.right) || b.y < math::narrow(g.top) - BELOW_FLOOR)
+}
+
+/// The chase's input of fighter `f` at its tick `k` (a press on odd ticks, so each is an edge): toward its target,
+/// jumping after one above it, and within reach an attack aimed at it. Fighter-agnostic: the attacker standing in for
+/// the other player (`job`) and the bot's own `Chase` action.
+pub fn chase(w: &World, f: FighterId, k: i32) -> InputState {
+    let mut i = NO_INPUT;
+    let Some(e) = target(w, f) else { return i };
+    let m = w.fighter(f);
+    let o = &w.fighter(e).body;
+    let (dx, dy) = (o.x - m.body.x, o.y - m.body.y);
+    let press = k % 2 == 1;
+    if dx.abs() < CHASE_REACH_X && dy.abs() < CHASE_REACH_Y {
+        if dy > CHASE_REACH_Y / 2.0 {
+            i.y = 1.0;
+        } else if dy < -CHASE_REACH_Y / 2.0 {
+            i.y = -1.0;
+        } else {
+            i.x = side(dx, m.body.facing_dir);
+        }
+        i.attack = press;
+    } else {
+        i.x = side(dx, m.body.facing_dir);
+        i.jump = press && dy > CHASE_JUMP_Y && m.jump.jumps < 2;
+    }
+    i
+}
+
+/// Whether fighter `f` is in the air with its target out of the chase's reach (an air attack there hits nothing but a
+/// projectile's path).
+pub fn air_out_of_reach(w: &World, f: FighterId) -> bool {
+    let m = w.fighter(f);
+    if m.body.on_floor {
+        return false;
+    }
+    target(w, f).is_none_or(|e| {
+        let o = &w.fighter(e).body;
+        (o.x - m.body.x).abs() >= CHASE_REACH_X || (o.y - m.body.y).abs() >= CHASE_REACH_Y
+    })
 }
 
 /// `-1` or `1`: the sign of `d`, `fallback` at 0.
@@ -225,9 +278,7 @@ pub fn shortlist(w: &World, me: FighterId, max: usize, out: &mut Vec<Plan>) {
     let m = w.fighter(me);
     let list: &[Plan] = match situation {
         Situation::Hitstun => &[walk(s), dodge(s, 1.0)],
-        Situation::OffStage => {
-            &[jump(s, FULL_JUMP_HOLD), special_drift(0.0, 1.0, s), dodge(s, 1.0), walk(s), special_drift(s, 0.0, s)]
-        }
+        Situation::OffStage => &[jump(s, FULL_JUMP_HOLD), special_drift(0.0, 1.0, s), dodge(s, 1.0), walk(s), idle()],
         Situation::Punish => &[
             attack(t, 0.0, Btn::Attack),
             attack(0.0, 1.0, Btn::Attack),
@@ -253,7 +304,7 @@ pub fn shortlist(w: &World, me: FighterId, max: usize, out: &mut Vec<Plan>) {
             attack(t, 0.0, Btn::Attack),
             attack(0.0, -1.0, Btn::Attack),
             attack(0.0, 1.0, Btn::Attack),
-            attack(0.0, 0.0, Btn::Attack),
+            walk(t),
             fast_fall(),
         ],
     };

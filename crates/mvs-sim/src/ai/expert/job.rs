@@ -12,6 +12,7 @@ use crate::Real;
 use crate::ai::bt::BtBot;
 use crate::fighter::FighterId;
 use crate::input::InputState;
+use crate::math;
 use crate::rng::Rng;
 use crate::world::World;
 
@@ -20,6 +21,14 @@ pub const STEPS_PER_THINK: i32 = (BUDGET + REACTION - 1) / REACTION;
 /// Up to this many points are added to each candidate's score from the job's random stream, so near-equal
 /// candidates are picked at random and the bot cannot be farmed by one fixed answer.
 const TIE_NOISE: Real = 1.0;
+/// Off the stage the tie noise is wider, so near-equal routes back vary from one recovery to the next (a route that
+/// loses a stock is far outside it).
+const RECOVER_NOISE: Real = 4.0;
+/// A candidate's score under two guesses: this much of the worse and the rest of the better.
+const WORSE: Real = 1.0;
+/// The attacker guess is played where it can matter: the bot off stage or in hitstun, or the target within this.
+const ATTACK_GUESS_X: Real = 700.0;
+const ATTACK_GUESS_Y: Real = 500.0;
 
 /// Where a job is.
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -31,6 +40,8 @@ enum Phase {
     /// Candidate `c`'s tick `k` comes next.
     Candidate {
         c: usize,
+        /// The guess: 0 the Hard trees, 1 the attacker.
+        g: i32,
         k: i32,
     },
     Done,
@@ -76,6 +87,11 @@ pub struct Job {
     net_scratch: Vec<Real>,
     /// The view at the base.
     pub view: Option<plan::View>,
+    /// The guesses this decision plays (1 or 2) and the candidate's score under the first.
+    guesses: i32,
+    first_score: Real,
+    /// The rollout's bot pressed an attack in the air with its target out of reach.
+    far: bool,
 }
 
 impl std::fmt::Debug for Job {
@@ -113,6 +129,9 @@ impl Job {
             net_out: Vec::new(),
             net_scratch: Vec::new(),
             view: None,
+            guesses: 1,
+            first_score: 0.0,
+            far: false,
         }
     }
 
@@ -219,29 +238,45 @@ impl Job {
                     } else {
                         let mine = self.mine.as_mut().expect("started");
                         let tree = mine.think_tree(w, self.me.expect("started"));
-                        let input = queued_input(&self.queue, self.t + k, tree);
-                        step(w, self.slot, input, &mut self.others, &mut self.inputs);
+                        let input = queued_input(&self.queue, self.t + k, tree, w, self.me.expect("started"));
+                        step(w, self.slot, input, &mut self.others, &mut self.inputs, None);
                     }
                     steps += 1;
                     self.phase = Phase::Delay { k: k + 1 };
                 }
-                Phase::Candidate { c, k } => {
+                Phase::Candidate { c, g, k } => {
                     let w = self.world.as_mut().expect("started");
                     if k >= HORIZON || w.flow.match_over {
-                        let raw = score::score(w, &self.before, self.slot);
-                        self.scores.push(raw);
-                        let s = raw + self.rng.next() * TIE_NOISE;
-                        if self.best.is_none_or(|(b, _)| s > b) {
-                            self.best = Some((s, self.cands[c]));
-                        }
-                        if c + 1 < self.cands.len() {
+                        let raw = score::score(w, &self.before, self.slot, self.far);
+                        self.far = false;
+                        let next = if g + 1 < self.guesses {
+                            self.first_score = raw;
+                            Phase::Candidate { c, g: g + 1, k: 0 }
+                        } else {
+                            let s = if g == 0 {
+                                raw
+                            } else {
+                                let (lo, hi) = (math::min(self.first_score, raw), math::max(self.first_score, raw));
+                                WORSE * lo + (1.0 - WORSE) * hi
+                            };
+                            self.scores.push(s);
+                            let off = self.view.is_some_and(|v| v.situation == plan::Situation::OffStage);
+                            let s = s + self.rng.next() * if off { RECOVER_NOISE } else { TIE_NOISE };
+                            if self.best.is_none_or(|(b, _)| s > b) {
+                                self.best = Some((s, self.cands[c]));
+                            }
+                            if c + 1 < self.cands.len() {
+                                Phase::Candidate { c: c + 1, g: 0, k: 0 }
+                            } else {
+                                Phase::Done
+                            }
+                        };
+                        if next != Phase::Done {
                             copy_world(&mut self.world, self.base.as_ref().expect("the base"));
                             copy_bot(&mut self.mine, self.base_mine.as_ref());
                             copy_bots(&mut self.others, &self.base_others);
-                            self.phase = Phase::Candidate { c: c + 1, k: 0 };
-                        } else {
-                            self.phase = Phase::Done;
                         }
+                        self.phase = next;
                         continue;
                     }
                     if steps >= self.limit {
@@ -249,10 +284,17 @@ impl Job {
                     }
                     let mine = self.mine.as_mut().expect("started");
                     let tree = mine.think_tree(w, self.me.expect("started"));
-                    let input = self.cands[c].input(k, tree);
-                    step(w, self.slot, input, &mut self.others, &mut self.inputs);
+                    let me = self.me.expect("started");
+                    let chase = if matches!(self.cands[c], Plan::Chase { .. }) {
+                        plan::chase(w, me, k)
+                    } else {
+                        InputState::default()
+                    };
+                    let input = self.cands[c].input(k, tree, chase);
+                    self.far |= input.attack && plan::air_out_of_reach(w, me);
+                    step(w, self.slot, input, &mut self.others, &mut self.inputs, (g == 1).then_some(k));
                     steps += 1;
-                    self.phase = Phase::Candidate { c, k: k + 1 };
+                    self.phase = Phase::Candidate { c, g, k: k + 1 };
                 }
             }
         }
@@ -278,7 +320,14 @@ impl Job {
             }
         }
         self.before.take(w);
-        self.phase = Phase::Candidate { c: 0, k: 0 };
+        let near = v.target.is_some_and(|e| {
+            let (o, m) = (&w.fighter(e).body, &w.fighter(me).body);
+            (o.x - m.x).abs() < ATTACK_GUESS_X && (o.y - m.y).abs() < ATTACK_GUESS_Y
+        });
+        let danger = matches!(v.situation, plan::Situation::OffStage | plan::Situation::Hitstun);
+        self.guesses = if near || danger { super::GUESSES } else { 1 };
+        self.far = false;
+        self.phase = Phase::Candidate { c: 0, g: 0, k: 0 };
         if self.teach {
             let mut t = Box::new(self.clone());
             t.teach = false;

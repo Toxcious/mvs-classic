@@ -13,7 +13,7 @@
 //! hand-made shortlist picks the action, the lead picked it) and `meta.npy` (samples x 4, i32: the game, the slot,
 //! the bot's fighter and the stage, by their lists' order); `<dir>/actions.txt` names the actions. A game whose
 //! folder is there already is skipped, so a stopped run started again with the same arguments goes on where it was.
-//! Runs at below-normal priority, `--jobs` games at once.
+//! Runs at idle priority, `--jobs` games at once (a quarter of the logical processors by default).
 
 use mvs_sim::ai::bt::BtBot;
 use mvs_sim::ai::expert::{self, Lead, Sample};
@@ -62,7 +62,7 @@ fn args() -> Result<Args, String> {
         lead: Lead::Shortlist,
         stages: vec![mvs_sim_trace::TRACE_STAGE.to_owned()],
         kos: 2.0,
-        jobs: std::thread::available_parallelism().map_or(2, |n| (n.get() / 2).max(1)),
+        jobs: std::thread::available_parallelism().map_or(1, |n| (n.get() / 4).max(1)),
         seed: 1,
     };
     let mut lead = String::from("x4");

@@ -40,6 +40,8 @@ pub enum Action {
     FastFall,
     /// Nothing pressed, the stick neutral.
     Idle,
+    /// After the target, attacking it within reach (`plan::chase`): an edge-guard.
+    Chase,
 }
 
 /// The ticks a charged attack holds the button, and lasts.
@@ -48,12 +50,12 @@ const CHARGE_LEN: i32 = 14;
 /// The ticks the idle action lasts.
 const IDLE_LEN: i32 = plan::MOVE_LEN;
 
-use Action::{Charge, Dodge, Drift, FastFall, Hop, Idle, Jump, Press, Tree, Walk};
+use Action::{Charge, Chase, Dodge, Drift, FastFall, Hop, Idle, Jump, Press, Tree, Walk};
 use Btn::{Attack, Special};
 use Side::{Away, No, S, T};
 
 /// The list, in its fixed order (the network's outputs follow it). "What the tree does" is first.
-pub const ACTIONS: [Action; 38] = [
+pub const ACTIONS: [Action; 39] = [
     Tree,
     Press(T, 0, Attack),
     Press(Away, 0, Attack),
@@ -92,6 +94,7 @@ pub const ACTIONS: [Action; 38] = [
     Dodge(No, -1),
     FastFall,
     Idle,
+    Chase,
 ];
 /// The count of actions.
 pub const COUNT: usize = ACTIONS.len();
@@ -132,6 +135,7 @@ pub fn plan_of(a: Action, t: Real, s: Real) -> Plan {
         Dodge(sx, y) => plan::dodge(x(sx), Real::from(y)),
         FastFall => plan::fast_fall(),
         Idle => Plan::Script(Script { x: 0.0, y: 0.0, stick: 0, drift: 0.0, btn: None, hold: 0, len: IDLE_LEN }),
+        Chase => Plan::Chase { len: plan::CHASE_LEN },
     }
 }
 
