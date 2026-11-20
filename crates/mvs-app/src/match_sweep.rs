@@ -183,8 +183,9 @@ fn memory(sh: &Shell) -> String {
     let content = sh.store().map_or(0, |s| s.cache().stats().bytes);
     let media = sh.audio.as_ref().map_or(0, |a| a.media().stats().bytes);
     let [shaders, states, layouts] = sh.renderer.as_ref().map_or([0; 3], |r| r.gpu().cached());
+    let parts = sh.renderer.as_ref().map_or(String::new(), |r| crate::perf::private_parts(r.gpu()));
     format!(
-        "mem {:.0} MB (content {} MB, media {} MB; shaders {shaders}, states {states}, layouts {layouts})",
+        "mem {:.0} MB (content {} MB, media {} MB; shaders {shaders}, states {states}, layouts {layouts}; {parts})",
         crate::perf::private_mb(),
         content >> 20,
         media >> 20

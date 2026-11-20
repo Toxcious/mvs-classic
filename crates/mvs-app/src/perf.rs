@@ -305,6 +305,69 @@ fn memory() -> (usize, usize) {
     if ok.is_ok() { (c.PrivateUsage, c.PeakWorkingSetSize) } else { (0, 0) }
 }
 
+/// Where the process's private memory sits, MB: the heaps' bytes in use and committed (the program's own
+/// allocations, the driver's too where it uses a heap), the private memory committed outside them (the driver's
+/// own allocations, stacks), and the GPU's local and non-local memory in use by the process.
+pub fn private_parts(gpu: &Gpu) -> String {
+    use windows::Win32::Foundation::HANDLE;
+    use windows::Win32::Graphics::Dxgi::DXGI_MEMORY_SEGMENT_GROUP_NON_LOCAL;
+    use windows::Win32::System::Memory::{
+        GetProcessHeaps, HEAP_SUMMARY, HeapSummary, MEM_COMMIT, MEM_PRIVATE, MEMORY_BASIC_INFORMATION, VirtualQuery,
+    };
+    const MB: usize = 1 << 20;
+    let mut heaps = vec![HANDLE::default(); 512];
+    // SAFETY: a buffer of the length given.
+    let n = (unsafe { GetProcessHeaps(&mut heaps) } as usize).min(heaps.len());
+    let (mut used, mut held) = (0, 0);
+    for &h in &heaps[..n] {
+        let mut s = HEAP_SUMMARY { cb: size_of::<HEAP_SUMMARY>() as u32, ..Default::default() };
+        // SAFETY: a heap of this process and a summary of the size given.
+        if unsafe { HeapSummary(h, 0, &mut s) }.as_bool() {
+            used += s.cbAllocated;
+            held += s.cbCommitted;
+        }
+    }
+    let mut private = 0;
+    let mut at = 0usize;
+    loop {
+        let mut m = MEMORY_BASIC_INFORMATION::default();
+        // SAFETY: an address of this process and an out struct of the size given.
+        let got = unsafe { VirtualQuery(Some(at as *const _), &mut m, size_of::<MEMORY_BASIC_INFORMATION>()) };
+        if got == 0 || m.RegionSize == 0 {
+            break;
+        }
+        if m.State == MEM_COMMIT && m.Type == MEM_PRIVATE {
+            private += m.RegionSize;
+        }
+        at = m.BaseAddress as usize + m.RegionSize;
+    }
+    let adapter = gpu
+        .dev
+        .cast::<IDXGIDevice>()
+        .and_then(|d| {
+            // SAFETY: a live DXGI device.
+            unsafe { d.GetAdapter() }
+        })
+        .and_then(|a| a.cast::<IDXGIAdapter3>())
+        .ok();
+    let video = |group| {
+        let mut i = DXGI_QUERY_VIDEO_MEMORY_INFO::default();
+        adapter
+            .as_ref()
+            // SAFETY: a live adapter, node 0 and an out struct.
+            .and_then(|a| unsafe { a.QueryVideoMemoryInfo(0, group, &mut i) }.ok())
+            .map_or(0, |()| i.CurrentUsage as usize)
+    };
+    format!(
+        "heap {} MB used of {} MB; other private {} MB; gpu {} MB, shared {} MB",
+        used / MB,
+        held / MB,
+        private.saturating_sub(held) / MB,
+        video(DXGI_MEMORY_SEGMENT_GROUP_LOCAL) / MB,
+        video(DXGI_MEMORY_SEGMENT_GROUP_NON_LOCAL) / MB
+    )
+}
+
 /// The adapter's local memory in use by this process.
 fn gpu_bytes(a: &IDXGIAdapter3) -> Option<u64> {
     let mut i = DXGI_QUERY_VIDEO_MEMORY_INFO::default();
