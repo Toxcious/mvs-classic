@@ -267,11 +267,11 @@ pub fn result_text(r: &WavesResult, fighter: &str) -> (String, String) {
     let mut lines = Vec::new();
     match r.variant {
         WavesVariant::RingOuts100 if r.cleared => {
-            lines.push(format!("{}  {}", t::WAVES_CLEARED, t::waves_time(r.seconds)));
+            lines.push(format!("{} {}", t::WAVES_CLEARED, t::waves_time(r.seconds)));
         }
         WavesVariant::RingOuts100 => {
             let target = r.target.unwrap_or(TARGET);
-            lines.push(format!("{}: {} / {target}", t::WAVES_FELL, t::waves_ring_outs(r.ring_outs)));
+            lines.push(format!("{} {} / {target}", t::WAVES_FELL, r.ring_outs));
         }
         WavesVariant::Endless => lines.push(t::waves_ring_outs(r.ring_outs)),
     }
@@ -285,6 +285,8 @@ pub fn result_text(r: &WavesResult, fighter: &str) -> (String, String) {
         (WavesVariant::RingOuts100, None) => t::WAVES_NO_BEST.to_string(),
         (WavesVariant::Endless, None) => t::WAVES_NO_RING_OUTS.to_string(),
     };
+    // (a blank line between the run and the record)
+    lines.push(String::new());
     lines.push(t::waves_best(fighter, &best));
     (title, lines.join("\n"))
 }
@@ -303,13 +305,13 @@ pub fn show_result(cx: &mut Cx<'_>, again: Handler, back: Handler) -> Option<Dia
     let params = DialogParams {
         title,
         body,
-        button_prominent_label: crate::menu::custom_text::WAVES_PLAY_AGAIN.to_string(),
+        button_left_label: crate::menu::custom_text::WAVES_PLAY_AGAIN.to_string(),
         button_right_label: crate::menu::custom_text::WAVES_BACK.to_string(),
         ..DialogParams::default()
     };
     let id = Manager::show_dialog(cx, params);
     if let Some(d) = cx.view.dialog(id) {
-        d.button_prominent_clicked().add(again);
+        d.button_left_clicked().add(again);
         d.button_right_clicked().add(back);
     }
     Some(id)
@@ -436,7 +438,7 @@ mod tests {
         assert!(result_text(&r, "Shaggy").1.ends_with(t::WAVES_NO_RING_OUTS));
         let fell = WavesResult { variant: WavesVariant::RingOuts100, ring_outs: 7, target: Some(100), ..r.clone() };
         let body = result_text(&fell, "Shaggy").1;
-        assert!(body.contains("7 Ring-Outs / 100") && body.ends_with(t::WAVES_NO_BEST));
+        assert!(body.starts_with("Rung out at 7 / 100\n") && body.ends_with(t::WAVES_NO_BEST));
         // (the time floors as the match's clock does)
         let won = WavesResult { cleared: true, seconds: 61.999, best: Some(61.999), ..fell };
         assert!(result_text(&won, "Shaggy").1.contains("1:01.99"));

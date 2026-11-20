@@ -95,8 +95,8 @@ pub fn waves_ring_outs(n: u32) -> String {
 /// The result page's title, before the variant.
 pub const WAVES_RESULT_TITLE: &str = "Waves";
 /// The result page's lines.
-pub const WAVES_CLEARED: &str = "CLEARED";
-pub const WAVES_FELL: &str = "Rung out";
+pub const WAVES_CLEARED: &str = "Cleared in";
+pub const WAVES_FELL: &str = "Rung out at";
 pub const WAVES_NEW_RECORD: &str = "NEW RECORD";
 pub fn waves_best(fighter: &str, best: &str) -> String {
     format!("{fighter}'s best: {best}")
