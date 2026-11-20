@@ -182,6 +182,9 @@ pub enum OnlineEvent {
 /// What the menus see of online play this frame.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct OnlineView {
+    /// Online play's clock, ms: it runs on through the matches and is never set back, where a menu's own clock
+    /// starts again with each menu. What lasts longer than a menu (a lobby kept across its matches) is timed by it.
+    pub now: f64,
     /// Signed in to a backend: sessions can be opened.
     pub connected: bool,
     /// The one line of online play the menus show.

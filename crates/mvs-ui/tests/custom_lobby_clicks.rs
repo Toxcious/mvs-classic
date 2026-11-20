@@ -5,14 +5,15 @@
 use std::sync::Arc;
 
 use mvs_protocol::lobby_rules::{LobbyData, LobbyPlayer, LobbyRules};
-use mvs_protocol::messages::ServerMessage;
+use mvs_protocol::messages::{ClientMessage, ServerMessage};
+use mvs_protocol::online::{PmBegin, PmKind};
 use mvs_settings::Settings;
 use mvs_ui::Bundle;
 use mvs_ui::bindings::Bindings;
 use mvs_ui::element::ElementList;
 use mvs_ui::menu::controller::MenuRun;
 use mvs_ui::menu::input::Pointer;
-use mvs_ui::menu::online::{OnlineEvent, OnlineView, SessionView};
+use mvs_ui::menu::online::{OnlineCmd, OnlineEvent, OnlineView, SessionView};
 use mvs_ui::menu::{Manager, MenuInput, MenuScreen, MenuView, NoSound};
 use mvs_ui::slate::{Vis, WidgetId};
 use mvs_ui::text::{Fonts, GameText};
@@ -107,21 +108,29 @@ struct Lobby {
     env: Env,
     screen: MenuScreen,
     out: ElementList,
+    /// The frames of the menu's clock.
     n: u32,
+    /// Online play's clock (`OnlineView::now`), ms: it runs with the frames and on when the menu's clock starts again.
+    online_ms: f64,
 }
 
 impl Lobby {
     /// The custom game over an online lobby (so it has its chat), a second of frames after it is up.
     fn new(env: Option<Env>) -> Option<Lobby> {
-        let mut env = env?;
+        Some(Lobby::open(env?, 0.0, vec![OnlineEvent::Opened, started()]))
+    }
+
+    /// The custom game shown on a new menu (its clock starts) with online play's clock at `online_ms`, a second of
+    /// frames after it is up; `events`: the session's first.
+    fn open(mut env: Env, online_ms: f64, events: Vec<OnlineEvent>) -> Lobby {
         let view = MenuView::new(env.bundle.clone(), env.text.clone(), SIZE);
         let mut screen = MenuScreen::new(view, &mut env.run());
         screen.view.session.online = online(Vec::new());
         screen.with_cx(&mut env.run(), |cx| Manager::show_modal(cx, "WBP_CustomGame", "customGame", "", ""));
-        let mut l = Lobby { env, screen, out: ElementList::default(), n: 0 };
-        l.screen.view.session.online = online(vec![OnlineEvent::Opened, started()]);
+        let mut l = Lobby { env, screen, out: ElementList::default(), n: 0, online_ms };
+        l.screen.view.session.online = online(events);
         l.frames(60, &[]);
-        Some(l)
+        l
     }
 
     fn frames(&mut self, count: u32, input: &[MenuInput]) {
@@ -129,6 +138,8 @@ impl Lobby {
             self.n += 1;
             let now = 1.0 + f64::from(self.n) / 60.0;
             let input = if i == 0 { input } else { &[] };
+            self.online_ms += 1000.0 / 60.0;
+            self.screen.view.session.online.now = self.online_ms;
             self.screen.frame(&mut self.env.run(), input, now, &mut self.out);
             // (the server's messages come once)
             self.screen.view.session.online.events.clear();
@@ -174,6 +185,27 @@ impl Lobby {
 
     fn typing(&self) -> bool {
         self.screen.view.has_keyboard_focus(self.chat_box())
+    }
+
+    /// A line typed in the chat's box and committed with Enter.
+    fn say(&mut self, line: &str) {
+        if !self.typing() {
+            self.key("Enter");
+        }
+        self.frames(2, &line.chars().map(MenuInput::Char).collect::<Vec<_>>());
+        self.key("Enter");
+    }
+
+    /// The chat lines the page sent since the last call.
+    fn chat_sent(&mut self) -> Vec<String> {
+        let sent = self.screen.view.take_online_cmds().into_iter().filter_map(|c| match c {
+            OnlineCmd::Send(m) => match *m {
+                ClientMessage::Chat { text, .. } => Some(text),
+                _ => None,
+            },
+            _ => None,
+        });
+        sent.collect()
     }
 
     fn hint_shown(&self) -> bool {
@@ -362,6 +394,37 @@ fn the_lobby_rows_show_the_players_profile_icons() {
     l.frames(30, &[]);
     assert_eq!(row_icon(&l, "Tester").as_deref(), Some(mine.as_str()), "the own row shows the stored icon");
     assert_eq!(row_icon(&l, "Velma").as_deref(), Some(other.as_str()), "another's row shows the icon it carries");
+}
+
+/// The lobby and its chat budget are kept across a match, and the menu after the match has a clock that starts
+/// again: the budget is timed by online play's clock, so a line still goes out there.
+#[test]
+fn the_chat_sends_in_the_lobby_come_back_to_after_a_match() {
+    let Some(mut l) = Lobby::new(env()) else { return };
+    // ten minutes in the lobby, then a line
+    l.n += 60 * 600;
+    l.online_ms += 600_000.0;
+    l.say("one");
+    assert_eq!(l.chat_sent(), ["one"]);
+    // the match starts: the page hands the lobby on, kept for the menu after the match
+    let pm = PmBegin {
+        id: "pm1".into(),
+        kind: PmKind::Lobby,
+        mode: None,
+        team_style: 0,
+        map: String::new(),
+        players: Vec::new(),
+        me: 0,
+        rematch: None,
+    };
+    l.screen.view.session.online.events = vec![OnlineEvent::Server(Box::new(ServerMessage::PmBegin(pm)))];
+    l.frames(90, &[]);
+    assert!(!l.up("customGame"), "the lobby's page went with the match's start");
+    // the menu after a two minute match: a new screen, its clock at the start again
+    let Lobby { env, online_ms, .. } = l;
+    let mut l = Lobby::open(env, online_ms + 120_000.0, Vec::new());
+    l.say("two");
+    assert_eq!(l.chat_sent(), ["two"]);
 }
 
 /// A line typed past the chat box's width stays in the box: the text is cut to the box and scrolled left so its end

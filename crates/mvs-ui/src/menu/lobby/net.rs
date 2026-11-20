@@ -226,8 +226,10 @@ impl NetLobby {
 
     // ---------- the program's frame ----------
 
-    /// The frame's view: the session's answers and messages, and a connection lost. `now`: ms.
-    pub fn feed(&mut self, view: &OnlineView, now: f64) {
+    /// The frame's view: the session's answers and messages, and a connection lost. The messages are timed by the
+    /// view's clock (`OnlineView::now`), which a lobby kept across its matches can rely on.
+    pub fn feed(&mut self, view: &OnlineView) {
+        let now = view.now;
         for e in &view.events {
             match e {
                 OnlineEvent::Opened => self.opened(view),

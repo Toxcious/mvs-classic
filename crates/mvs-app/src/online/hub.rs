@@ -641,6 +641,7 @@ impl OnlineHub {
             })
         });
         OnlineView {
+            now: self.clock(),
             connected: self.port.status.online,
             line: self.line(),
             can_join: self.port.has_link(),

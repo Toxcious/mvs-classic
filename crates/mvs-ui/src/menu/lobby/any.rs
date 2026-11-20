@@ -56,12 +56,12 @@ impl Lobby {
         }
     }
 
-    /// The echoes due; an online lobby first takes the frame's view (`now`: ms).
-    pub fn take_events(&mut self, view: &OnlineView, now: f64, random: &mut dyn FnMut() -> f64) -> Vec<LobbyEvent> {
+    /// The echoes due; an online lobby first takes the frame's view.
+    pub fn take_events(&mut self, view: &OnlineView, random: &mut dyn FnMut() -> f64) -> Vec<LobbyEvent> {
         match self {
             Lobby::Local(l) => l.take_events(random),
             Lobby::Net(l) => {
-                l.feed(view, now);
+                l.feed(view);
                 l.take_events()
             }
         }

@@ -158,8 +158,8 @@ impl Play {
 
     /// The frame `n` at the script's clock, the page's net view given first.
     fn frame(&mut self, n: u32, online: OnlineView, input: &[MenuInput]) {
-        self.screen.view.session.online = online;
         let now = f64::from(n) / 60.0;
+        self.screen.view.session.online = OnlineView { now: now * 1000.0, ..online };
         self.screen.frame(&mut self.env.run(), input, now, &mut self.out);
         self.tape.frames.push(self.screen.tape_frame());
     }

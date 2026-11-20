@@ -1154,9 +1154,10 @@ impl CustomGame {
         self.chat = Some(c);
     }
 
-    /// The input committed `text` with Enter: the lobby's gate says if it goes.
+    /// The input committed `text` with Enter: the lobby's gate says if it goes. The gate's time is online play's
+    /// clock: the lobby and its budget outlive this page (a match, then a new menu whose clock starts again).
     fn send_chat(&mut self, cx: &mut Cx<'_>, chat: &mut LobbyChat, text: &str) {
-        let now = cx.now() * 1000.0;
+        let now = cx.view.session.online.now;
         let Some(n) = self.lobby_mut().net_mut() else { return };
         match n.say(text, now) {
             Say::Sent(_) | Say::Nothing => chat.sent(cx),
@@ -2040,15 +2041,14 @@ impl Controller for CustomGame {
             (state.wrapping_mul(0x2545_f491_4f6c_dd1d) >> 11) as f64 / (1u64 << 53) as f64
         };
         let online = self.lobby().online();
-        let (view, now) =
-            if online { (cx.view.session.online.clone(), cx.now() * 1000.0) } else { (OnlineView::default(), 0.0) };
+        let view = if online { cx.view.session.online.clone() } else { OnlineView::default() };
         // Online going off ends a lobby on the chosen backend.
         let lost = self.was_connected && !view.connected && online;
         self.was_connected = view.connected;
         if lost && let Some(n) = self.lobby_mut().net_mut().filter(|n| n.on_chosen()) {
             n.connection_lost();
         }
-        let events = self.lobby_mut().take_events(&view, now, &mut random);
+        let events = self.lobby_mut().take_events(&view, &mut random);
         for e in events {
             if self.lobby.is_none() {
                 return;
