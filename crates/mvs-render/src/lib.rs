@@ -42,7 +42,7 @@ pub mod warm;
 
 pub use assets::Assets;
 pub use gpu::Gpu;
-pub use renderer::{Frame, FrameTimes, Passes, Renderer, Scalability};
+pub use renderer::{Frame, FrameTimes, Passes, Renderer, Scalability, TrimmedAll};
 pub use swap::SwapChain;
 
 #[derive(Debug, thiserror::Error)]

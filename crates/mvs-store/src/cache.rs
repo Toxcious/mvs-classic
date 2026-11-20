@@ -1,6 +1,7 @@
 //! What the game builds from the store's entries, kept once per process: a typed value per key, shared by every
-//! holder (`Arc`), built once even when two threads ask for it together, and let go least recently used first when
-//! the cache is over its budget and nobody else holds the value.
+//! holder (`Arc`), built once even when two threads ask for it together, and let go by a trim when nobody else
+//! holds the value: least recently used first down to a budget (`trim`), or every one not asked since a point of
+//! the cache's clock (`trim_older`).
 //!
 //! A value is immutable once built. Its weight (bytes, as the caller counts them) is what a budget counts; a value
 //! of weight 0 is never let go by a trim.
@@ -143,6 +144,32 @@ impl Cache {
             total -= w;
             freed += w;
         }
+        freed
+    }
+
+    /// The cache's clock: an ask after this reading is newer than it (`trim_older`).
+    pub fn clock(&self) -> u64 {
+        self.clock.load(Ordering::Relaxed)
+    }
+
+    /// Lets go every value nobody else holds that was not asked since `since` (a reading of [`Cache::clock`]).
+    /// The bytes let go.
+    pub fn trim_older(&self, since: u64) -> usize {
+        let mut m = self.slots.lock().unwrap_or_else(|p| p.into_inner());
+        let mut freed = 0;
+        m.retain(|_, slot| {
+            if slot.used.load(Ordering::Relaxed) >= since {
+                return true;
+            }
+            let Ok(v) = slot.value.try_lock() else { return true };
+            match &*v {
+                Some((value, w)) if *w > 0 && Arc::strong_count(value) == 1 => {
+                    freed += w;
+                    false
+                }
+                _ => true,
+            }
+        });
         freed
     }
 

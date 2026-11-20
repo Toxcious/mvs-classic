@@ -24,6 +24,7 @@ use std::fs::File;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
@@ -108,6 +109,8 @@ struct Inner {
     /// open does not wait for it).
     packs: Cache,
     cache: Cache,
+    /// The cache's clock when the last load began (`Store::begin_load`).
+    load_start: AtomicU64,
 }
 
 impl std::fmt::Debug for Store {
@@ -130,7 +133,15 @@ impl Store {
                 format!("format {} (this reader reads {STORE_FORMAT})", manifest.format),
             ));
         }
-        Ok(Store { inner: Arc::new(Inner { dir, manifest, packs: Cache::new(), cache: Cache::new() }) })
+        Ok(Store {
+            inner: Arc::new(Inner {
+                dir,
+                manifest,
+                packs: Cache::new(),
+                cache: Cache::new(),
+                load_start: AtomicU64::new(0),
+            }),
+        })
     }
 
     pub fn dir(&self) -> &Path {
@@ -175,18 +186,18 @@ impl Store {
         self.inner.cache.get_or_weighed(key, make, weight)
     }
 
-    /// Lets go of the cached values nobody holds, least recently asked first, until the cache weighs at most
-    /// [`CONTENT_BUDGET`] (what a match or a preview holds stays). The bytes let go.
+    /// A load begins (a match's, or a screen's that lets the last one's go): what it asks of the cache from now
+    /// on is its own, and `trim` lets the rest go.
+    pub fn begin_load(&self) {
+        self.inner.load_start.store(self.inner.cache.clock(), Ordering::Relaxed);
+    }
+
+    /// Lets go of the cached values nobody holds and nothing asked since the load began (what a match or a
+    /// preview holds stays, and what the load read and let go). The bytes let go.
     pub fn trim(&self) -> usize {
-        self.inner.cache.trim(CONTENT_BUDGET)
+        self.inner.cache.trim_older(self.inner.load_start.load(Ordering::Relaxed))
     }
 }
-
-/// What the store's cache keeps of the content no match or preview holds, in bytes: the characters and meshes of
-/// the last few line-ups, so a Lab restart or a hover back reads nothing.
-// Unverified: sized by hand (a character's data and meshes are 5 to 30 MB of entries); the bench's line-ups stay
-// within it.
-pub const CONTENT_BUDGET: usize = 256 << 20;
 
 /// One kind's pack: its index in memory, entries read by a positioned read (any number of threads at once).
 pub struct Pack {

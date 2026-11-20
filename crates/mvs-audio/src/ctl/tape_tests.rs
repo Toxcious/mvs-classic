@@ -147,7 +147,7 @@ fn run(calls: &[post::Line], rng: Rng, store: &Arc<mvs_store::Store>, init: &Arc
     let (mut notes, rx) = rtrb::RingBuffer::new(1 << 16);
     let rtpc = Arc::new(RtpcMirror::new(init));
     let run = out::Run::Wasapi(out::wasapi::Wasapi { thread: None, stop: Arc::default() });
-    let media = Arc::new(crate::decode::cache::MediaCache::new(0));
+    let media = Arc::new(crate::decode::cache::MediaCache::new());
     let lazy = crate::ctl::scope::Lazy::new(false, media.clone());
     let mut audio = Audio {
         store: store.clone(),

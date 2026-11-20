@@ -263,15 +263,9 @@ const RETAINED_BYTES: u64 = 32_000_000;
 /// The glyph atlas sets kept (`Ui::atlases`): the menus', a match's HUD and a screen's own fonts.
 const ATLAS_SETS: usize = 4;
 
-/// The most bytes of brush pictures `Ui` holds once no draw of the frame uses them.
-const PICTURES_KEPT: u64 = 256 << 20;
-
-/// The bytes of brush pictures held past the frame's draws for a texture budget of `budget` bytes
-/// (`Assets::budget`): a quarter of it, at most `PICTURES_KEPT`. A picture held is one the budget's trim cannot let
-/// go, so a small adapter's budget (256 MB, `default_budget`) holds 64 MB of menu pictures through a match, not 256.
-fn pictures_kept(budget: usize) -> u64 {
-    (u64::try_from(budget).unwrap_or(u64::MAX) / 4).min(PICTURES_KEPT)
-}
+/// The most bytes of brush pictures `Ui` holds once no draw of the frame uses them. A picture held is one the
+/// assets' trim cannot let go, so this is what the menus keep through a match.
+const PICTURES_KEPT: u64 = 64 << 20;
 /// The instances of one UI material kept with their parameters: past it, the least recently drawn is set again.
 const POOLED_KEPT: usize = 64;
 
@@ -403,7 +397,7 @@ pub struct Ui {
     /// The glyph atlas pages on the GPU per `Fonts` drawn with (`GlyphAtlas::id`), the last drawn with first: the
     /// menus' and the HUD's fonts draw in one frame, and each packs its glyphs from the same corner.
     atlases: Vec<(u64, Vec<AtlasTexture>)>,
-    /// The brush pictures drawn lately by path, held past the screen that drew them up to `pictures_kept` bytes
+    /// The brush pictures drawn lately by path, held past the screen that drew them up to `PICTURES_KEPT` bytes
     /// (the store's caches let go what nobody holds when a match loads).
     pictures: HashMap<String, Picture>,
     pictures_bytes: u64,
@@ -787,7 +781,7 @@ impl Ui {
     /// A brush picture by its path: the texture kind's, else an engine brush file of the image kind or one of the
     /// port's own icons (both made by `Assets::image`). None: a loader
     /// makes it (`stream_pictures`). A picture made is held (`pictures`), the least recently drawn let go past
-    /// `pictures_kept` bytes.
+    /// `PICTURES_KEPT` bytes.
     fn picture(&mut self, assets: &Assets, path: &str) -> Result<Option<Arc<Texture>>> {
         if let Some(p) = self.pictures.get_mut(path) {
             p.used = self.frame;
@@ -804,7 +798,7 @@ impl Ui {
         let bytes = texture_bytes(&t);
         self.pictures.insert(path.to_string(), Picture { tex: t.clone(), bytes, used: self.frame });
         self.pictures_bytes += bytes;
-        let kept = pictures_kept(assets.budget());
+        let kept = PICTURES_KEPT;
         while self.pictures_bytes > kept {
             let Some(old) =
                 self.pictures.iter().filter(|p| p.1.used < self.frame).min_by_key(|p| p.1.used).map(|p| p.0.clone())

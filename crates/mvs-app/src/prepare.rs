@@ -134,6 +134,8 @@ impl PrepareJob {
     /// leaves goes on (a Lab fighter change). None for a replay or without an open store.
     pub fn of(sh: &Shell, start: &MatchStart, level_kept: bool) -> Option<PrepareJob> {
         let key = key_of(sh, start, level_kept)?;
+        // (what the job looks up is the new match's: the install's trim lets the rest go)
+        sh.begin_load();
         let store = sh.store()?.clone();
         let stage = sh.renderer.as_ref().filter(|_| !key.level_kept).map(|r| r.stage_job(&key.stage));
         let warm = sh.renderer.as_ref().map(|r| r.warm_job((!key.level_kept).then_some(key.stage.as_str())));

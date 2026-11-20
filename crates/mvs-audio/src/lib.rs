@@ -499,7 +499,7 @@ impl Audio {
             Backend::Wasapi => out::Run::Wasapi(out::wasapi::Wasapi::start(mixer)?),
             Backend::Offline => out::Run::Offline { mixer, out: Vec::new() },
         };
-        let media = Arc::new(decode::cache::MediaCache::new(decode::cache::MediaCache::default_budget()));
+        let media = Arc::new(decode::cache::MediaCache::new());
         let lazy = ctl::scope::Lazy::new(backend == Backend::Wasapi, media.clone());
         Ok(Audio {
             store,
@@ -570,18 +570,14 @@ impl Audio {
         self.send.waiting()
     }
 
-    /// Reads the mixer's notes into the inbox: what they free dropped (a scope's: the decoded media trimmed after).
+    /// Reads the mixer's notes into the inbox: what they free dropped (a scope's decoded media stay in the cache
+    /// until the next match's install trims it, so a restart with the same fighters decodes nothing).
     fn read_notes(&mut self) {
-        let mut freed = false;
         while let Ok(n) = self.rx.pop() {
             match n {
-                Note::Free(Garbage::Scope(_) | Garbage::MediaList(_)) => freed = true,
                 Note::Free(_) => {}
                 n => self.inbox.push(n),
             }
-        }
-        if freed {
-            self.media.trim();
         }
     }
 
@@ -690,8 +686,7 @@ impl Audio {
         &self.store
     }
 
-    /// The notes the mixer and the lazy media's posts sent since the last call; drops what they free. A scope the
-    /// mixer let go trims the decoded media to their budget.
+    /// The notes the mixer and the lazy media's posts sent since the last call; drops what they free.
     pub fn take_notes(&mut self) -> Vec<Note> {
         self.poll();
         self.read_notes();
@@ -701,7 +696,7 @@ impl Audio {
         out
     }
 
-    /// The decoded media kept across scopes and matches (their budget, what they hold).
+    /// The decoded media the scopes hold, and those of scopes let go until the next trim.
     pub fn media(&self) -> &decode::cache::MediaCache {
         &self.media
     }
@@ -878,7 +873,7 @@ mod tests {
         let store = Arc::new(mvs_store::Store::open(&dir).unwrap());
         std::fs::remove_dir_all(&dir).unwrap();
         let run = out::Run::Wasapi(out::wasapi::Wasapi { thread: None, stop: Arc::default() });
-        let media = Arc::new(decode::cache::MediaCache::new(0));
+        let media = Arc::new(decode::cache::MediaCache::new());
         let lazy = ctl::scope::Lazy::new(false, media.clone());
         (
             Audio {

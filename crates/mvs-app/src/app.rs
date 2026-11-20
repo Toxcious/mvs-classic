@@ -37,6 +37,10 @@ use crate::{Error, Result};
 /// A paced script frame's shortest length, s (60 a second).
 const SCRIPT_FRAME_S: f64 = 1.0 / 60.0;
 
+/// The frames the menus run after a match before what it left is let go (`Shell::trim_unused`): their screen and
+/// level have looked up what they draw, the stage music has played out.
+const MENU_TRIM_FRAMES: u32 = 120;
+
 /// How the shell opens.
 #[derive(Debug)]
 pub struct ShellOptions {
@@ -287,6 +291,46 @@ impl Shell {
         self.renderer.as_ref().map(|r| r.assets().store())
     }
 
+    /// A load begins (a match's, or the menus' after a match): what it looks up from now on is its own, and
+    /// [`Shell::trim_unused`] lets the rest go.
+    pub fn begin_load(&self) {
+        if let Some(r) = &self.renderer {
+            r.assets().begin_load();
+        }
+    }
+
+    /// Lets go what the screen now running does not use (kept only while something holds it): the content the store
+    /// built, the decoded sound no scope holds, the effects, meshes and textures nothing looked up since the load
+    /// began. Nothing is kept for a later screen: a load reads again what it needs. The line of what is kept.
+    pub fn trim_unused(&mut self) -> String {
+        let (content, content_freed) = self.store().map_or((0, 0), |s| {
+            let freed = s.trim();
+            (s.cache().stats().bytes, freed)
+        });
+        let media_freed = self.audio.as_ref().map_or(0, |a| a.media().trim());
+        let media = self.audio.as_ref().map_or(0, |a| a.media().stats().bytes);
+        let mut line = format!(
+            "content kept {} MB ({} let go), sound {} MB ({} let go)",
+            content >> 20,
+            content_freed >> 20,
+            media >> 20,
+            media_freed >> 20
+        );
+        if let Some(r) = &mut self.renderer {
+            let t = r.trim_unused();
+            line += &format!(
+                ", meshes and textures {} MB ({} let go; {} particle materials, {} mesh streams, {} decal \
+                 materials)",
+                t.assets.kept >> 20,
+                t.assets.freed >> 20,
+                t.particle_materials,
+                t.mesh_streams,
+                t.decal_materials
+            );
+        }
+        line
+    }
+
     /// The frame's start: waits for the swap chain to take a frame (latency 1), then for the frame rate limit.
     pub fn wait(&mut self) {
         self.swap.wait(1000);
@@ -530,6 +574,8 @@ impl App {
         let mut notes = crate::audio::NoteLog::default();
         // (a scripted run's frames: the online client's clock, 60 a second)
         let mut frames = 0u32;
+        // (back in the menus after a match: the frames until what the match left is let go)
+        let mut trim_in: Option<u32> = None;
         let bench_line = |shell: &Shell| {
             if let Some(t) = &shell.perf.totals {
                 eprintln!("mvs: bench {}", t.line());
@@ -593,6 +639,14 @@ impl App {
             }
             frames += 1;
             let out = self.state.frame(&mut self.shell, &Frame { dt: now - last, resized, cpu_start })?;
+            match &mut trim_in {
+                Some(0) => {
+                    trim_in = None;
+                    eprintln!("mvs: back in the menus: {}", self.shell.trim_unused());
+                }
+                Some(n) => *n -= 1,
+                None => {}
+            }
             // (the device the player last touched: an active screen that took the frame's input wrote it, else the
             // window's touches do, a match's play and the title's included; the input no screen took is dropped)
             let touches = self.shell.devices.take_touches();
@@ -685,6 +739,9 @@ impl App {
                         && matches!(go, Go::Menu(_) | Go::PreMatch(_))
                     {
                         crate::audio::release_stage_music(&mut self.shell.audio);
+                        // (what the menus look up from here is theirs; the match's rest goes once they have drawn)
+                        self.shell.begin_load();
+                        trim_in = Some(MENU_TRIM_FRAMES);
                     }
                     if let Some(s) = enter(&mut self.shell, go)? {
                         self.state = s;

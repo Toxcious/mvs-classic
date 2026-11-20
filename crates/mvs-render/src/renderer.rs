@@ -107,6 +107,16 @@ impl Passes {
     };
 }
 
+/// What `Renderer::trim_unused` let go: the effect passes' materials and mesh streams, then the meshes and
+/// textures.
+#[derive(Clone, Copy, Debug)]
+pub struct TrimmedAll {
+    pub particle_materials: usize,
+    pub mesh_streams: usize,
+    pub decal_materials: usize,
+    pub assets: crate::assets::Trimmed,
+}
+
 /// What a pass after the base pass reads and writes: the device, the store's assets, the frame's View and
 /// GPUScene buffers, the scene targets, the material instances, the frame's draw items, the stage's lights and the
 /// frame's input.
@@ -638,18 +648,21 @@ impl Renderer {
         self.decals.names()
     }
 
-    /// What a loader's warm-up made for the particle and decal passes, taken in (crate::warm).
-    /// Lets go the particle and decal materials and the mesh streams nothing has used since the last call (a
-    /// fighter's or stage's effects no longer played), before the assets' trim, which can then let their meshes
-    /// and textures go: at a match's install, after its warm-up was taken in. How many of each went.
-    pub fn trim_effects(&mut self) -> [usize; 3] {
-        let [materials, meshes] = self.particles.trim();
-        [materials, meshes, self.decals.trim()]
+    /// Lets go what nothing has used since the load began (`Assets::begin_load`): the particle and decal materials
+    /// and mesh streams, then the meshes and textures nobody holds. At a match's install, after its warm-up was
+    /// taken in: what the match draws stays, the last match's and the menus' rest goes.
+    pub fn trim_unused(&mut self) -> TrimmedAll {
+        let mark = self.assets.mark();
+        let [particle_materials, mesh_streams] = self.particles.trim(mark);
+        let decal_materials = self.decals.trim(mark);
+        TrimmedAll { particle_materials, mesh_streams, decal_materials, assets: self.assets.trim() }
     }
 
+    /// What a loader's warm-up made for the particle and decal passes, taken in (crate::warm).
     pub(crate) fn adopt_warm(&mut self, p: crate::particles::ParticlesMade, d: crate::decal::DecalsMade) {
-        self.particles.adopt(p);
-        self.decals.adopt(d);
+        let mark = self.assets.mark();
+        self.particles.adopt(p, mark);
+        self.decals.adopt(d, mark);
     }
 
     /// The particle pass's warm-up of `emitters` (crate::warm): the lines of what failed.

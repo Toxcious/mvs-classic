@@ -51,7 +51,7 @@ fn the_cache_decodes_alike_and_once() {
         eprintln!("no store: nothing checked");
         return;
     };
-    let cache = super::cache::MediaCache::new(0);
+    let cache = super::cache::MediaCache::new();
     let paths: Vec<String> = pack.paths().filter(|p| !is_setup(p)).step_by(211).take(24).map(str::to_owned).collect();
     let mut held = Vec::new();
     for (i, path) in paths.iter().enumerate() {

@@ -309,10 +309,8 @@ pub struct Decals {
     cube_index: Buffer,
     vs_globals: Buffer,
     ps_globals: Buffer,
-    /// By material object path, with the mark each was last used at (`trim`).
+    /// By material object path, with the assets' load mark each was last used at (`trim`).
     materials: HashMap<String, (DecalMaterial, u64)>,
-    /// The mark a use stamps a material with (`trim` moves it on).
-    mark: u64,
     /// A floor decal's material name to its object path in the material kind (made at the first floor decal).
     names: Option<Arc<HashMap<String, String>>>,
     /// The stage's decals: material path and ComponentToWorld.
@@ -378,7 +376,6 @@ impl Decals {
             vs_globals: constants(VS_ROWS)?,
             ps_globals: constants(PS_ROWS)?,
             materials: HashMap::new(),
-            mark: 0,
             names: None,
             stage: Vec::new(),
             depth_outside: depth(D3D11_COMPARISON_GREATER_EQUAL),
@@ -400,10 +397,11 @@ impl Decals {
     }
 
     fn material(&mut self, gpu: &Gpu, assets: &Assets, path: &str) -> Result<()> {
+        let mark = assets.mark();
         match self.materials.get_mut(path) {
-            Some((_, used)) => *used = self.mark,
+            Some((_, used)) => *used = mark,
             None => {
-                self.materials.insert(path.to_string(), (DecalMaterial::new(gpu, assets, path)?, self.mark));
+                self.materials.insert(path.to_string(), (DecalMaterial::new(gpu, assets, path)?, mark));
             }
         }
         Ok(())
@@ -447,21 +445,19 @@ impl Decals {
 
     /// What a loader thread's warm-up made (`warm_off_thread`) taken in: the materials this pass has not made yet,
     /// and the names when it had none.
-    pub(crate) fn adopt(&mut self, made: DecalsMade) {
+    pub(crate) fn adopt(&mut self, made: DecalsMade, mark: u64) {
         for (path, m) in made.materials {
-            self.materials.entry(path).or_insert((m, 0)).1 = self.mark;
+            self.materials.entry(path).or_insert((m, mark)).1 = mark;
         }
         if self.names.is_none() {
             self.names = made.names;
         }
     }
 
-    /// Lets go the materials nothing has used since the trim before and the stage does not draw (a floor decal of
-    /// a fighter or stage no longer played), so the textures they hold can go at the assets' trim. Then moves the
-    /// mark on. The materials let go.
-    pub(crate) fn trim(&mut self) -> usize {
-        let mark = self.mark;
-        self.mark += 1;
+    /// Lets go the materials nothing has used since the assets' load `mark` and the stage does not draw (a floor
+    /// decal of a fighter or stage no longer played), so the textures they hold can go at the assets' trim. The
+    /// materials let go.
+    pub(crate) fn trim(&mut self, mark: u64) -> usize {
         let before = self.materials.len();
         let stage = &self.stage;
         self.materials.retain(|path, (_, used)| *used >= mark || stage.iter().any(|(p, _)| p == path));
@@ -664,7 +660,7 @@ impl Decals {
             gpu.write_rows(&self.ps_globals, &ps_rows);
 
             let (mat, used) = self.materials.get_mut(d.material).expect("made above");
-            *used = self.mark;
+            *used = fr.assets.mark();
             mat.set_scalars(gpu, &d.scalars)?;
             let cbs: Vec<Option<ID3D11Buffer>> = mat
                 .cbs

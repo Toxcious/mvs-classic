@@ -590,6 +590,10 @@ impl MatchLoop {
         let load_start = Instant::now();
         let mut laps = crate::perf::LoadLaps::new();
         let MatchStart { setup, mut kind, seed, mut stage, map, me, usernames, humans, prepared, lab_ahead } = start;
+        // (a match prepared off the frame began its load at its job: `PrepareJob::of`)
+        if prepared.is_none() {
+            sh.begin_load();
+        }
         let size = sh.swap.size;
         let kept_level = sh.kept_level.take();
         // (a Lab fighter change keeps the level: its scenery and the particle player with the level's systems go on)
@@ -846,14 +850,7 @@ impl MatchLoop {
             std::fs::create_dir_all(&o.out).map_err(|e| Error::Match(format!("{}: {e}", o.out.display())))?;
         }
         laps.lap("rest");
-        let (freed, kept) = sh.store().map_or((0, Default::default()), |s| (s.trim(), s.cache().stats()));
-        laps.notes.push(format!("content kept {} MB ({} let go)", kept.bytes >> 20, freed >> 20));
-        if let Some(r) = &mut sh.renderer {
-            let [p, s, d] = r.trim_effects();
-            laps.notes.push(format!("effects let go: {p} particle materials, {s} mesh streams, {d} decal materials"));
-            let t = r.assets().trim();
-            laps.notes.push(format!("meshes and textures kept {} MB ({} let go)", t.kept >> 20, t.freed >> 20));
-        }
+        laps.notes.push(sh.trim_unused());
         eprintln!("mvs: load {}", laps.line());
         Ok(MatchLoop {
             stage_key: mvs_render::stage::stage_key(&stage),

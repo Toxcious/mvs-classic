@@ -2,7 +2,7 @@
 //! shared, materials and shader codes decoded once. BC textures go to the GPU as stored.
 
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock, Weak};
 
 use serde::Deserialize;
@@ -33,10 +33,8 @@ struct Shared {
     shaders_pack: std::sync::Arc<mvs_store::Pack>,
     meshes: Mutex<HashMap<String, Kept<Mesh>>>,
     textures: Mutex<HashMap<String, Kept<Texture>>>,
-    /// The mark a look-up stamps its mesh or texture with (`Assets::trim` moves it on).
+    /// The load mark a look-up stamps its mesh or texture with (`Assets::begin_load` moves it on).
     mark: AtomicU64,
-    /// What `Assets::trim` keeps of the meshes and textures no draw holds, bytes.
-    budget: AtomicUsize,
     materials: Mutex<HashMap<String, Arc<mvs_material::Material>>>,
     codes: Mutex<HashMap<mvs_material::Sha1, Arc<mvs_material::ShaderCode>>>,
     global: OnceLock<mvs_material::GlobalShaders>,
@@ -110,12 +108,6 @@ pub struct Trimmed {
 /// samplers made outside the renderer (the UI's element batches).
 pub fn max_anisotropy() -> u8 {
     crate::texture_quality::max_anisotropy()
-}
-
-/// The meshes and textures `Assets::trim` keeps past what is drawn, for this adapter: a quarter of its own memory,
-/// between 256 MB and 1 GB (a match draws 300 to 600 MB of them; a shared-memory adapter takes the least).
-pub fn default_budget(video_memory: u64) -> usize {
-    usize::try_from(video_memory / 4).unwrap_or(usize::MAX).clamp(256 << 20, 1 << 30)
 }
 
 impl std::fmt::Debug for Assets {
@@ -783,21 +775,23 @@ impl Assets {
         self.shared.texture(path)
     }
 
-    /// Lets go the meshes and textures nobody else holds and nothing has looked up since the trim before, least
-    /// recently looked up first, until what is kept is at most the budget (a fighter or stage no longer drawn: what
-    /// the match being installed warmed was looked up since and stays). Then moves the mark on.
+    /// Lets go the meshes and textures nobody else holds and nothing has looked up since the load began
+    /// (`begin_load`): a fighter or stage no longer drawn goes, what the match being installed warmed was looked up
+    /// since and stays.
     pub fn trim(&self) -> Trimmed {
         self.shared.trim()
     }
 
-    /// What `trim` keeps past what is drawn, bytes ([`default_budget`] at the open).
-    pub fn set_budget(&self, bytes: usize) {
-        self.shared.budget.store(bytes, Ordering::Relaxed);
+    /// A match's load begins (or a screen's that lets the last one's go): what is looked up from now on is the
+    /// load's, and `trim` lets go the rest nobody holds.
+    pub fn begin_load(&self) {
+        self.shared.mark.fetch_add(1, Ordering::Relaxed);
+        self.shared.store.begin_load();
     }
 
-    /// The bytes `trim` keeps past what is drawn (`set_budget`).
-    pub fn budget(&self) -> usize {
-        self.shared.budget.load(Ordering::Relaxed)
+    /// The load mark: a use stamped with it is the current load's (`begin_load`).
+    pub fn mark(&self) -> u64 {
+        self.shared.mark.load(Ordering::Relaxed)
     }
 
     pub fn material(&self, path: &str) -> Result<Arc<mvs_material::Material>> {
@@ -981,7 +975,6 @@ impl Shared {
             meshes: Mutex::default(),
             textures: Mutex::default(),
             mark: AtomicU64::new(0),
-            budget: AtomicUsize::new(default_budget(gpu.video_memory)),
             materials: Mutex::default(),
             codes: Mutex::default(),
             global: OnceLock::new(),
@@ -1047,42 +1040,22 @@ impl Shared {
         Ok(lock(&self.textures).entry(path.to_string()).or_insert(made).value.clone())
     }
 
-    /// Lets go the meshes and textures nobody else holds and nothing has looked up since the trim before, least
-    /// recently looked up first, until what is kept is at most the budget (a fighter or stage no longer drawn: what
-    /// the match being installed warmed was looked up since and stays). Then moves the mark on.
+    /// Lets go the meshes and textures nobody else holds and nothing has looked up since the load began
+    /// (`begin_load`): a fighter or stage no longer drawn goes, what the match being installed warmed was looked up
+    /// since and stays.
     fn trim(&self) -> Trimmed {
-        let mark = self.mark.fetch_add(1, Ordering::Relaxed);
-        let budget = self.budget.load(Ordering::Relaxed);
-        let (mut meshes, mut textures) = (lock(&self.meshes), lock(&self.textures));
-        let mut kept: usize =
-            meshes.values().map(|k| k.bytes).sum::<usize>() + textures.values().map(|k| k.bytes).sum::<usize>();
-        // (oldest first: (mark, is a texture, path, bytes))
-        let mut free: Vec<(u64, bool, String, usize)> = meshes
-            .iter()
-            .filter(|(_, k)| k.used < mark && Arc::strong_count(&k.value) == 1)
-            .map(|(p, k)| (k.used, false, p.clone(), k.bytes))
-            .chain(
-                textures
-                    .iter()
-                    .filter(|(_, k)| k.used < mark && Arc::strong_count(&k.value) == 1)
-                    .map(|(p, k)| (k.used, true, p.clone(), k.bytes)),
-            )
-            .collect();
-        free.sort_unstable();
-        let mut freed = 0;
-        for (_, texture, path, bytes) in free {
-            if kept <= budget {
-                break;
-            }
-            if texture {
-                textures.remove(&path);
-            } else {
-                meshes.remove(&path);
-            }
-            kept -= bytes;
-            freed += bytes;
+        fn unused<T>(k: &Kept<T>, mark: u64) -> bool {
+            k.used < mark && Arc::strong_count(&k.value) == 1
         }
-        Trimmed { freed, kept }
+        let mark = self.mark.load(Ordering::Relaxed);
+        let (mut meshes, mut textures) = (lock(&self.meshes), lock(&self.textures));
+        let kept: usize =
+            meshes.values().map(|k| k.bytes).sum::<usize>() + textures.values().map(|k| k.bytes).sum::<usize>();
+        let freed: usize = meshes.values().filter(|k| unused(k, mark)).map(|k| k.bytes).sum::<usize>()
+            + textures.values().filter(|k| unused(k, mark)).map(|k| k.bytes).sum::<usize>();
+        meshes.retain(|_, k| !unused(k, mark));
+        textures.retain(|_, k| !unused(k, mark));
+        Trimmed { freed, kept: kept - freed }
     }
 
     fn image(&self, path: &str) -> Result<Arc<Texture>> {
@@ -1212,8 +1185,8 @@ impl Shared {
 mod tests {
     use super::*;
 
-    /// A trim lets go a texture nobody holds once a trim has passed since its look-up, not one still held, and a
-    /// look-up after makes it again.
+    /// A trim lets go a texture nobody holds once a load has begun since its look-up, not one still held nor one
+    /// looked up since, and a look-up after makes it again.
     #[test]
     fn a_trim_lets_go_what_nobody_holds() {
         let Ok(store) = mvs_store::Store::open(mvs_store::dev_store_dir()) else {
@@ -1225,12 +1198,20 @@ mod tests {
             return;
         };
         let assets = Assets::open(store.clone(), &gpu).unwrap();
-        assets.set_budget(0);
-        let paths: Vec<String> = store.kind("texture").unwrap().paths().take(2).map(str::to_owned).collect();
+        let paths: Vec<String> = store.kind("texture").unwrap().paths().take(3).map(str::to_owned).collect();
         let held = assets.texture(&paths[0]).unwrap();
         drop(assets.texture(&paths[1]).unwrap());
-        // (both looked up since the last trim: kept)
+        // (both looked up since the load began: kept)
         assert_eq!(assets.trim().freed, 0);
+        assets.begin_load();
+        // (looked up by the new load, held by nobody: kept)
+        drop(assets.texture(&paths[2]).unwrap());
+        let t = assets.trim();
+        assert!(t.freed > 0);
+        let mut both = vec![paths[0].clone(), paths[2].clone()];
+        both.sort_unstable();
+        assert_eq!(assets.loaded().textures, both);
+        assets.begin_load();
         let t = assets.trim();
         assert!(t.freed > 0);
         assert_eq!(assets.loaded().textures, vec![paths[0].clone()]);
