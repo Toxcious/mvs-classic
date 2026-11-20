@@ -190,6 +190,82 @@ fn check_download_unpack_and_copy_over() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
+/// Writes `files` (name, bytes) under `dir`, their folders made.
+fn write_all(dir: &Path, files: &[(&str, &[u8])]) {
+    for (name, bytes) in files {
+        let p = dir.join(name);
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        std::fs::write(p, bytes).unwrap();
+    }
+}
+
+#[test]
+fn only_the_releases_listed_files_are_replaced_or_removed() {
+    let root = scratch("listed");
+    let app = root.join("MVS Classic");
+    // a listed 0.2.0, with files of the player's beside and inside its folders
+    write_all(
+        &app,
+        &[
+            ("MVSC Launcher.exe", b"launcher 0.2.0"),
+            ("game/MVS Classic.exe", b"exe 0.2.0"),
+            ("game/old/dropped.dll", b"dropped"),
+            (
+                "game/release-files.txt",
+                b"MVSC Launcher.exe\ngame/MVS Classic.exe\ngame/old/dropped.dll\ngame/release-files.txt\n",
+            ),
+            ("game/my-notes.txt", b"mine"),
+            ("resources/mine.txt", b"mine"),
+            ("notes.txt", b"mine"),
+            ("data/settings.json", b"{\"keep\": true}"),
+        ],
+    );
+    let place = Place { app_dir: app.clone(), exe: "MVSC Launcher.exe".into() };
+    let mine = ["game/my-notes.txt", "resources/mine.txt", "notes.txt", "data/settings.json"];
+    for version in ["0.2.1", "0.2.2"] {
+        let dir = place.stage().join(version);
+        let exe = format!("exe {version}");
+        write_all(
+            &dir,
+            &[
+                ("MVSC Launcher.exe", b"launcher"),
+                ("game/MVS Classic.exe", exe.as_bytes()),
+                ("game/release-files.txt", b"MVSC Launcher.exe\ngame/MVS Classic.exe\ngame/release-files.txt\n"),
+            ],
+        );
+        update::finish::finish(&dir, &app, None).unwrap();
+        assert_eq!(std::fs::read(app.join("game/MVS Classic.exe")).unwrap(), exe.as_bytes());
+        for f in mine {
+            assert!(app.join(f).is_file(), "{f}, the player's, is gone after {version}");
+            assert!(!app.join("data/update/previous").join(f).exists(), "{f} was set aside");
+        }
+    }
+    // the file the old release listed and the new one dropped: set aside at the first update, its folder gone
+    assert!(!app.join("game/old").exists());
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn a_list_naming_data_is_not_trusted() {
+    let root = scratch("baddata");
+    let app = root.join("MVS Classic");
+    write_all(
+        &app,
+        &[
+            ("game/MVS Classic.exe", b"exe 0.2.0"),
+            ("game/release-files.txt", b"game/MVS Classic.exe\ndata/settings.json\n"),
+            ("data/settings.json", b"{\"keep\": true}"),
+        ],
+    );
+    let place = Place { app_dir: app.clone(), exe: "MVSC Launcher.exe".into() };
+    let dir = place.stage().join("0.2.1");
+    write_all(&dir, &[("game/MVS Classic.exe", b"exe 0.2.1")]);
+    update::finish::finish(&dir, &app, None).unwrap();
+    assert_eq!(std::fs::read(app.join("game/MVS Classic.exe")).unwrap(), b"exe 0.2.1");
+    assert_eq!(std::fs::read(app.join("data/settings.json")).unwrap(), b"{\"keep\": true}");
+    let _ = std::fs::remove_dir_all(&root);
+}
+
 #[test]
 fn the_old_layouts_top_level_files_are_set_aside() {
     let root = scratch("layout");

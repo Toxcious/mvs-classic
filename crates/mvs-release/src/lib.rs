@@ -30,6 +30,10 @@ pub const LAUNCHER_EXE: &str = "MVSC Launcher.exe";
 pub const GAME_DIR: &str = "game";
 /// The top-level names of a release before [`GAME_DIR`] (0.1.0), each now under it: an update removes them.
 pub const OLD_TOP_LEVEL: [&str; 6] = [GAME_EXE, EOS_DLL, ONLINE_JSON, SELF_CHECK_JSON, "resources", LICENSES_DIR];
+/// Beside the game's program: every file of the release, itself included, one `/`-separated path from the release
+/// folder a line. An update replaces and removes only the files the old and the new release list: a file the player
+/// put in the folder stays.
+pub const RELEASE_FILES: &str = "release-files.txt";
 /// The game's program as Cargo builds it (Cargo's names take no spaces); the packaging tool renames it to
 /// [`GAME_EXE`].
 pub const BUILT_GAME_EXE: &str = "mvs.exe";

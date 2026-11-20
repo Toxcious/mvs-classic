@@ -7,7 +7,7 @@ use std::process::Command;
 
 use mvs_release::{
     BUILT_GAME_EXE, BUILT_LAUNCHER_EXE, EOS_CREDENTIALS, EOS_DLL, GAME_EXE, LAUNCHER_EXE, LICENSE, LICENSES_DIR,
-    ONLINE_JSON, SELF_CHECK_JSON, SelfCheckRef, in_game, parse_version,
+    ONLINE_JSON, RELEASE_FILES, SELF_CHECK_JSON, SelfCheckRef, in_game, parse_version,
 };
 use sha2::{Digest, Sha256};
 
@@ -329,6 +329,12 @@ pub fn run(o: &Options) -> Result<(), String> {
         files.push((in_game(EOS_DLL), read(&e.dll)?, false));
         files.push((in_game(EOS_CREDENTIALS), e.credentials.clone(), false));
     }
+    // the release's own files, the list itself with them: the files an update may replace or remove
+    let list = in_game(RELEASE_FILES);
+    let mut names: Vec<&str> = files.iter().map(|(n, _, _)| n.as_str()).chain([list.as_str()]).collect();
+    names.sort_unstable();
+    let text = names.iter().map(|n| format!("{n}\n")).collect::<String>().into_bytes();
+    files.push((list, text, false));
     let game_name = game_zip_name(&o.version);
     let game = lay_out(&o.out.join(format!("MVS-Classic-{}", o.version)), files)?;
     let game_zip = zip::write(&game)?;
