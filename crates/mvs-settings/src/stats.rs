@@ -1,7 +1,8 @@
 //! The stats file (`stats.mvs` in the data folder): the player's
 //! records of online matches, their lifetime totals and their stat-tracker (badge) counts, which the build kept on its
-//! Hydra server, the local arcade record, the local tutorial record (the build's TutorialData save slot) and the
-//! toasts the player has to give at the podium (the build's InventoryConsumables match_toasts; the port's rule).
+//! Hydra server, the local arcade record, the local tutorial record (the build's TutorialData save slot), the
+//! toasts the player has to give at the podium (the build's InventoryConsumables match_toasts; the port's rule) and
+//! the port's own Waves records.
 //!
 //! The format: "MVSS", a format byte, the first 16 bytes of a SHA-256 of a fixed salt, the header and the body, then
 //! the body: the data as JSON, zlib-compressed, XOR-ed with a fixed pattern. Not encryption (the source is public): a
@@ -83,6 +84,29 @@ pub struct StatsTutorial {
     pub tutorials_complete: IndexMap<String, bool>,
 }
 
+/// (the port's own) The Waves mode's local records: per character key, each variant's best
+/// and its runs.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StatsWaves {
+    /// By the character's key (the roster's port key), in the file's order.
+    pub fighters: IndexMap<String, WavesRecord>,
+}
+
+/// One fighter's Waves records.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WavesRecord {
+    /// Endless: the most ring-outs of a run (0: none yet).
+    pub endless_best: u32,
+    /// Endless: the runs played.
+    pub endless_runs: u32,
+    /// 100 Ring-Outs: the fastest cleared run, in sim ticks (None: none cleared).
+    pub ring_outs_100_ticks: Option<u32>,
+    /// 100 Ring-Outs: the runs played and the runs cleared.
+    pub ring_outs_100_runs: u32,
+    pub ring_outs_100_cleared: u32,
+}
+
 /// The file's data.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct StatsData {
@@ -96,6 +120,9 @@ pub struct StatsData {
     pub tutorial: StatsTutorial,
     /// The toasts to give (a file written before them has none: TOASTS_START).
     pub toasts: u64,
+    /// The local Waves records (a file written before them has none: empty).
+    #[serde(default)]
+    pub waves: StatsWaves,
 }
 
 impl Default for StatsData {
@@ -108,6 +135,7 @@ impl Default for StatsData {
             arcade: StatsArcade::default(),
             tutorial: StatsTutorial::default(),
             toasts: TOASTS_START,
+            waves: StatsWaves::default(),
         }
     }
 }
@@ -173,6 +201,9 @@ const STARS_MAX: usize = 256;
 // `<Type>TutorialComplete` keys are some 30 characters
 const TUTORIAL_KEY_MAX: usize = 64;
 const TUTORIAL_KEYS_MAX: usize = 64;
+// (the port's own caps) the fighters a Waves record keeps, and its counts: a run's ticks fit a u32
+const WAVES_FIGHTERS_MAX: usize = 256;
+const WAVES_COUNT_MAX: f64 = u32::MAX as f64;
 /// JavaScript's Number.MAX_SAFE_INTEGER.
 const MAX_SAFE_INTEGER: f64 = 9_007_199_254_740_991.0;
 
@@ -434,6 +465,41 @@ fn read_tutorial_in(v: &Value, order: Option<&[String]>) -> Option<StatsTutorial
     })
 }
 
+/// A Waves record as the file has it: None when it is not one; a fighter whose key is too long or whose entry does
+/// not read is dropped, each count capped at WAVES_COUNT_MAX.
+pub fn read_waves(v: &Value) -> Option<StatsWaves> {
+    read_waves_in(v, None)
+}
+
+/// `read_waves` with the fighters' keys in the order the file gave them (None: the Value's).
+fn read_waves_in(v: &Value, order: Option<&[String]>) -> Option<StatsWaves> {
+    let o = obj(v)?;
+    let fighters_in = obj(o.get("fighters")?)?;
+    let mut fighters = IndexMap::new();
+    for (k, r) in in_order(fighters_in, order).take(WAVES_FIGHTERS_MAX) {
+        if let (true, Some(r)) = (k.encode_utf16().count() <= SLUG_MAX, read_waves_record(r)) {
+            fighters.insert(k.clone(), r);
+        }
+    }
+    Some(StatsWaves { fighters })
+}
+
+fn read_waves_record(v: &Value) -> Option<WavesRecord> {
+    let o = obj(v)?;
+    let count = |k: &str| o.get(k).and_then(|n| capped(n, WAVES_COUNT_MAX)).map(|n| n as u32);
+    let ticks = match o.get("ringOuts100Ticks") {
+        None | Some(Value::Null) => None,
+        Some(n) => Some(capped(n, WAVES_COUNT_MAX)? as u32),
+    };
+    Some(WavesRecord {
+        endless_best: count("endlessBest")?,
+        endless_runs: count("endlessRuns")?,
+        ring_outs_100_ticks: ticks,
+        ring_outs_100_runs: count("ringOuts100Runs")?,
+        ring_outs_100_cleared: count("ringOuts100Cleared")?,
+    })
+}
+
 /// The file's toasts: a whole number from 0 (no maximum but SUM_MAX's); none, or one that is not a whole number,
 /// TOASTS_START.
 fn read_toasts(v: Option<&Value>) -> u64 {
@@ -451,6 +517,13 @@ struct KeyOrder {
     arcade: Option<ArcadeOrder>,
     #[serde(default)]
     tutorial: Option<TutorialOrder>,
+    #[serde(default)]
+    waves: Option<WavesOrder>,
+}
+
+#[derive(Debug, Deserialize)]
+struct WavesOrder {
+    fighters: IndexMap<String, serde::de::IgnoredAny>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -516,6 +589,7 @@ fn read_data_in(v: &Value, order: &KeyOrder) -> Option<StatsData> {
     records.truncate(RECORDS_KEPT);
     let stars_order = order.arcade.as_ref().map(|a| js_order(a.stars.keys()));
     let done_order = order.tutorial.as_ref().map(|t| js_order(t.done.keys()));
+    let waves_order = order.waves.as_ref().map(|w| w.fighters.keys().cloned().collect::<Vec<_>>());
     Some(StatsData {
         totals,
         trackers,
@@ -523,6 +597,7 @@ fn read_data_in(v: &Value, order: &KeyOrder) -> Option<StatsData> {
         arcade: o.get("arcade").and_then(|a| read_arcade_in(a, stars_order.as_deref())).unwrap_or_default(),
         tutorial: o.get("tutorial").and_then(|t| read_tutorial_in(t, done_order.as_deref())).unwrap_or_default(),
         toasts: read_toasts(o.get("toasts")),
+        waves: o.get("waves").and_then(|w| read_waves_in(w, waves_order.as_deref())).unwrap_or_default(),
     })
 }
 
@@ -771,6 +846,26 @@ impl StatsFile {
         self.load();
         if let Some(d) = self.data.as_mut() {
             d.tutorial = t;
+        }
+        self.try_save();
+        true
+    }
+
+    /// The local Waves records.
+    pub fn waves(&mut self) -> StatsWaves {
+        self.data().waves.clone()
+    }
+
+    /// Replaces the Waves records (at a run's end); false when they are not one (a key past SLUG_MAX is dropped). A
+    /// save that fails keeps them in memory.
+    pub fn set_waves(&mut self, v: StatsWaves) -> bool {
+        let order: Vec<String> = v.fighters.keys().cloned().collect();
+        let Some(w) = serde_json::to_value(&v).ok().as_ref().and_then(|w| read_waves_in(w, Some(&order))) else {
+            return false;
+        };
+        self.load();
+        if let Some(d) = self.data.as_mut() {
+            d.waves = w;
         }
         self.try_save();
         true
@@ -1157,6 +1252,46 @@ mod tests {
         let mut v = serde_json::to_value(StatsTutorial::default()).unwrap();
         v["RewardClaimed"] = serde_json::json!(1);
         assert!(read_tutorial(&v).is_none());
+    }
+
+    #[test]
+    fn waves_record() {
+        let dir = Dir::new();
+        let mut a = StatsFile::open(&dir.0);
+        assert!(a.waves().fighters.is_empty());
+        let rec = WavesRecord {
+            endless_best: 57,
+            endless_runs: 3,
+            ring_outs_100_ticks: Some(36_000),
+            ring_outs_100_runs: 2,
+            ring_outs_100_cleared: 1,
+        };
+        let only_endless = WavesRecord { endless_best: 4, endless_runs: 1, ..WavesRecord::default() };
+        let w =
+            StatsWaves { fighters: IndexMap::from([("shaggy".to_string(), rec), ("finn".to_string(), only_endless)]) };
+        assert!(a.set_waves(w.clone()));
+        push(&mut a, record("m1", "me"), "me");
+        let b = StatsFile::open(&dir.0).waves();
+        assert_eq!(b, w);
+        assert_eq!(b.fighters.keys().collect::<Vec<_>>(), ["shaggy", "finn"]);
+        assert_eq!(StatsFile::open(&dir.0).data().records.len(), 1);
+        // the names in the file
+        let v = serde_json::to_value(&w).unwrap();
+        assert_eq!(v["fighters"]["shaggy"]["ringOuts100Ticks"], 36_000);
+        assert_eq!(v["fighters"]["finn"]["ringOuts100Ticks"], Value::Null);
+        assert_eq!(v["fighters"]["finn"]["endlessBest"], 4);
+        // a file written before the record (an older release's) reads with an empty one, the rest as it was
+        let mut v = serde_json::to_value(StatsData { toasts: 9, ..StatsData::default() }).unwrap();
+        v.as_object_mut().unwrap().remove("waves");
+        let d = read_data(&v).unwrap();
+        assert!(d.waves.fighters.is_empty() && d.toasts == 9);
+        let bytes = encode_json(&serde_json::to_vec(&v).unwrap());
+        assert!(matches!(read_stats(&bytes), StatsRead::Data(d) if d.waves.fighters.is_empty() && d.toasts == 9));
+        // an entry that does not read is dropped, the others kept
+        let mut v = serde_json::to_value(&w).unwrap();
+        v["fighters"]["finn"]["endlessRuns"] = serde_json::json!(-1);
+        let r = read_waves(&v).unwrap();
+        assert!(r.fighters.contains_key("shaggy") && !r.fighters.contains_key("finn"));
     }
 
     #[test]

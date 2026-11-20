@@ -14,7 +14,7 @@ pub mod away;
 mod chars;
 mod common;
 mod countdown;
-mod custom_text;
+pub(crate) mod custom_text;
 mod custom_ui;
 mod dash_target;
 mod fixed;

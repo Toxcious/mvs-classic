@@ -21,7 +21,7 @@ use std::sync::{Mutex, OnceLock};
 use serde_json::{Value, json};
 
 use super::common::{ModalBase, fill_page, palette_entry, text};
-use super::controls::bar_buttons::{BarButton, P_LABEL};
+use super::controls::bar_buttons::{BarButton, P_ICON, P_ID, P_LABEL, P_TOOLTIP};
 use super::controls::buttons::{ButtonMain, DARK, IconButton, WHITE};
 use super::controls::drop_menu::DropMenu;
 use super::controls::interactor::{
@@ -32,6 +32,7 @@ use super::controls::{bind, find, ist, prop, quad_color, quad_wobble, wd};
 use super::home::Homescreen;
 use super::modals::show_modal_generic;
 use super::section_bar::SectionBar;
+use crate::bundle::MapInfo;
 use crate::bundle::{Bundle, Rgba, WData};
 use crate::menu::arcade::ARCADE_EXPERT;
 use crate::menu::controller::{Controller, Cx, Event, Handler};
@@ -39,7 +40,7 @@ use crate::menu::cursor::with_cursor;
 use crate::menu::custom_text;
 use crate::menu::manager::{Manager, Modal};
 use crate::menu::online::OnlineCmd;
-use crate::menu::screens::lab_selectors::{GridItemList, Tile, TileData, TileEvent};
+use crate::menu::screens::lab_selectors::{GridItemList, LabMapSelector, Tile, TileData, TileEvent};
 use crate::menu::scroll::scroll_list;
 use crate::menu::tutorial::{INTRO_TUTORIAL, TUTORIAL_MAP, launch_tutorial};
 use crate::menu::view::MenuView;
@@ -47,6 +48,7 @@ use crate::menu::widgets::controls::grid_item::{GridItem, GridItemState};
 use crate::slate::{HAlign, Mid, VAlign, Vis, WidgetId};
 use mvs_protocol::online::QueueMode;
 use mvs_protocol::queue_rules::QUEUE_MODES;
+use mvs_sim::setup::WavesVariant;
 
 /// One console warning per button id for what the port does not do.
 pub fn warn_once(id: &str, what: &str) {
@@ -180,8 +182,9 @@ fn bg_by_override(o: &str) -> Option<&'static str> {
         "guilddungeon" => "ui_icons_guild",
         "ArcadeEasy" => "GameMode_AXEasy_BG",
         "ArcadeNormal" => "GameMode_AXMedium_BG",
-        "ArcadeHard" | "Local" | "Casual" => "GameMode_AXHard_BG",
+        "ArcadeHard" | "Local" | "Casual" | WAVES_ENDLESS_CARD => "GameMode_AXHard_BG",
         EXPERT_CARD => "UI_ModeSelect_BG_1",
+        WAVES_100_CARD => "GameMode_AXMedium_BG",
         _ => return None,
     })
 }
@@ -327,6 +330,12 @@ impl GameModeCard {
             let s = cx.view.game_text(s).to_string();
             wd(cx, mode).text = custom_text::EXPERT.to_string();
             wd(cx, sub).text = s;
+            return;
+        }
+        // (the port's own) the Waves cards: the variant, and a line of the record the tab sets (`waves_lines`)
+        if o == WAVES_100_CARD || o == WAVES_ENDLESS_CARD {
+            let t = if o == WAVES_100_CARD { custom_text::WAVES_100 } else { custom_text::WAVES_ENDLESS };
+            wd(cx, mode).text = t.to_string();
             return;
         }
         if let Some((t, s)) = arcade_titles(&o) {
@@ -731,7 +740,27 @@ const ARCADE_ROW: [&str; 4] = ["ArcadeEasy", "ArcadeNormal", "ArcadeHard", EXPER
 const ARCADE_GAP: f64 = 600.0;
 /// UI_GameModeCardSize XSmall (`card_size` 0).
 const ARCADE_CARD_SIZE: &str = "UI_GameModeCardSize::NewEnumerator4";
-const ALL_CARDS: [&str; 17] = [
+/// (the port's own) The Waves tab (`menu/waves.rs`), after Arcade on the Type bar: its id, and its two cards (a copy
+/// each of an Arcade card, `add_waves_cards`, in the Arcade cards' row, collapsed on every other tab): 100 Ring-Outs
+/// and Endless, ARCADE_GAP apart about the row's middle.
+const WAVES_TAB: &str = "waves";
+/// The modal's instructions that open it on the Waves tab (the result page's Back).
+pub const WAVES_INSTRUCTIONS: &str = "Waves";
+const WAVES_100_CARD: &str = "Waves100";
+const WAVES_ENDLESS_CARD: &str = "WavesEndless";
+const WAVES_ROW: [&str; 2] = [WAVES_100_CARD, WAVES_ENDLESS_CARD];
+/// The Arcade card each Waves card copies (its character art and size).
+const WAVES_FROM: [&str; 2] = ["ArcadeEasy", "ArcadeNormal"];
+
+/// A Waves card's variant by its ModeOverride (lowercase, as GameModeSelected reads it).
+fn waves_variant(o: &str) -> Option<WavesVariant> {
+    match o {
+        "waves100" => Some(WavesVariant::RingOuts100),
+        "wavesendless" => Some(WavesVariant::Endless),
+        _ => None,
+    }
+}
+const ALL_CARDS: [&str; 19] = [
     "2v2",
     "FFA",
     "1v1",
@@ -749,6 +778,8 @@ const ALL_CARDS: [&str; 17] = [
     "ArcadeNormal",
     "ArcadeHard",
     EXPERT_CARD,
+    WAVES_100_CARD,
+    WAVES_ENDLESS_CARD,
 ];
 const ONLINE_CARDS: [&str; 5] = ["2v2", "FFA", "1v1", "CoopVsAI", "Casual"];
 /// GetCardsForMode: normal, bots, ranked.
@@ -783,22 +814,24 @@ const ENTER_NORMAL: [&str; 4] = ["2v2", "1v1", "Casual", "FFA"];
 const ENTER_BOTS: [&str; 3] = ["2v2", "FFA", "1v1"];
 /// PreConstruct's tab arrays (a shipping build: no DebugMapSelect; IsConnected? true: CustomTab is Create, Join).
 /// "UI_SectionBar_Style" is a widget's own name, the others cards'.
-const TABS: [&[&str]; 5] = [
+const TABS: [&[&str]; 6] = [
     &["UI_SectionBar_Style", "2v2", "FFA", "1v1", "CoopVsAI", "Casual"],
     &["Create", "Join"],
     &["TheLab", "Tutorial_beg", "Tutorial_adv", "Local"],
     &["GuildDungeons"],
     &["ArcadeEasy", "ArcadeNormal", "ArcadeHard", EXPERT_CARD],
+    &WAVES_ROW,
 ];
 /// ChangeType's enter lists per tab.
-const TAB_ENTER: [&[&str]; 5] = [
+const TAB_ENTER: [&[&str]; 6] = [
     &[],
     &["Local", "Create", "Join"],
     &["TheLab", "Tutorial_beg", "Tutorial_adv", "Tutorial_chars", "Local"],
     &["GuildDungeons"],
     &["ArcadeEasy", "ArcadeNormal", "ArcadeHard", EXPERT_CARD],
+    &WAVES_ROW,
 ];
-/// ModeTypeSelected's switch (case-insensitive).
+/// ModeTypeSelected's switch (case-insensitive); "waves" the port's own tab (WAVES_TAB).
 pub fn type_index(id: &str) -> Option<usize> {
     match id.to_lowercase().as_str() {
         "online" => Some(0),
@@ -806,6 +839,7 @@ pub fn type_index(id: &str) -> Option<usize> {
         "practice" => Some(2),
         "guilddungeon" => Some(3),
         "arcade" => Some(4),
+        WAVES_TAB => Some(5),
         _ => None,
     }
 }
@@ -842,7 +876,7 @@ const RANKED_LEVEL_MET: bool = false;
 /// (ToggleDisable(false): greyed, its "COMING SOON!" Disabled Text) and takes no input. The online tab runs the
 /// Normal 1v1, 2v2, FFA and Silly (Casual) queues only (BOTS has no queue in the port); of the tutorials, the
 /// Beginner Tutorial and the Advanced Tutorials (Tutorial_chars, the character tutorials, stays off).
-const PORTED_CARDS: [&str; 13] = [
+const PORTED_CARDS: [&str; 15] = [
     "1v1",
     "2v2",
     "FFA",
@@ -856,6 +890,8 @@ const PORTED_CARDS: [&str; 13] = [
     "ArcadeNormal",
     "ArcadeHard",
     EXPERT_CARD,
+    WAVES_100_CARD,
+    WAVES_ENDLESS_CARD,
 ];
 /// @778-1077 / @1248-1457: the cards a full party (GetIsPartyFull) cannot queue. Deviation (the user's call): FFA,
 /// the build's third, stays a party's.
@@ -957,6 +993,7 @@ const M_CONFIRM: u32 = 11;
 const M_FOCUS_FIRST: u32 = 12;
 const M_AFTER_DIALOGS: u32 = 13;
 const M_SERVER_CHOSEN: u32 = 14;
+const M_WAVES_MAP: u32 = 15;
 /// A stagger's delays: M_STAGGER + list slot x 0x100 + the list's generation (its low byte).
 const M_STAGGER: u32 = 0x1000;
 
@@ -1081,6 +1118,121 @@ impl MatchOptions {
         }
     }
 
+    /// (the port's own) The Waves cards: each a new WBP_GameModeCard at the end of the Arcade cards' row with its
+    /// WAVES_FROM card's properties and slot (its ModeOverride the card's own), laid out as WAVES_ROW says.
+    fn add_waves_cards(cx: &mut Cx<'_>) {
+        for (i, (n, from)) in WAVES_ROW.iter().zip(WAVES_FROM).enumerate() {
+            let src = Self::card(cx, from);
+            let Some(row) = cx.view.tree().widget(src).parent else { return };
+            let props = cx.view.tree().props(src).clone();
+            let w = MenuView::create(cx, "WBP_GameModeCard");
+            if let Value::Object(m) = props {
+                for (k, v) in m {
+                    cx.view.tree_mut().set_prop(w, &k, v);
+                }
+            }
+            cx.view.tree_mut().set_prop(w, "ModeOverride", json!(n));
+            cx.view.tree_mut().set_prop(w, "CardSizeType", json!(ARCADE_CARD_SIZE));
+            let h = cx.view.tree().widget(src).clone();
+            let x = wd(cx, w);
+            x.name = c(n);
+            x.pad = h.pad;
+            x.fill = h.fill;
+            x.h_align = h.h_align;
+            x.v_align = h.v_align;
+            x.anchors = h.anchors;
+            x.offsets = h.offsets;
+            x.align = h.align;
+            x.auto_size = h.auto_size;
+            #[allow(clippy::cast_precision_loss)] // (two cards)
+            let at = (i as f64 - 0.5) * ARCADE_GAP;
+            x.offsets.l = at;
+            x.vis = Vis::Collapsed;
+            MenuView::add_child(cx, row, w, None);
+        }
+    }
+
+    /// (the port's own) The Waves tab on the Type bar, after Arcade's: Arcade's button params with the tab's id and
+    /// label.
+    fn add_waves_tab(cx: &mut Cx<'_>) {
+        let tb = Self::type_bar(cx);
+        let arcade = cx.visit::<SectionBar, _>(tb, |b, _| b.params_for_id("arcade").cloned()).flatten();
+        let label = json!({ "CultureInvariantString": custom_text::WAVES });
+        let mut bp = arcade.unwrap_or_else(|| json!({ P_ICON: null, P_TOOLTIP: { "CultureInvariantString": null } }));
+        bp[P_ID] = json!(WAVES_TAB);
+        bp[P_LABEL] = label;
+        cx.visit::<SectionBar, _>(tb, |b, cx| b.add_option(cx, bp, "arcade"));
+    }
+
+    /// (the port's own) The Waves cards' lines: the best of every fighter for the card's variant (the stats file's
+    /// record), else what the variant is.
+    fn waves_lines(cx: &mut Cx<'_>) {
+        for (n, v) in [(WAVES_100_CARD, WavesVariant::RingOuts100), (WAVES_ENDLESS_CARD, WavesVariant::Endless)] {
+            let best = crate::menu::waves::best_overall(&mut cx.view.session.stats, v);
+            let line = match best {
+                Some((b, key)) => {
+                    let who = cx
+                        .view
+                        .roster()
+                        .iter()
+                        .find(|r| r.fighter.as_deref() == Some(key.as_str()))
+                        .map_or(key.clone(), |r| r.display_name.clone());
+                    let b = match v {
+                        WavesVariant::RingOuts100 => custom_text::waves_time(b),
+                        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // (a whole count)
+                        WavesVariant::Endless => custom_text::waves_ring_outs(b as u32),
+                    };
+                    custom_text::waves_card_best(&b, &who)
+                }
+                None if v == WavesVariant::RingOuts100 => custom_text::WAVES_100_HINT.to_string(),
+                None => custom_text::WAVES_ENDLESS_HINT.to_string(),
+            };
+            Self::with_card(cx, n, |c, cx| {
+                c.set_arcade_subtitle(cx, true);
+                let sub = find(cx, "SubtitleText");
+                wd(cx, sub).text = line;
+            });
+        }
+    }
+
+    /// (the port's own) A Waves card (`menu/waves.rs`): the variant to the session, then the Lab's map selector over
+    /// this modal, one map picked from every stage the port has, the Training Rooms first (`waves_maps`).
+    fn waves_selected(&mut self, cx: &mut Cx<'_>, variant: WavesVariant) {
+        cx.view.session.waves.variant = Some(variant);
+        let maps = waves_maps(cx.view);
+        let selected: Vec<String> = cx.view.session.waves.stage.iter().cloned().collect();
+        let Some(w) = Manager::show_modal(cx, "UI_LAB_MapSelector", "mapSelector", "", "") else { return };
+        let me = cx.w;
+        cx.visit::<LabMapSelector, _>(w, |s, cx| {
+            s.init(cx, &maps, &selected, 0, false, false);
+            s.selected_event.add(Handler { owner: me, id: M_WAVES_MAP });
+        });
+    }
+
+    /// (the port's own) The Waves map picked: the run's pre-match screen with the player alone, as the arcade's
+    /// opens (the PreMatch level); its end makes the run's match (`PreMatchScreen::take_end`).
+    fn waves_map(&mut self, cx: &mut Cx<'_>, m: &MapInfo) {
+        cx.view.session.waves.stage = Some(m.name.clone());
+        cx.view.session.waves.choosing = true;
+        let setup =
+            crate::menu::waves::pre_match_setup(&cx.prefs.profile.name, Some(m.name.clone()), m.data.level.clone());
+        self.request_dismiss_self(cx);
+        crate::menu::lobby::with_carry(|c| {
+            c.pre_match = Some(Box::new(crate::menu::screens::pre_match::setup::PreMatchStart { setup, lobby: None }));
+        });
+        Manager::open_level_now(cx, "PreMatch", "Lobby");
+    }
+
+    /// The tab the modal opens on: arcade for home's ARCADE, the port's Waves tab for the Waves result page's Back
+    /// (WAVES_INSTRUCTIONS), else online.
+    fn start_tab(&self) -> &'static str {
+        match self.instructions.as_str() {
+            "Arcade" => "arcade",
+            WAVES_INSTRUCTIONS => WAVES_TAB,
+            _ => "online",
+        }
+    }
+
     /// SetPracticeEnabled(bEnabled): the Type bar SelfHitTestInvisible, or Hidden (home's ARCADE).
     pub fn set_practice_enabled(cx: &mut Cx<'_>, on: bool) {
         set_vis(cx, "UI_SectionBar_Type", if on { Vis::SelfHitTestInvisible } else { Vis::Hidden });
@@ -1104,7 +1256,7 @@ impl MatchOptions {
         let fc = find(cx, "focusContext");
         set_focused(cx, fc, true);
         self.set_multiqueue_confirm_enabled(cx);
-        let start = if self.instructions == "Arcade" { "arcade" } else { "online" };
+        let start = self.start_tab();
         self.mode_type_selected(cx, start);
         let (tb, sb) = (Self::type_bar(cx), Self::style_bar(cx));
         cx.visit::<SectionBar, _>(tb, |b, _| b.on_click.add(Handler { owner: me, id: M_TYPE_CLICK }));
@@ -1242,6 +1394,9 @@ impl MatchOptions {
             4 => {
                 Self::with_card(cx, "ArcadeNormal", |c, cx| c.manual_focus(cx));
             }
+            5 => {
+                Self::with_card(cx, WAVES_100_CARD, |c, cx| c.manual_focus(cx));
+            }
             _ => {}
         }
         Self::set_tab(cx, t);
@@ -1257,6 +1412,9 @@ impl MatchOptions {
                     c.show_experimental_tag(cx);
                 });
             }
+        }
+        if t == 5 {
+            Self::waves_lines(cx);
         }
         for n in TAB_ENTER[t] {
             let w = Self::card(cx, n);
@@ -1606,6 +1764,8 @@ impl MatchOptions {
             self.show_join_box(cx);
         } else if let Some(d) = arcade_difficulty(&o) {
             self.arcade_selected(cx, d);
+        } else if let Some(v) = waves_variant(&o) {
+            self.waves_selected(cx, v);
         } else if o == "local" {
             show_modal_generic(cx, false, "UI_LocalPlay", "localPlay", "");
             self.request_dismiss_self(cx);
@@ -1711,6 +1871,23 @@ impl MatchOptions {
     }
 }
 
+/// (the port's own) The Waves map pick's maps: the Lab's (UI_Functions "Get Offline Soft Maps"(false), every
+/// offline stage), the two Training Rooms first, each part in that list's order.
+fn waves_maps(view: &MenuView) -> Vec<String> {
+    waves_order(view.offline_maps())
+}
+
+fn waves_order(maps: &[String]) -> Vec<String> {
+    let (mut first, rest): (Vec<String>, Vec<String>) = maps.iter().cloned().partition(|n| is_training_room(n));
+    first.extend(rest);
+    first
+}
+
+/// A Training Room's MapData asset name (Map_TrainingRoomSmall, Map_TrainingRoomLarge).
+fn is_training_room(name: &str) -> bool {
+    name.to_lowercase().starts_with("map_trainingroom")
+}
+
 /// A child's opacity by name (the card's SelectedGroup).
 fn set_vis_opacity(cx: &mut Cx<'_>, name: &str, o: f64) {
     let w = find(cx, name);
@@ -1780,6 +1957,7 @@ impl Controller for MatchOptions {
     fn on_initialized(&mut self, cx: &mut Cx<'_>) {
         let me = cx.w;
         Self::add_expert_card(cx);
+        Self::add_waves_cards(cx);
         Self::check_ranked_option(cx);
         let sb = Self::scroll_box(cx);
         let list: Vec<WidgetId> = ONLINE_CARDS
@@ -1812,6 +1990,7 @@ impl Controller for MatchOptions {
             self.guild_removed = true;
             let tb = Self::type_bar(cx);
             cx.visit::<SectionBar, _>(tb, |b, cx| b.remove_option(cx, "guilddungeon"));
+            Self::add_waves_tab(cx);
         }
     }
 
@@ -1870,6 +2049,11 @@ impl Controller for MatchOptions {
                 show_modal_generic(cx, false, "UI_RankedExplanationModal", "rankedExplanation", "");
             }
             M_CONFIRM => self.on_confirm(cx),
+            M_WAVES_MAP => {
+                if let Some(m) = arg.downcast_ref::<MapInfo>() {
+                    self.waves_map(cx, m);
+                }
+            }
             _ => {}
         }
     }
@@ -1877,11 +2061,11 @@ impl Controller for MatchOptions {
     fn resume(&mut self, cx: &mut Cx<'_>, id: u32) {
         match id {
             M_TYPE_DELAY => {
-                let arcade = self.instructions == "Arcade";
                 let tb = Self::type_bar(cx);
-                let tab = if arcade { "arcade" } else { "online" };
+                let tab = self.start_tab();
                 cx.visit::<SectionBar, _>(tb, |b, cx| b.set_current_index_by_id(cx, tab));
-                if arcade {
+                // (the Waves start as the Arcade's: the online cards the style's run showed, collapsed)
+                if tab != "online" {
                     self.update_card_visibilities(cx, "");
                 }
             }
@@ -2520,6 +2704,15 @@ impl Controller for ServerSettingsPrompt {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn waves_maps_put_the_training_rooms_first() {
+        let maps = ["Map_batcave", "map_m008", "Map_TrainingRoomSmall", "map_M010", "Map_TrainingRoomLarge"];
+        let maps: Vec<String> = maps.map(String::from).to_vec();
+        let order = waves_order(&maps);
+        assert_eq!(order, ["Map_TrainingRoomSmall", "Map_TrainingRoomLarge", "Map_batcave", "map_m008", "map_M010"]);
+        assert_eq!(type_index("Waves"), Some(5));
+    }
 
     #[test]
     fn card_sizes_by_enumerator() {

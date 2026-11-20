@@ -70,6 +70,44 @@ pub const EXPERT_DIFFICULTY: &str = "Expert Difficulty";
 /// The pre-match header of an Expert Arcade run (the build's lines read "Arcade - Easy" .. "Arcade - Hard").
 pub const ARCADE_EXPERT: &str = "Arcade - Expert";
 
+// ---------- Waves (menu/waves.rs): the mode's tab, its cards and its result page ----------
+
+/// Match Options' tab of the mode.
+pub const WAVES: &str = "WAVES";
+/// The variants: the cards' titles and the result page's.
+pub const WAVES_100: &str = "100 Ring-Outs";
+pub const WAVES_ENDLESS: &str = "Endless";
+/// The cards' line under the title with no record yet.
+pub const WAVES_100_HINT: &str = "Ring out 100 enemies, fast";
+pub const WAVES_ENDLESS_HINT: &str = "One life against endless enemies";
+/// The cards' line with a record: the best of every fighter, and whose it is.
+pub fn waves_card_best(best: &str, fighter: &str) -> String {
+    format!("Best: {best} ({fighter})")
+}
+/// A run's time as the pages show it: minutes, seconds and hundredths, as the match's clock shows it.
+pub fn waves_time(seconds: f64) -> String {
+    crate::hud::custom_text::waves_clock(seconds, true)
+}
+/// A count of ring-outs.
+pub fn waves_ring_outs(n: u32) -> String {
+    if n == 1 { "1 Ring-Out".to_string() } else { format!("{n} Ring-Outs") }
+}
+/// The result page's title, before the variant.
+pub const WAVES_RESULT_TITLE: &str = "Waves";
+/// The result page's lines.
+pub const WAVES_CLEARED: &str = "CLEARED";
+pub const WAVES_FELL: &str = "Rung out";
+pub const WAVES_NEW_RECORD: &str = "NEW RECORD";
+pub fn waves_best(fighter: &str, best: &str) -> String {
+    format!("{fighter}'s best: {best}")
+}
+/// The best line with none: 100 Ring-Outs with no cleared run, Endless with no ring-out.
+pub const WAVES_NO_BEST: &str = "No cleared run yet";
+pub const WAVES_NO_RING_OUTS: &str = "No ring-outs yet";
+/// The result page's buttons.
+pub const WAVES_PLAY_AGAIN: &str = "Play Again";
+pub const WAVES_BACK: &str = "Back";
+
 // ---------- online: the words of the codes the net service sends (online_text.rs maps a code to one) ----------
 
 /// The Settings panel's section of the port's own settings: its tab on the section bar and its page's title.

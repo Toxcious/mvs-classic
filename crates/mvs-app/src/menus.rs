@@ -1055,6 +1055,7 @@ impl MenuHost {
     }
 
     /// The match a lobby, Local Play or an arcade run made as the program's: Local Play when it has its humans, else
+    /// a Waves run (its set-up's mode; the seed its cast was drawn from, `WavesState::seed`), else
     /// the arcade's round when a run is in progress, else the kept custom lobby's (taken from
     /// the session, shown again at the match's end; an arcade round leaves it kept). Each bot is named by the lobby's
     /// bot username (its character's DisplayName, else the lobby's name); an arcade round's bot that has
@@ -1065,11 +1066,18 @@ impl MenuHost {
         fighters: &crate::lab_setup::Fighters,
         roster: &[mvs_ui::bundle::RosterEntry],
     ) -> MatchStart {
-        let seed = std::time::SystemTime::now()
+        let mut seed = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(1, |d| (d.as_nanos() & 0x7fff_ffff) as i32);
+        let waves = match &m.setup.mode {
+            Some(mvs_sim::setup::MatchMode::Waves { variant, .. }) => Some(*variant),
+            _ => None,
+        };
         let kind = if m.humans.is_some() {
             MatchKind::LocalPlay
+        } else if let Some(variant) = waves {
+            seed = session.waves.seed.take().unwrap_or(seed);
+            MatchKind::Waves { variant }
         } else if session.arcade.live().is_some() && m.setup.arcade.is_some() {
             MatchKind::Arcade
         } else if let Some(lobby) = m.lobby.take().or_else(|| session.lobby.take()) {
@@ -1417,6 +1425,20 @@ mod tests {
             Some(vec![(0, DeviceKind::Pad(1), 0), (1, DeviceKind::Kbm, 1), (2, DeviceKind::KbmPad0, 2)])
         );
         assert!(matches!(start.kind, MatchKind::LocalPlay));
+    }
+
+    #[test]
+    fn a_waves_set_up_starts_a_waves_run_on_the_menus_seed() {
+        use mvs_sim::setup::{MatchMode, WavesVariant};
+        let mut session = mvs_ui::menu::session::Session::new(mvs_settings::stats::StatsFile::default());
+        session.waves.seed = Some(1234);
+        let mut m = LobbyMatch::default();
+        let variant = WavesVariant::Endless;
+        m.setup.mode = Some(MatchMode::Waves { variant, cast: vec!["shaggy".into()] });
+        let start = MenuHost::start_of(&mut session, m, &Default::default(), &[]);
+        assert!(matches!(start.kind, MatchKind::Waves { variant: WavesVariant::Endless }));
+        assert_eq!(start.seed, 1234);
+        assert_eq!(session.waves.seed, None);
     }
 
     #[test]

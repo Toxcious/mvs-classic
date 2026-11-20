@@ -243,6 +243,8 @@ impl PreMatchScreen {
     /// (`lobby::take_start`); Back to Lobby keeps the lobby for the main menu (`Session::lobby`).
     pub fn take_end(&mut self, screen: &mut MenuScreen, run: &mut MenuRun<'_>, level: &str) -> PreMatchEnd {
         let exit = screen.view.controller::<widget::PreMatch>(self.widget).and_then(|w| w.take_exit());
+        // (a Waves run's screen, taken whatever its end)
+        let waves = std::mem::take(&mut screen.view.session.waves.choosing);
         widget_api::set_session(None);
         screen.view.release_pictures(PICTURES);
         let picks = match exit {
@@ -282,6 +284,12 @@ impl PreMatchScreen {
                 let drawable = |c: &str| cx.view.fighters().contains_key(c);
                 cx.view.session.arcade.arcade_match(menu, &cx.prefs.hydra, &cx.prefs.input, &drawable, &username)
             });
+            if let Some(m) = m {
+                crate::menu::lobby::with_carry(|c| c.start = Some(Box::new(m)));
+            }
+        } else if waves {
+            // (the port's own Waves run: its match with the local pick, `menu/waves.rs`)
+            let m = screen.with_cx(run, |cx| crate::menu::waves::start_from_picks(cx, &picks));
             if let Some(m) = m {
                 crate::menu::lobby::with_carry(|c| c.start = Some(Box::new(m)));
             }

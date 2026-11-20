@@ -135,6 +135,8 @@ const D_READY: u32 = 14;
 const D_TRAINING: u32 = 15;
 const H_BACKGROUND: u32 = 16;
 const D_BACKGROUND_TIP: u32 = 17;
+const H_WAVES_AGAIN: u32 = 18;
+const H_WAVES_BACK: u32 = 19;
 
 /// The Game.locres keys of the backgrounds' names by `UiSettings::menu_background` value: Trophy Room
 /// (UI_MatchDataTable map-trophyRoom's displayName), FESTIVERSUS (PGI_GlobalData EventMap event_002's
@@ -558,6 +560,9 @@ impl Controller for Homescreen {
                 cx.view.manager.allow_cursor_mode = true;
                 self.ready = true;
                 Self::handle_if_adv_tutorial_shortcut(cx);
+                // (the port's own) a Waves run's result page, once after the run
+                let (again, back) = (Handler { owner: me, id: H_WAVES_AGAIN }, Handler { owner: me, id: H_WAVES_BACK });
+                crate::menu::waves::show_result(cx, again, back);
             }
             D_TRAINING => {
                 Manager::dismiss_all_modals(cx);
@@ -604,6 +609,14 @@ impl Controller for Homescreen {
             H_NAV_EXIT => Self::quit_confirmation(cx),
             H_QUIT => cx.view.session.quit = true,
             H_BACKGROUND => self.next_background(cx),
+            // (the port's own) the Waves result page's buttons: the run again, or Match Options' Waves tab
+            H_WAVES_AGAIN => {
+                crate::menu::waves::play_again(cx);
+            }
+            H_WAVES_BACK => {
+                let tab = super::match_options::WAVES_INSTRUCTIONS;
+                show_modal_generic(cx, true, "WBP_MatchOptions", "matchoptions", tab);
+            }
             _ => {}
         }
     }
