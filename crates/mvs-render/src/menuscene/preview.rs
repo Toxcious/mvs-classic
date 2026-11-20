@@ -236,6 +236,10 @@ const FIT_TOP: f64 = 0.85;
 const FIT_LOW: f64 = 0.0;
 /// Where a too-low fighter's top bone is lifted to: Wonder Woman's (the build's own main menu fighter) is near 0.68.
 const FIT_LIFT_TO: f64 = 0.6;
+/// How tall a too-low fighter may stand, its feet to its top bone, in half-heights of the frame: its placement was
+/// never set up for the main menu, so its size is the port's too. A big one is shrunk to it before the lift (Iron
+/// Giant's MainMenu_You leaves him 2.3 tall, his chest filling the frame; Taz stands 1.3).
+const FIT_SPAN: f64 = 1.8;
 
 /// The poses of the montage's last section the fit measures.
 const FIT_SAMPLES: usize = 12;
@@ -280,6 +284,16 @@ impl FitFrame {
         let dot = |a: [f64; 3], b: [f64; 3]| a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
         let f = dot(d, self.front);
         (f > 0.0).then(|| dot(d, self.up) / (f * self.tan_half_v))
+    }
+
+    /// The scale factor (1 at most) about the feet `f` that makes the fighter, from `f` to its top point `d` (both
+    /// from the camera), at most `span` half-heights tall in the frame, and the Z lift that then puts the top point at
+    /// `share` of the half-height (None: a point behind the camera).
+    pub fn shrink_and_lift(&self, f: [f64; 3], d: [f64; 3], span: f64, share: f64) -> Option<(f64, f64)> {
+        let tall = self.height(d)? - self.height(f)?;
+        let k = if tall > span { span / tall } else { 1.0 };
+        let top = [0, 1, 2].map(|i| f[i] + k * (d[i] - f[i]));
+        Some((k, self.lift_to(top, share)?))
     }
 
     /// How far up (world Z) the point `d` from the camera moves to sit at `share` of the half-height above the
@@ -767,7 +781,8 @@ impl PreviewSet {
     /// posed meshes stay inside the main menu camera's 16:9 frame, `FIT_TOP` of the half-height below the top
     /// edge, over `FIT_SAMPLES` poses of its montage's last section (the loop it holds; the sections before it are
     /// its entrance); the feet stay where they are. A fighter that fits but whose top stays under `FIT_LOW` is
-    /// lifted instead, its top to `FIT_LIFT_TO`. True: the scale or the lift changed (the slot is placed again).
+    /// shrunk to stand at most `FIT_SPAN` tall, its feet kept, then lifted, its top to `FIT_LIFT_TO`. True: the
+    /// scale or the lift changed (the slot is placed again).
     // Deviation: the port's own rule. The build's main menu only ever shows
     // Skin_WonderWoman (New_MainMenu @193); the port shows the last chosen fighter, and some skins'
     // MainMenu_You placements, which the build never put on screen, put the fighter out of the frame (LeBron's C016
@@ -836,10 +851,12 @@ impl PreviewSet {
             s.fit_k *= most / s0;
             return true;
         }
+        let to_feet = [0, 1, 2].map(|k| feet[k] - fit.origin[k]);
         match top {
-            Some((t, d)) if t < FIT_LOW => match fit.lift_to(d, FIT_LIFT_TO) {
-                Some(dz) if dz > 0.0 => {
-                    s.fit_lift = dz;
+            Some((t, d)) if t < FIT_LOW => match fit.shrink_and_lift(to_feet, d, FIT_SPAN, FIT_LIFT_TO) {
+                Some((k, dz)) if k < 1.0 || dz > 0.0 => {
+                    s.fit_k *= k;
+                    s.fit_lift = dz.max(0.0);
                     true
                 }
                 _ => false,
@@ -1646,6 +1663,22 @@ mod tests {
         }
         let f = FitFrame::of_camera([0.0; 3], [0.0; 3], 90.0, 1.0);
         assert_eq!(f.height([-10.0, 0.0, 0.0]), None);
+    }
+
+    /// A too-low fighter taller than the span is shrunk about its feet to the span, then lifted to the share; a
+    /// short one is only lifted.
+    #[test]
+    fn fit_frame_shrink() {
+        let f = FitFrame::of_camera([0.0; 3], [0.0; 3], 90.0, 1.0);
+        let (feet, top) = ([100.0, 0.0, -250.0], [100.0, 0.0, -10.0]);
+        let (k, dz) = f.shrink_and_lift(feet, top, 1.8, 0.6).unwrap();
+        assert!((k - 0.75).abs() < 1e-9, "{k}");
+        let at = |p: [f64; 3]| f.height([p[0], p[1], feet[2] + k * (p[2] - feet[2]) + dz]).unwrap();
+        assert!((at(top) - 0.6).abs() < 1e-9);
+        assert!((at(top) - at(feet) - 1.8).abs() < 1e-9);
+        let (k, dz) = f.shrink_and_lift([100.0, 0.0, -100.0], top, 1.8, 0.6).unwrap();
+        assert_eq!(k, 1.0);
+        assert!((dz - 70.0).abs() < 1e-9, "{dz}");
     }
 
     /// The world matrix: facing right the mesh's X is the world's -Y (yaw -90); facing left Y is reflected.
