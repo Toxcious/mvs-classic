@@ -1,5 +1,5 @@
-//! The port's own Waves mode (`docs/waves-plan.md`): the player against a stream of weak bots, several at once, for
-//! a local record. Not in the build: no line here ports a Blueprint.
+//! The port's own Waves mode: the player against a stream of weak bots, several at once, for a local record. Not in
+//! the build: no line here ports a Blueprint.
 //!
 //! The run's state is [`WavesRun`] on `World::waves`, set at the World's construction (`start`, set-up mode Waves).
 //! Its director spawns the enemies as mode pawns (`world/pawns.rs`) on team 1, bound to [`ENEMY_SLOT`], and counts
