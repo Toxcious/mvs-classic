@@ -310,6 +310,16 @@ pub fn add_perks(w: &mut World, f: FighterId, first: bool) {
     }
 }
 
+/// The perks of set-up player `player` given to a mode's pawn that stands for it (the port's own Waves mode: its
+/// player's pawn), as its possession's Comp_Pawn_PerkManager.Initialize -> Add gives a player's pawn its own: no ally
+/// takes a share (the mode's player has none).
+pub fn add_player_perks(w: &mut World, f: FighterId, player: usize) {
+    let ids = w.fixed.perks.get(player).cloned().unwrap_or_default();
+    for id in ids {
+        give_perk(w, f, id, f, false);
+    }
+}
+
 /// `w.perks[id] ?? []`.
 fn perks_of(w: &World, id: i32) -> Vec<Name> {
     usize::try_from(id).ok().and_then(|i| w.fixed.perks.get(i)).cloned().unwrap_or_default()

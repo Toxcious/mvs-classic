@@ -303,7 +303,7 @@ plain_struct!(mvs_sim::world::items::ItemArea {
 plain_struct!(mvs_sim::world::mutators::WorldMutator { "bound" = bound, "chosen" = chosen, "cls" = cls, "delayAt" = delay_at });
 plain_struct!(mvs_sim::world::flow::WorldMutatorHandler { "buffs" = buffs });
 
-const REST_KEYS: [&str; 24] = [
+const REST_KEYS: [&str; 25] = [
     "blast",
     "blastOuter",
     "blastShrinkBy",
@@ -327,6 +327,7 @@ const REST_KEYS: [&str; 24] = [
     "stageRun",
     "tiedFFATeams",
     "tutorial",
+    "waves",
     "worldMutators",
 ];
 
@@ -368,6 +369,7 @@ fn rest_put(w: &World, x: &Wx) -> Value {
     }
     // A mode's keys: the tutorial's, its run-time solids and the pawns' controllers.
     crate::tutorial::rest_put(w, x, &mut o);
+    crate::waves::rest_put(w, x, &mut o);
     // (`pawns`, a mode's list of every pawn, is the frame's fighters: `frame_of`.)
     if let Some(r) = &w.stage_run {
         o.push(("stageRun", crate::stages::run_put(r, x)));
@@ -446,4 +448,5 @@ fn rest_load(w: &mut World, v: &Value, l: &mut Lx) {
         .and_then(|v| l.at("worldMutators", |l| mvs_sim::world::flow::WorldMutatorHandler::from_value(v, l)));
     w.pawn_seq = ob.get("pawnSeq").and_then(|v| l.at("pawnSeq", |l| i32::from_value(v, l)));
     crate::tutorial::rest_load(w, ob, l);
+    crate::waves::rest_load(w, ob, l);
 }

@@ -136,6 +136,17 @@ impl<T> Arena<T> {
         })
     }
 
+    /// Puts `v` in the live slot of `id` in place of its value, keeping the id (its generation too: an id still held
+    /// to the old value reads the new one), and moves the slot to the end of the iteration order, as a new insert
+    /// goes. A stale `id` is a bug of the caller.
+    pub fn replace(&mut self, id: Id<T>, v: T) {
+        let s = self.slots.get_mut(id.index as usize).filter(|s| s.generation == id.generation && s.value.is_some());
+        let s = s.expect("a live arena id to replace");
+        s.value = Some(v);
+        self.live.retain(|&i| i != id.index);
+        self.live.push(id.index);
+    }
+
     /// Removes every value `keep` says no to, keeping the order of the rest.
     pub fn retain(&mut self, mut keep: impl FnMut(Id<T>, &T) -> bool) {
         let slots = &mut self.slots;

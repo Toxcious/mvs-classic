@@ -935,6 +935,20 @@ pub fn reset_match_state(w: &mut World, f: FighterId) {
     fm.react.fall_lean = 0.0;
 }
 
+/// SetInvulnerableCount(0), then SpawnInvulnerability: AddInvulnerability and the 0.03 s Delay, and
+/// SpawnInvulnerabilityVisuals: PS_Invulnerability on the active mesh (CancelInvuln's DestroySpawnVFX ends it) and
+/// sfx_shared_combat_invulnerability_alt on the fighter's Ak component. A respawn's, and a Waves enemy's at its spawn
+/// (`modes::waves`).
+pub fn spawn_invulnerability(w: &mut World, f: FighterId) {
+    control::clear_invuln(w, f);
+    control::enable_invulnerability_raw(w, f);
+    w.fighter_mut(f).invuln.invuln = math::round((C::SPAWN_INVULN_DELAY + C::SPAWN_INVULN) * 60.0);
+    let fighter = fid(w, f);
+    push(w, f, Event::SpawnFx { fighter, on: true });
+    let ev = SFX_INVULNERABILITY;
+    sound(w, f, ev, None);
+}
+
 /// `resetForRespawn`: after `spawn` at the Respawn point, ResetFighterLogic, a fast
 /// downward launch and spawn invulnerability (SpawnInvulnerability after a 0.03 s delay).
 pub fn reset_for_respawn(w: &mut World, f: FighterId) {
@@ -968,16 +982,8 @@ pub fn reset_for_respawn(w: &mut World, f: FighterId) {
     moves::fast_fall_end(w, f);
     // ResetFighterLogic @447.
     control::reset_abilities(w, f);
-    // SetInvulnerableCount(0) at the KO, then SpawnInvulnerability (@845): AddInvulnerability and the 0.03 s Delay.
-    control::clear_invuln(w, f);
-    control::enable_invulnerability_raw(w, f);
-    w.fighter_mut(f).invuln.invuln = math::round((C::SPAWN_INVULN_DELAY + C::SPAWN_INVULN) * 60.0);
-    // SpawnInvulnerabilityVisuals: PS_Invulnerability on the active mesh (CancelInvuln's DestroySpawnVFX ends it)
-    // and sfx_shared_combat_invulnerability_alt on the fighter's Ak component.
-    let fighter = fid(w, f);
-    push(w, f, Event::SpawnFx { fighter, on: true });
-    let ev = SFX_INVULNERABILITY;
-    sound(w, f, ev, None);
+    // SetInvulnerableCount(0) at the KO, then SpawnInvulnerability (@845).
+    spawn_invulnerability(w, f);
     // @859 Comp_Pawn_PerkManager.ResetFighter -> Add: the perk buffs again, after SpawnInvulnerability and before the
     // DamageManager reset (@923, resetCombatState below), ResetWallFatigue (@1092) and OnFighterReset (@1106, the
     // character's reset hook). Deviation: the passives' reset (TeamIndexSetOnSpawn @633, before these) runs after

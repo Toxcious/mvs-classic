@@ -48,6 +48,7 @@ mod taz;
 mod tom_and_jerry;
 mod tutorial;
 mod velma;
+pub mod waves;
 mod wonder_woman;
 mod world;
 
@@ -255,9 +256,9 @@ fn sync_pawns(w: &mut World, r: &mvs_trace::WorldRecord, l: &mut Lx) {
             _ => None,
         };
         let Some(owner) = creator.and_then(|c| l.at(&at, |l| l.fighter(c))) else {
-            // A pawn with no creator is a mode's own (the tutorial's `spawnFighter`): its slot and team are the
+            // A pawn with no creator is a mode's own (the tutorial's `spawnFighter`, a Waves run's): its slot and team are the
             // record's.
-            if w.tutorial.is_some() {
+            if w.tutorial.is_some() || w.waves.is_some() {
                 want.push(mode_pawn(w, id, fr, l));
                 continue;
             }
@@ -383,8 +384,18 @@ pub fn setup_of(v: &serde_json::Value) -> Result<MatchSetup, String> {
     Ok(s)
 }
 
-/// A set-up's `mode` (`record::TutorialMode`): the sim's, and the actor's tutorial data where the header has it.
+/// A set-up's `mode` (`record::TutorialMode`, `record::WavesMode`): the sim's, and the actor's tutorial data where the
+/// header has it.
 fn mode_of(v: &serde_json::Value) -> Result<(MatchMode, Option<mvs_data::tutorial::TutorialActorData>), String> {
+    if v.get("kind").and_then(serde_json::Value::as_str) == Some("waves") {
+        let m: mvs_trace::WavesMode = serde_json::from_value(v.clone()).map_err(|e| format!("mode: {e}"))?;
+        let variant = match m.variant.as_str() {
+            "ringOuts100" => mvs_sim::setup::WavesVariant::RingOuts100,
+            "endless" => mvs_sim::setup::WavesVariant::Endless,
+            s => return Err(format!("mode.variant {s} (no rule to read it)")),
+        };
+        return Ok((MatchMode::Waves { variant, cast: m.cast }, None));
+    }
     let m: mvs_trace::TutorialMode = serde_json::from_value(v.clone()).map_err(|e| format!("mode: {e}"))?;
     if m.kind != "tutorial" {
         return Err(format!("mode.kind {} (no rule to read it)", m.kind));
@@ -556,7 +567,9 @@ pub fn world_for(header: &Header, store: &mvs_store::Store) -> Result<(World, Bo
     let book = Book::new(&data);
     // (the oracle's recorder sets World.botTrees when a player is a bot or the match's spec asks for it: a minion's
     // controller runs its tree by name)
-    let bot_trees = (setup.players.iter().any(|p| p.bot) || header.spec["botTrees"].as_bool() == Some(true))
+    // A Waves run's enemies are bots: its World always holds them.
+    let waves = matches!(setup.mode, Some(MatchMode::Waves { .. }));
+    let bot_trees = (setup.players.iter().any(|p| p.bot) || header.spec["botTrees"].as_bool() == Some(true) || waves)
         .then(|| Arc::new(data.bot_trees.clone()));
     #[allow(clippy::cast_possible_truncation)]
     let seed = header.world_seed as i32;
@@ -575,7 +588,8 @@ pub fn bots_for(spec: &serde_json::Value, w: &World) -> Vec<Option<BtBot>> {
         .iter()
         .enumerate()
         .map(|(i, p)| {
-            if !p.bot {
+            // (a mode World's players are its pawns: a bot among them is the mode's own controller)
+            if !p.bot || w.setup.mode.is_some() {
                 return None;
             }
             let seed = i32::try_from(i).expect("a few players");

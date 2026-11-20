@@ -469,7 +469,9 @@ fn find_buff_def(w: &World, own: ActorRef, cls: Name) -> Option<&Props> {
     {
         return Some(d);
     }
-    if !w.setup.mutators.is_empty()
+    // (a Waves run gives its Giants the Giant mutator: `modes::waves`)
+    let waves = matches!(w.setup.mode, Some(crate::setup::MatchMode::Waves { .. }));
+    if (!w.setup.mutators.is_empty() || waves)
         && let Some(d) = w.data.mutators.buffs.get(key)
     {
         return Some(d);
@@ -480,7 +482,13 @@ fn find_buff_def(w: &World, own: ActorRef, cls: Name) -> Option<&Props> {
         return Some(d);
     }
     // the general table's, else the owner's part, else the first of the peers' parts.
-    crate::combat::perks::perk_buff_def(w, f, Some(peers(w)), key)
+    let d = crate::combat::perks::perk_buff_def(w, f, Some(peers(w)), key);
+    if d.is_none() && waves {
+        // (a Waves enemy's actors outlive its despawn: their buffs' classes are in the data of a character no
+        // longer among the peers; the run's cast is all in the match's data)
+        return w.data.chars.values().find_map(|c| c.fighter.buffs.as_ref().and_then(|m| m.get(key)));
+    }
+    d
 }
 
 // ---- the call surface of character

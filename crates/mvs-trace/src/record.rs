@@ -3169,6 +3169,16 @@ pub enum TutorialCall {
     StartNext,
 }
 
+/// The set-up's `mode` of a match of the port's own Waves mode as a header holds it: `{kind: 'waves', variant, cast}`,
+/// `variant` `'ringOuts100'` or `'endless'`. The oracle has no Waves mode: only the Rust recorder writes one.
+#[derive(Clone, PartialEq, Debug, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WavesMode {
+    pub kind: String,
+    pub variant: String,
+    pub cast: Vec<String>,
+}
+
 /// The set-up's `mode` of a tutorial match as a header holds it: `{kind: 'tutorial', actor, cast, data}`, `data` the
 /// actor's tutorial data in the shape of `mvs_data::tutorial::TutorialActorData` (the oracle's `tutorials`, every
 /// actor's, is the World's alone and not written).

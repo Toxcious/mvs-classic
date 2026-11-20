@@ -152,6 +152,7 @@ fn born_pawn(
     at: FirstTicks,
     clock: Option<FighterId>,
     platforms: Vec<crate::fighter::PlatformRef>,
+    reuse: Option<FighterId>,
 ) -> FighterId {
     let key = w.names.str(character).to_owned();
     if !w.data.chars.contains_key(&key) {
@@ -170,7 +171,17 @@ fn born_pawn(
     let seed = crate::math::dbl::to_int32(
         f64::from(id) * 104_729.0 + f64::from(seq) * 7919.0 + f64::from(w.flow.tick) * 31337.0,
     );
-    let m = w.fighters.insert(Fighter::new(id, character, hooks, Rng::new(seed)));
+    let fighter = Fighter::new(id, character, hooks, Rng::new(seed));
+    let m = match reuse {
+        Some(r) => {
+            if w.fighter(r).life.dead != Real::INFINITY || w.pawns.as_ref().is_some_and(|ps| ps.contains(&r)) {
+                panic!("{fn_name}: the reused fighter is still in the match");
+            }
+            w.fighters.replace(r, fighter);
+            r
+        }
+        None => w.fighters.insert(fighter),
+    };
     crate::fighter::set_up(w, m);
     // (`sharePeers`, `peers`, `stagePlatforms`, `comboReset`, `voShared`: the port's fighters read the World's)
     if w.pawns.is_none() {
@@ -234,6 +245,13 @@ fn world_clock(w: &mut World, m: FighterId) {
 /// World's `reach` is the players').
 /// Not ported: Comp_Pawn_TauntManager's slots (a player's taunts, the World's construction) are not given to it.
 pub fn spawn_pawn(w: &mut World, o: PawnSpawn) -> FighterId {
+    spawn_pawn_into(w, o, None)
+}
+
+/// [`spawn_pawn`] into the arena slot of `reuse`, a pawn [`despawn_pawn`] took out of the match, where one is given:
+/// the new pawn takes that slot and its [`FighterId`] (an id still held to the old pawn reads the new one), so a mode
+/// that spawns without end keeps the World's lists bounded (the port's own Waves mode, `modes::waves`).
+pub fn spawn_pawn_into(w: &mut World, o: PawnSpawn, reuse: Option<FighterId>) -> FighterId {
     let any = w.pawns.as_ref().unwrap_or(&w.players).first().copied();
     let platforms = match any {
         Some(a) => w.fighter(a).platforms.platforms.clone(),
@@ -243,7 +261,7 @@ pub fn spawn_pawn(w: &mut World, o: PawnSpawn) -> FighterId {
         }
     };
     let facing = if o.facing_left { -1.0 } else { 1.0 };
-    let m = born_pawn(w, "spawnPawn", o.character, o.x, o.y, facing, o.at, any, platforms);
+    let m = born_pawn(w, "spawnPawn", o.character, o.x, o.y, facing, o.at, any, platforms, reuse);
     let fr = w.fighter_mut(m);
     fr.items.item_reach = Some(crate::fighter::match_side::ItemReach::default());
     // No controller: MovementMode stays None (the CMC ctor 1429164d0 leaves it; ACharacter::
@@ -432,7 +450,7 @@ fn mode_pawn(w: &World, f: FighterId) -> bool {
 /// one too (Velma's police car, Pawn_VelmaAIBotPolice, SpawnAIFromClass @5963).
 pub fn spawn_minion(w: &mut World, o: MinionSpawn) -> FighterId {
     let platforms = w.fighter(o.owner).platforms.platforms.clone();
-    let m = born_pawn(w, "spawnMinion", o.character, o.x, o.y, o.facing, o.at, Some(o.owner), platforms);
+    let m = born_pawn(w, "spawnMinion", o.character, o.x, o.y, o.facing, o.at, Some(o.owner), platforms, None);
     let seq = w.pawn_seq.expect("set by born_pawn") - 1;
     let id = w.fighter(m).id;
     let seed = crate::math::dbl::to_int32(f64::from(id) * 7919.0 + f64::from(seq) * 104_729.0 + 12345.0);
