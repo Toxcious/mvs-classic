@@ -472,6 +472,9 @@ pub struct LabPlayerPanel {
     /// call): that echo sends nothing back (the build drops a request while it handles the broadcast,
     /// PS.bRespondingToConfigUpdate).
     damage_echo: bool,
+    /// The damage control's value as its last OnValueChanged gave it: the control is busy while its event runs
+    /// here, so the config is built from this, not read back from it.
+    starting_damage: f64,
     /// The behaviour menu whose OnClosed is in hand and its CurrentSelectedID: that menu is busy while its event
     /// runs here, so its id comes with the event.
     held: Option<(&'static str, String)>,
@@ -623,8 +626,7 @@ impl LabPlayerPanel {
     pub fn build_player_training_config(&self, cx: &mut Cx<'_>) -> LabPlayerConfig {
         let n = find(cx, "nameLabel");
         let name = wd(cx, n).text.clone();
-        let dmg = find(cx, "settingStartingDamage");
-        let damage = cx.visit::<PlusMinusVertical, _>(dmg, |p, _| p.value).unwrap_or(0.0);
+        let damage = self.starting_damage;
         let perks = LabPlayerPanelPerks::current_perks(cx);
         LabPlayerConfig {
             account_id: self.account_id.clone(),
@@ -690,6 +692,7 @@ impl LabPlayerPanel {
         let dmg = find(cx, "settingStartingDamage");
         self.damage_echo = true;
         let d = c.starting_damage;
+        self.starting_damage = d;
         run_on::<PlusMinusVertical>(cx, dmg, move |p, cx| p.set_value(cx, d));
         self.is_bot = c.bot_difficulty != 0;
         // @1363-8469: the menus follow the EBotBehavior (0 reads as recovery). The DI menu's select reads index 0, an
@@ -938,6 +941,9 @@ impl Controller for LabPlayerPanel {
                 }
             }
             PP_DAMAGE => {
+                if let Some(&(v, _)) = arg.downcast_ref::<(f64, f64)>() {
+                    self.starting_damage = v;
+                }
                 if std::mem::take(&mut self.damage_echo) {
                     return;
                 }

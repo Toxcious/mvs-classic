@@ -369,6 +369,61 @@ fn the_edit_button_opens_the_perk_page_and_its_save_goes_to_the_config() {
     s.remove(&mut e.run(&mut lab));
 }
 
+/// The starting damage's plus and minus change the local player's damage in the config, and a second press
+/// moves it again.
+#[test]
+fn the_starting_damage_buttons_change_the_config() {
+    use mvs_ui::menu::screens::lab::PlusMinusVertical;
+    use mvs_ui::menu::widgets::controls::buttons::ButtonSecondary;
+    use mvs_ui::menu::widgets::controls::interactor::{set_focused, submit};
+
+    let Some(mut e) = env() else { return };
+    let mut lab = fake();
+    let view = MenuView::new(e.bundle.clone(), e.text.clone(), [1600, 900]);
+    let mut s = MenuScreen::new(view, &mut e.run(&mut lab));
+    let menu = s.with_cx(&mut e.run(&mut lab), |cx| {
+        let w = MenuView::create(cx, "UI_LAB_PauseMenu");
+        MenuView::add_to_viewport(cx, w, 0);
+        cx.visit::<LabPauseMenu, _>(w, |m, cx| m.shown(cx));
+        w
+    });
+    for i in 0..4 {
+        tick(&mut s, &mut e, &mut lab, 1.0 + i as f64 * 0.02);
+    }
+    let press = |s: &mut MenuScreen, e: &mut Env, lab: &mut Fake, name: &str| {
+        s.with_cx(&mut e.run(lab), |cx| {
+            let lp = cx.view.tree().find_in(menu, "UI_LAB_Panel");
+            let panel = cx.view.tree().find_in(lp, "UI_LAB_PlayerPanel0");
+            let dmg = cx.view.tree().find_in(panel, "settingStartingDamage");
+            let b = cx.view.tree().find_in(dmg, name);
+            let i = ButtonSecondary::interactor(cx, b);
+            set_focused(cx, i, false);
+            cx.view.manager.interactor_mut(i).unwrap().is_focused = true;
+            submit(cx, i, 0);
+        });
+    };
+    let shown = |s: &mut MenuScreen| {
+        let t = s.view.tree();
+        let lp = t.find_in(menu, "UI_LAB_Panel");
+        let dmg = t.find_in(t.find_in(lp, "UI_LAB_PlayerPanel0"), "settingStartingDamage");
+        s.view.controller::<PlusMinusVertical>(dmg).unwrap().value
+    };
+    tick(&mut s, &mut e, &mut lab, 3.0);
+    press(&mut s, &mut e, &mut lab, "ButtonPlus");
+    tick(&mut s, &mut e, &mut lab, 3.5);
+    let first = lab.config.players[0].starting_damage;
+    assert!(first > 0.0, "the first plus moved the damage (shown {})", shown(&mut s));
+    press(&mut s, &mut e, &mut lab, "ButtonPlus");
+    tick(&mut s, &mut e, &mut lab, 4.0);
+    assert!(lab.config.players[0].starting_damage > first, "the second plus moved it again");
+    press(&mut s, &mut e, &mut lab, "ButtonMinus");
+    tick(&mut s, &mut e, &mut lab, 4.5);
+    assert_eq!(lab.config.players[0].starting_damage, first, "minus took one step back");
+    assert_eq!(shown(&mut s), first);
+    s.with_cx(&mut e.run(&mut lab), |cx| cx.visit::<LabPauseMenu, _>(menu, |m, cx| m.hidden(cx)));
+    s.remove(&mut e.run(&mut lab));
+}
+
 /// A pick in one of a bot panel's behaviour menus as a click takes it: the row's main interactor opens its context
 /// menu, the menu's button with the id is submitted.
 fn pick_behavior(s: &mut MenuScreen, e: &mut Env, lab: &mut Fake, menu: mvs_ui::slate::WidgetId, row: &str, id: &str) {
