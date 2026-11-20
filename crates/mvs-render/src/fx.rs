@@ -1149,8 +1149,12 @@ impl Fx {
                 Follow::Mesh { id, rel: loc, rows: Some(*rot), scale: Scale::ByMesh(scale) }
             }
             Some(s) => {
+                // (a pawn that left the World, a Waves enemy's, still named by its projectile: no place, as
+                // `place` gives a gone pawn's mesh)
+                let Some(fid) = w.by_id(id) else {
+                    return Follow::Mesh { id, rel: loc, rows: Some(*rot), scale: Scale::ByMesh(scale) };
+                };
                 let name = self.skel_name(id, s);
-                let fid = w.by_id(id).expect("a pawn's fighter");
                 let skel = &w.char_data(fid).fighter.skeleton;
                 Follow::Socket { id, s: Box::new(SocketFollow::new(skel, &name, loc, rot, scale)), scale: Scale::Own }
             }
