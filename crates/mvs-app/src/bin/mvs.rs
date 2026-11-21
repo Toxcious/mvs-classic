@@ -11,7 +11,8 @@
 //!   [--bench <secs>] [--stage <key>] [--shot-results <secs>] [--press-results <secs>] [--no-audio] [--input-script <jsonl>] [--menu-tape <out>]
 //!   [--shot-frames <frame>[,..]] [--live-loads] [--audio-tape <file>]
 //!   [--waves endless|100 [--character <key>] [--waves-bot <level>]]   (a Waves run on `--stage`, cast from `--seed`)
-//!   [--wheel [--wheel-seconds <n>]]   (with `--play` too: the Chaos Wheel rule in the command line's match, a Lab and Local Play)
+//!   [--wheel [--wheel-seconds <n>]]   (with `--play` too: the Chaos Wheel rule in the command line's match, a Lab and Local Play;
+//!   with `--relay`, on both players' lines)
 //!   [--relay <addr> (--host | --join <lobby>) [--key <file>] [--feed <trace match>]]
 //!   [--online-config <file> [--direct-loopback] [--online-open host|join:<code>|queue:<mode>[,..]] [--online-lag <ms>]
 //!   [--online-desync-at <tick>] [--feed <trace match>]]
@@ -392,8 +393,8 @@ fn parse(mut it: impl Iterator<Item = String>) -> Result<Args, String> {
     if a.waves.is_some() && (a.play || a.replay.is_some() || relay.is_some() || a.run.script.input_script.is_some()) {
         return Err("--waves: not with --play, --replay, --relay or --input-script".to_owned());
     }
-    if a.wheel && (a.waves.is_some() || a.replay.is_some() || relay.is_some()) {
-        return Err("--wheel: not with --waves, --replay or --relay".to_owned());
+    if a.wheel && (a.waves.is_some() || a.replay.is_some()) {
+        return Err("--wheel: not with --waves or --replay".to_owned());
     }
     if (a.character.is_some() || a.waves_bot.is_some()) && a.waves.is_none() {
         return Err("--character, --waves-bot: no --waves".to_owned());

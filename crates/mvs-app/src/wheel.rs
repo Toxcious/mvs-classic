@@ -12,10 +12,15 @@ use crate::app::MatchKind;
 const TICKS_PER_SECOND: f64 = 60.0;
 
 /// `--wheel`: the matches the switch gives the rule to: the ones played on this machine alone with the build's own
-/// rules (the command line's match, a Lab, Local Play). A replay runs its trace's set-up, an online match the
-/// host's, and a tutorial, an arcade round and a Waves run are scripted.
+/// rules (the command line's match, a Lab, Local Play), and the command line's relay match (`--relay`), where both
+/// players pass the switch. A replay runs its trace's set-up, the menus' online match the host's, and a tutorial, an
+/// arcade round and a Waves run are scripted.
 pub fn switched(kind: &MatchKind) -> bool {
-    matches!(kind, MatchKind::Default | MatchKind::Lab { .. } | MatchKind::LocalPlay)
+    match kind {
+        MatchKind::Default | MatchKind::Lab { .. } | MatchKind::LocalPlay => true,
+        MatchKind::Online { net: Some(net) } => matches!(**net, crate::online::Online::Dev(_)),
+        _ => false,
+    }
 }
 
 /// A custom game's rule over the whole pool.

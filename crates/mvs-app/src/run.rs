@@ -606,6 +606,7 @@ impl MatchLoop {
             && setup.wheel.is_none()
         {
             setup.wheel = Some(rule.clone());
+            eprintln!("mvs: --wheel: {} mutators, {} second windows", rule.pool.len(), rule.seconds);
             prepared = None;
         }
         // (a match prepared off the frame began its load at its job: `PrepareJob::of`)
