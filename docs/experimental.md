@@ -55,3 +55,46 @@ team style and with Stock Mode.
   list); the build would start both.
 - The names are the port's own words (`mvs-ui` `menu/custom_text.rs`): the beta's Game.locres has no line for
   them.
+
+## Chaos Wheel (`wheel`)
+
+One mutator at a time for every fighter, changed every 20 seconds: the match starts plain, the first mutator
+comes on 20 seconds after the match starts, and each one ends as the next comes on, until the match is over. The
+match set-up carries the rule as `wheel: { pool, seconds, warn }` (`mvs-protocol` `setup.rs`, filled by
+`lobby_rules::wheel_rule`): the mutator keys that may be rolled, the window's length and how far ahead the next
+one is drawn. The sim's part is `mvs-sim` `world/wheel.rs`. Works in every team style, with Stock Mode and
+beside the Mutators row.
+
+- The pool (`lobby_rules::WHEEL_MUTATORS`): Giant, Miniature, Big Head, Low Gravity, Unlimited Jumps, Faster
+  Cooldowns, Attacks Break Armor, Weaken on Hit, Charge Freeze, Ice Gauntlets, Extra Air Special, Grey Health and
+  Random Items. Not on the wheel: Grow (it grows with damage dealt, which 20 seconds barely shows), Instant Kill
+  (the 200 damage would stay after its window), Silly and Final Point Shrink (whole-match rules).
+- The next mutator is drawn 3 seconds before the change from a random stream of the rule's own (made from the
+  match seed, so it moves no other draw of the match). The draw never gives the one that is on, one ticked in the
+  Mutators row (it is on all match), or one the match cannot run: Random Items on a stage with no item area, or
+  in Free For All, whose own spawner runs all match.
+- On, every fighter alive gets the mutator's buff as the build's Apply Mutators To Fighter gives it; a fighter
+  that respawns inside a window gets it at the respawn. Off, the buff is removed, and the rule takes back what
+  three of them leave behind in the build (a match's mutator never ends there): Low Gravity's override, Extra Air
+  Special's count and the Ice Gauntlets' gauntlet. Grey Health's 25 stays until it is hit off; a Weakened or an
+  Ice stack a window gave runs out by itself; a projectile thrown as a Giant stays big.
+- Random Items' window runs the stage's item spawner at a rate of the rule's own (the first item 2 seconds in,
+  one every 3 seconds after, no centre safe): the build's rate would give one item in 20 seconds. Items out when
+  the window ends stay.
+- A cooldown multiplier's end (Faster Cooldowns, Big Head) multiplies each cooldown's length by new / old, as the
+  build's buffs end: some lengths come back one float step off (14 seconds as 14.000001).
+- The rule's saved state is by player slot: a mode with more pawns than players (Waves) does not take it.
+- The page's row is Chaos Wheel, Off or On; the Lab's page does not have it. The option's value is a bool, and
+  the pool, the window and the warning are the rule's own constants (`WHEEL_MUTATORS`, `WHEEL_SECONDS`,
+  `WHEEL_WARN`), not settings. Offline the menus fill the set-up from the lobby's options; online the host core
+  does (`mvs-host`), so every member's match has the same rule.
+- HUD (`mvs-ui` `hud/wheel.rs`): a card under the scoreboard's clock (above it with the HUD at the bottom), at
+  the scoreboard's scale and opacity, in its fonts: a label, the mutator's name and a bar that runs down over the
+  window. The first window reads GET READY over the rule's name. When the next mutator is drawn the label reads
+  NEXT and the name spins through the pool, landing on the drawn one by half the warning; the spin is a function
+  of the ticks left, so a step simulated again shows the same. At the change the mutator's name shows once as a
+  screen banner, with the parameters of the Silly selector's pick. The countdown card names the rule on a second
+  line.
+- Sounds: one of the build's UI events at the draw and one at the change (`ROLL_SOUND`, `CHANGE_SOUND`), both
+  from the banks every match keeps loaded. The beta has no sound for the rule; the two are picked by name.
+- A window of Random Items needs the items' sounds, so a match with the rule loads them with the match's own.
