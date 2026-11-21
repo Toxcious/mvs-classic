@@ -22,7 +22,7 @@ use mvs_sim_trace::{Book, bots_for, frame_of, input_of, world_for};
 use mvs_trace::{Field, Trace};
 
 /// The matches of the default run: one per kind of match (combat, bots, the Expert bot, items, minions, mutators,
-/// stages, modes).
+/// the Chaos Wheel, stages, modes).
 const SAMPLE: &[&str] = &[
     "m5-combat",
     "m4-flow",
@@ -35,6 +35,7 @@ const SAMPLE: &[&str] = &[
     "steven-melon-combat",
     "gizmo-gizmo",
     "mut-giant",
+    "wheel-combat",
     "stage-m011",
     "lab-picture",
 ];
