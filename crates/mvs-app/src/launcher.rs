@@ -1087,6 +1087,10 @@ impl Launcher {
                 let said = self.online.set_port(&mut host.settings.online, &t);
                 self.online_saved(host, said);
             }
+            Action::ToggleRelay => {
+                let said = self.online.toggle_relay(&mut host.settings.online);
+                self.online_saved(host, Some(said));
+            }
             Action::ToggleEos => {
                 let said = self.online.toggle_eos(&mut host.settings.online);
                 self.online_saved(host, Some(said));

@@ -1,12 +1,16 @@
 //! Draws each launcher screen to a PNG, with made-up facts: the splash, setup's three steps (the build running and
 //! stopped, its details), the guide, Home ready, rebuilding, with a problem, with an update offered (and its more
-//! menu), updating, the more menu, the settings' tabs, the patch notes over Home. Home's picture and the patch
+//! menu), updating, the more menu, the settings' tabs (the Online tab in each of its states: the default relay, the
+//! relay off, another relay, Advanced open, a running game holding a change), the patch notes over Home. Home's picture and the patch
 //! notes' come from a store when one is given. `--notes` shows the releases of a file in place of the made-up ones,
 //! the first as the one installed: the launcher's kept list (`patch-notes.json` of its data folder), or one written
 //! by hand to see a release's text before it is published (`[{"version": "0.2.0", "name": "..", "published_at":
 //! "2026-03-01T12:00:00Z", "body": "<its Markdown>"}]`).
 //!
+//! `--only <prefix>` draws the screens whose name starts with it alone.
+//!
 //! Usage: launcher-shots --out <dir> [--size 1600x900] [--store <dir>] [--notes <file>] [--time <seconds>]
+//!        [--only <prefix>]
 
 use std::path::{Path, PathBuf};
 
@@ -17,7 +21,8 @@ use mvs_store::Store;
 use mvs_ui::launcher::draw::Pointer;
 use mvs_ui::launcher::notes::{self, NoteAge, PatchNote};
 use mvs_ui::launcher::{
-    Build, HomeState, LauncherUi, LogLine, Model, Note, Phase, PhaseState, Screen, Shortcuts, Source, Tone, words as w,
+    Build, HomeState, LauncherUi, LogLine, Model, Note, OnlineSettingsView, OnlineSummary, Phase, PhaseState, Screen,
+    Shortcuts, Source, Tone, Way, words as w,
 };
 use windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_R8G8B8A8_UNORM;
 
@@ -29,10 +34,12 @@ struct Args {
     store: Option<PathBuf>,
     notes: Option<PathBuf>,
     time: f64,
+    only: String,
 }
 
 fn args() -> Result<Args, String> {
-    let mut a = Args { out: PathBuf::from("."), size: [1600, 900], store: None, notes: None, time: 3.0 };
+    let mut a =
+        Args { out: PathBuf::from("."), size: [1600, 900], store: None, notes: None, time: 3.0, only: String::new() };
     let mut it = std::env::args().skip(1);
     while let Some(arg) = it.next() {
         let mut val = || it.next().ok_or(format!("{arg}: no value"));
@@ -41,6 +48,7 @@ fn args() -> Result<Args, String> {
             "--store" => a.store = Some(PathBuf::from(val()?)),
             "--notes" => a.notes = Some(PathBuf::from(val()?)),
             "--time" => a.time = val()?.parse().map_err(|_| "--time: a number")?,
+            "--only" => a.only = val()?,
             "--size" => {
                 let v = val()?;
                 let (x, y) = v.split_once('x').ok_or("--size: WxH")?;
@@ -344,33 +352,93 @@ fn main() -> Result<(), String> {
             "settings-online",
             |m| {
                 m.screen = Screen::Home;
-                m.settings.online.relay = "relay.example.org".into();
-                m.settings.online.eos = true;
-                m.settings.online.lan = Some(7777);
-                m.settings.online.lan_port = "7777".into();
-                m.settings.online.direct = true;
-                m.settings.online.relay_status = mvs_ui::launcher::Note::new(w::reached(42, 1, true), Tone::Ok);
-                m.settings.online.direct_now = mvs_ui::launcher::Note::new(w::DIRECT_ON, Tone::Plain);
-                let line = mvs_ui::menu::online::OnlineLine::Slower;
-                m.settings.online.line = Note::new(mvs_ui::menu::online_line::headline(&line), Tone::Plain);
-                m.settings.online.line_detail = mvs_ui::menu::online_line::advice(&line).unwrap_or_default();
-                m.settings.online.test = vec![
-                    Note::new(w::test_relay_reached(42), Tone::Ok),
-                    Note::new(w::TEST_UDP_OFF, Tone::Bad),
-                    Note::new(w::TEST_EPIC_ON, Tone::Ok),
-                    Note::new(w::test_lan_free(7777), Tone::Ok),
-                    Note::new(w::TEST_USES_RELAY_SLOWER, Tone::Plain),
-                ];
-                m.settings.online.advanced = true;
+                online_default(&mut m.settings.online);
             },
             (false, Some(2), false, false),
         ),
         (
-            "settings-online-untested",
+            "settings-online-relay-off",
             |m| {
                 m.screen = Screen::Home;
-                m.settings.online.relay = "relay.example.org".into();
-                m.settings.online.eos = true;
+                let o = &mut m.settings.online;
+                online_default(o);
+                o.relay_on = false;
+                o.relay_far = String::new();
+                o.relay_now = Note::new(w::RELAY_OFF, Tone::Plain);
+                o.summary = OnlineSummary { custom: Way::Epic, queue: Way::Epic };
+            },
+            (false, Some(2), false, false),
+        ),
+        (
+            "settings-online-other-relay",
+            |m| {
+                m.screen = Screen::Home;
+                let o = &mut m.settings.online;
+                online_default(o);
+                o.relay = "mine.example.org:9000".into();
+                o.relay_far = String::new();
+                o.relay_status = Note::new(w::reached(42, 7, true), Tone::Ok);
+                o.eos = false;
+                o.epic_now = Note::new(w::EPIC_OFF, Tone::Plain);
+                o.lan = Some(7777);
+                o.lan_now = Note::new(w::LAN_ON, Tone::Plain);
+            },
+            (false, Some(2), false, false),
+        ),
+        (
+            "settings-online-nothing",
+            |m| {
+                m.screen = Screen::Home;
+                let o = &mut m.settings.online;
+                online_default(o);
+                o.relay_on = false;
+                o.relay_far = String::new();
+                o.relay_now = Note::new(w::RELAY_OFF, Tone::Plain);
+                o.eos = false;
+                o.epic_now = Note::new(w::EPIC_OFF, Tone::Plain);
+                o.summary = OnlineSummary { custom: Way::Local, queue: Way::Off };
+                let line = mvs_ui::menu::online::OnlineLine::Offline(mvs_ui::menu::online::OfflineWhy::TurnedOff);
+                o.line = Note::new(mvs_ui::menu::online_line::headline(&line), Tone::Bad);
+            },
+            (false, Some(2), false, false),
+        ),
+        (
+            "settings-online-advanced",
+            |m| {
+                m.screen = Screen::Home;
+                let o = &mut m.settings.online;
+                online_default(o);
+                o.lan = Some(7777);
+                o.lan_now = Note::new(w::lan_ready("192.168.1.20", 7777), Tone::Ok);
+                o.direct = true;
+                o.direct_now = Note::new(w::DIRECT_ON, Tone::Plain);
+                o.advanced = true;
+            },
+            (false, Some(2), false, false),
+        ),
+        (
+            "settings-online-running-held",
+            |m| {
+                m.screen = Screen::Home;
+                m.home.state = HomeState::Running;
+                let o = &mut m.settings.online;
+                online_default(o);
+                // (the player turned the relay off in a lobby: the game keeps it until the lobby closes)
+                o.relay_on = false;
+                o.relay_far = String::new();
+                o.held = true;
+                o.relay_now = Note::new(w::relay_connected("relay.example.org"), Tone::Ok);
+                o.epic_now = Note::new(w::EPIC_SIGNED_IN, Tone::Ok);
+                let line = mvs_ui::menu::online::OnlineLine::Online;
+                o.line = Note::new(mvs_ui::menu::online_line::headline(&line), Tone::Ok);
+                o.line_detail = mvs_ui::menu::online_line::advice(&line).unwrap_or_default();
+                o.test = vec![
+                    Note::new(w::test_relay_reached(42), Tone::Ok),
+                    Note::new(w::TEST_UDP_ON, Tone::Ok),
+                    Note::new(w::TEST_EPIC_ON, Tone::Ok),
+                    Note::new(w::TEST_LAN_OFF, Tone::Plain),
+                    Note::new(w::TEST_USES_RELAY, Tone::Ok),
+                ];
             },
             (false, Some(2), false, false),
         ),
@@ -389,12 +457,19 @@ fn main() -> Result<(), String> {
         (home, k)
     }));
     for ((name, set, (guide, settings, menu, details)), note) in shots {
+        if !name.starts_with(a.only.as_str()) {
+            continue;
+        }
         let mut m = base.clone();
         set(&mut m);
         // (a first frame at 0 starts the screen's clocks: the pictures' fade in)
         ui.frame(&gpu, &target, &m, pointer, &[], &[], 0.0).map_err(|e| e.to_string())?;
         ui.open(guide, settings, menu, details);
         ui.open_note(note);
+        // (Advanced open: the tab scrolled to its foot)
+        ui.scroll_online(if name.ends_with("advanced") { 10_000.0 } else { 0.0 });
+        ui.frame(&gpu, &target, &m, pointer, &[], &[], a.time).map_err(|e| e.to_string())?;
+        // (once more: the first draw at the scroll asked clamps it to the tab's foot)
         ui.frame(&gpu, &target, &m, pointer, &[], &[], a.time).map_err(|e| e.to_string())?;
         let px = gpu.read_texture(&target).map_err(|e| e.to_string())?;
         let file = a.out.join(format!("launcher-{name}.png"));
@@ -402,4 +477,19 @@ fn main() -> Result<(), String> {
         println!("{}", file.display());
     }
     Ok(())
+}
+
+/// The Online tab as the launcher shows it before a test, the release's relay in use: its address the default.
+fn online_default(o: &mut OnlineSettingsView) {
+    o.summary = OnlineSummary { custom: Way::Relay, queue: Way::Relay };
+    o.relay = "relay.example.org".into();
+    o.relay_on = true;
+    o.relay_default = "relay.example.org".into();
+    o.relay_region = "Europe".into();
+    o.relay_far = w::relay_region("Europe");
+    o.eos = true;
+    o.lan_port = "7777".into();
+    o.epic_now = Note::default();
+    o.lan_now = Note::new(w::LAN_OFF, Tone::Plain);
+    o.direct_now = Note::new(w::DIRECT_OFF, Tone::Plain);
 }

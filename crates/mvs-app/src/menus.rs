@@ -1266,6 +1266,8 @@ fn online_before(shell: &mut Shell, view: &mut MenuView) {
     crate::online::gate::poll(&mut h, shell.store().map(|s| s.manifest()));
     if let Some(net) = &shell.net {
         crate::online::glue::apply_gate(net, h.gate());
+        // (the launcher's change of the online settings, while the game runs)
+        crate::online::glue::follow_settings(net);
     }
     if h.tables.maps.is_empty()
         && let Some(ui) = &shell.ui

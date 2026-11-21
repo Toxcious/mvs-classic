@@ -562,6 +562,10 @@ pub struct NetState {
     /// The signed-in relay's UDP link (None: no relay signed in, or not known yet).
     #[serde(default)]
     pub udp: Option<bool>,
+    /// A change of the backends the player made waits for the open custom lobby or queue to close
+    /// (`NetHandle::backends_when_free`).
+    #[serde(default)]
+    pub held: bool,
 }
 
 /// The net state's file in the data folder.

@@ -1,5 +1,6 @@
 //! The launcher's words (app/launcher/index.html and launcher.ts): the port's own, which the beta has no line for.
 
+use super::Way;
 use super::import_view::{CheckWhy, GroupName, Say, Why};
 
 pub const TAGLINE: &str = "The 2023 Open Beta, playable again from your own copy.";
@@ -159,8 +160,7 @@ pub const TAB_FILES: &str = "Game files";
 pub const TAB_ABOUT: &str = "About";
 pub const TAB_ONLINE: &str = "Online";
 pub const RELAY: &str = "Relay server";
-pub const RELAY_DESC: &str = "A relay server hosts custom games, party invites and matchmaking. Enter the address of a \
-                              community or private server, or leave the field empty to play without one.";
+pub const RELAY_DESC: &str = "Hosts custom games, party invites and matchmaking.";
 pub const RELAY_PLACEHOLDER: &str = "Server address, for example relay.example.org";
 pub const EOS_LABEL: &str = "Epic Online Services";
 pub const EOS_DESC: &str = "Use Epic Online Services for custom games and party invites, and for matchmaking when no \
@@ -168,7 +168,7 @@ pub const EOS_DESC: &str = "Use Epic Online Services for custom games and party 
 pub const LAN_LABEL: &str = "Local network (LAN)";
 pub const LAN_DESC: &str = "Host and join custom games with players on the same local network. The first time you \
                             host, Windows may ask you to allow MVS Classic through its firewall.";
-pub const PORT: &str = "Port";
+pub const LAN_PORT: &str = "LAN port";
 pub const DIRECT_LABEL: &str = "Direct connections";
 pub const DIRECT_DESC: &str = "Connect directly to friends in a custom game when both networks allow it, which can \
                                lower latency. The players in your lobby can then see your IP address.";
@@ -355,13 +355,8 @@ pub const LAN_OFF: &str = "Disabled.";
 pub const DIRECT_ON: &str = "Enabled. Players in your lobby can see your IP address.";
 pub const DIRECT_OFF: &str =
     "Disabled. Games with friends are routed through a relay, and your IP address stays hidden.";
-pub const NO_RELAY_EPIC_LAN: &str = "No relay server: custom games use Epic Online Services or LAN, and matchmaking \
-                                     uses Epic Online Services.";
-pub const NO_RELAY_EPIC: &str = "No relay server: custom games and matchmaking use Epic Online Services.";
-pub const NO_RELAY_LAN: &str = "No relay server: custom games are limited to your local network, and matchmaking is \
-                                unavailable.";
-pub const NO_RELAY_NONE: &str = "No relay server, and Epic Online Services and LAN are disabled: online play is \
-                                 unavailable.";
+pub const RELAY_OFF: &str = "Disabled.";
+pub const RELAY_NO_ADDRESS: &str = "No server address.";
 /// The sign-in lines while the game runs (launcher.ts drawBackend / drawLan, the game's net state).
 pub const EPIC_SIGNED_IN: &str = "Signed in to Epic Online Services.";
 pub const LAN_ON: &str = "Enabled.";
@@ -400,6 +395,8 @@ fn sentence(why: &str) -> String {
     s
 }
 pub const RELAY_NONE_SAVED: &str = "Relay server removed";
+pub const RELAY_ON_SAVED: &str = "Relay server enabled";
+pub const RELAY_OFF_SAVED: &str = "Relay server disabled";
 pub const EPIC_ON_SAVED: &str = "Epic Online Services enabled";
 pub const EPIC_OFF_SAVED: &str = "Epic Online Services disabled";
 pub const LAN_OFF_SAVED: &str = "LAN play disabled";
@@ -453,6 +450,35 @@ pub fn relay_key_trusted(t: &str) -> String {
 }
 pub fn not_saved(e: &str) -> String {
     format!("The setting could not be saved: {e}")
+}
+
+// The Online tab's summary and the default relay (the port's own).
+pub const SUMMARY_CUSTOM: &str = "Custom games";
+pub const SUMMARY_QUEUE: &str = "Matchmaking";
+/// A way of the summary: its words, and what they mean ('' none), dim after them.
+pub fn way(w: Way) -> (&'static str, &'static str) {
+    match w {
+        Way::Relay => ("Relay server", ""),
+        Way::Epic => ("Epic Online Services", ""),
+        Way::Lan => ("Local network", ""),
+        Way::Local => ("Local lobby", "this PC and bots only"),
+        Way::SigningIn => ("Signing in…", ""),
+        Way::Off => ("Not available", "needs the relay server or Epic"),
+        Way::SignedOut => ("Not available", "not signed in"),
+    }
+}
+/// A change the running game takes once its lobby or queue closes.
+pub const APPLIES_LATER: &str = "Applies when you leave the lobby";
+/// Under the relay's box: online.json's relay, and where it is hosted when the file says.
+pub fn relay_default(address: &str, region: &str) -> String {
+    if region.is_empty() { format!("Default: {address}") } else { format!("Default: {address} (hosted in {region})") }
+}
+pub const USE_DEFAULT: &str = "Use default";
+/// What the default relay's region means for a player far from it.
+pub fn relay_region(region: &str) -> String {
+    format!(
+        "Far from {region}? You still play: a far match goes over Epic when it is on, and the lobby shows the ping."
+    )
 }
 
 // The Online tab's Test connection and its Advanced fold (the port's own).

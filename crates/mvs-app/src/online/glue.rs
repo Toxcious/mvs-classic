@@ -6,6 +6,7 @@ use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::{Mutex, PoisonError};
+use std::time::{Duration, Instant, SystemTime};
 
 use mvs_net::backend::eos::{EosFiles, EosOptions};
 use mvs_net::link::relay::NetFaults;
@@ -171,8 +172,19 @@ pub fn start(
     } else {
         // (a player's run: the backends held back until the gate's checks let them, apply_gate)
         let release = mvs_settings::online::read_online_config(file, &mut |_| {});
-        *HELD.lock().unwrap_or_else(PoisonError::into_inner) =
-            Some(Held { backends: b, direct: d, on: false, release });
+        *HELD.lock().unwrap_or_else(PoisonError::into_inner) = Some(Held {
+            backends: b,
+            direct: d,
+            on: false,
+            release,
+            file: file.to_path_buf(),
+            data: data.to_path_buf(),
+            loopback,
+            faults,
+            setting: settings.online.clone(),
+            stamp: settings_stamp(data),
+            looked: None,
+        });
         super::gate::arm(&mut hub, mvs_release::FEED, mvs_release::VERSION);
     }
     (handle, Rc::new(RefCell::new(hub)))
@@ -202,6 +214,25 @@ struct Held {
     on: bool,
     /// online.json's values (keep_known_relays: the release's relay is never kept).
     release: OnlineConfig,
+    /// What the backends are built from again when the launcher changes the online settings (follow_settings):
+    /// online.json, the data folder, start's switches.
+    file: PathBuf,
+    data: PathBuf,
+    loopback: bool,
+    faults: NetFaults,
+    /// The player's online setting the backends were last built from, the settings file's time then, and when the
+    /// file was last looked at.
+    setting: OnlineSetting,
+    stamp: Option<SystemTime>,
+    looked: Option<Instant>,
+}
+
+/// How often the menus look at the settings file for a change the launcher made.
+const SETTINGS_EVERY: Duration = Duration::from_secs(1);
+
+/// The settings file's last write (None: none, or not readable).
+fn settings_stamp(data: &Path) -> Option<SystemTime> {
+    std::fs::metadata(data.join(mvs_settings::FILE)).and_then(|m| m.modified()).ok()
 }
 
 /// The run's held backends (one game a process; None: a dev config's run, whose backends went at once).
@@ -229,6 +260,55 @@ pub fn apply_gate(net: &NetHandle, gate: Option<&super::gate::Gate>) {
         eprintln!("mvs: online: {gate:?}: the online backends stop");
     }
     net.backends(b, h.direct.clone());
+}
+
+/// Each frame of the menus, at most every SETTINGS_EVERY: when the settings file changed (the launcher's Online tab
+/// writes it), the player's online setting read again and the backends built from it again; when they changed, the
+/// service takes them at once while no custom lobby or queue is open, else once it closes
+/// (`NetHandle::backends_when_free`). While a gate is set they are only kept: `apply_gate` sends them when it lifts.
+/// A dev config's run is left as it is (no HELD).
+pub fn follow_settings(net: &NetHandle) {
+    let mut held = HELD.lock().unwrap_or_else(PoisonError::into_inner);
+    let Some(h) = held.as_mut() else { return };
+    if h.looked.is_some_and(|t| t.elapsed() < SETTINGS_EVERY) {
+        return;
+    }
+    h.looked = Some(Instant::now());
+    if h.reread() && h.on {
+        eprintln!("mvs: online: the online settings changed in the settings file: the backends follow");
+        net.backends_when_free(h.backends.clone(), h.direct.clone());
+    }
+}
+
+impl Held {
+    /// The settings file read again when it changed since the last look, and the backends built again from its
+    /// online setting: true when they changed.
+    fn reread(&mut self) -> bool {
+        let stamp = settings_stamp(&self.data);
+        if stamp == self.stamp {
+            return false;
+        }
+        self.stamp = stamp;
+        let mut disk = Settings::load(&self.data);
+        if disk.online == self.setting {
+            return false;
+        }
+        self.setting = disk.online.clone();
+        // (the relays this run said yes to and has not saved yet stay; the file's id wins for a relay both know, the
+        // launcher's trust of a new key)
+        for k in &self.backends.known_relays {
+            if disk.online.known_relay(&k.address).is_none() {
+                disk.online.known_relays.push(k.clone());
+            }
+        }
+        let (b, d) = backends_of(&self.file, &disk, &self.data, self.loopback, false, self.faults);
+        if b == self.backends && d == self.direct {
+            return false;
+        }
+        self.backends = b;
+        self.direct = d;
+        true
+    }
 }
 
 /// Each frame of the menus: the relays the player said yes to since the last frame, and the ids they proved, kept in
@@ -458,6 +538,58 @@ mod tests {
 
     fn known(a: &str, id: Option<&str>) -> KnownRelay {
         KnownRelay { address: a.into(), id: id.map(str::to_string) }
+    }
+
+    /// The launcher's change of the online settings in the settings file: the backends built again from it (the
+    /// relay switched off: none; the address kept), nothing for a change of another setting or none, and a relay this
+    /// run said yes to and has not saved is kept.
+    #[test]
+    fn the_backends_follow_the_settings_file() {
+        let dir = std::env::temp_dir().join(format!("mvs-glue-follow-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("made");
+        let file = dir.join("online.json");
+        std::fs::write(&file, r#"{ "relay": "relay.example", "eos": false, "lan": null, "direct": false }"#)
+            .expect("written");
+        let mut settings = Settings::default();
+        settings.save(&dir).expect("saved");
+        let (backends, direct) = backends_of(&file, &settings, &dir, true, false, NetFaults::default());
+        let mut h = Held {
+            backends,
+            direct,
+            on: true,
+            release: mvs_settings::online::read_online_config(&file, &mut |_| {}),
+            file,
+            data: dir.clone(),
+            loopback: true,
+            faults: NetFaults::default(),
+            setting: settings.online.clone(),
+            stamp: settings_stamp(&dir),
+            looked: None,
+        };
+        assert!(h.backends.relay.is_some());
+        assert!(!h.reread(), "nothing written");
+        // (the file's time may not move between two writes this close: each look below forgets it)
+        let found = known("found.example:9000", Some(ID_A));
+        h.backends.known_relays.push(found.clone());
+        settings.ui.invites = !settings.ui.invites;
+        settings.save(&dir).expect("saved");
+        h.stamp = None;
+        assert!(!h.reread(), "another setting");
+        settings.online.relay_on = Some(false);
+        settings.save(&dir).expect("saved");
+        h.stamp = None;
+        assert!(h.reread(), "the relay switched off");
+        assert_eq!(h.backends.relay, None);
+        assert_eq!(h.backends.known_relays, vec![found]);
+        h.stamp = None;
+        assert!(!h.reread(), "the same again");
+        settings.online.relay_on = None;
+        settings.save(&dir).expect("saved");
+        h.stamp = None;
+        assert!(h.reread(), "on again");
+        assert_eq!(h.backends.relay.as_ref().map(|r| r.address.as_str()), Some("relay.example"));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// A custom lobby's Chaos Wheel reaches the sim as the rule the dev switch gives.

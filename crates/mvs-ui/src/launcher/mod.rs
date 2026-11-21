@@ -199,12 +199,48 @@ pub struct Shortcuts {
     pub start_menu: bool,
 }
 
+/// (the port's own) Where custom games or matchmaking go, as the Online tab's summary says it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Way {
+    #[default]
+    Relay,
+    Epic,
+    Lan,
+    /// A custom game with no connection: a local lobby, this PC's players and bots.
+    Local,
+    /// The game signs in still.
+    SigningIn,
+    /// Matchmaking with the relay and Epic both off.
+    Off,
+    /// Matchmaking with the relay or Epic on, neither signed in.
+    SignedOut,
+}
+
+/// (the port's own) The Online tab's summary: where custom games and matchmaking go, from the switches while no game
+/// runs, else from the game's own net state.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct OnlineSummary {
+    pub custom: Way,
+    pub queue: Way,
+}
+
 /// The settings' Online tab (launcher.ts drawOnline): the config the program runs on and each backend's line. A
 /// `Note` with no text is hidden. The boxes' text is the page's while one has the focus.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct OnlineSettingsView {
-    /// The relay's address ('' none).
+    /// (the port's own) Where custom games and matchmaking go, and a change the running game holds until its lobby
+    /// or queue closes.
+    pub summary: OnlineSummary,
+    pub held: bool,
+    /// The relay's address ('' none), kept while its switch is off; the switch.
     pub relay: String,
+    pub relay_on: bool,
+    /// (the port's own) online.json's relay ('' none: no hint, no "Use default") and where it is hosted ('' not said).
+    pub relay_default: String,
+    pub relay_region: String,
+    /// (the port's own) What the default relay's region means for a far player, under the relay's switch while its
+    /// address is the default ('' hidden).
+    pub relay_far: String,
     pub eos: bool,
     /// LAN's port; None: LAN is off.
     pub lan: Option<u16>,
@@ -228,7 +264,7 @@ pub struct OnlineSettingsView {
     /// The last Test connection's lines (none: not run), and a test under way.
     pub test: Vec<Note>,
     pub testing: bool,
-    /// The Advanced fold (the four switches) is open.
+    /// The Advanced fold (LAN's port and the direct links) is open.
     pub advanced: bool,
 }
 
@@ -323,7 +359,8 @@ pub enum Action {
     /// The port box's text, RELAY_TYPE_MS after the last key / on Enter: saved when it is a port.
     PortTyped(String),
     PortEnter(String),
-    /// The Epic, LAN and direct-link switches clicked.
+    /// The relay's, Epic's, LAN's and the direct links' switches clicked.
+    ToggleRelay,
     ToggleEos,
     ToggleLan,
     ToggleDirect,
@@ -461,6 +498,11 @@ impl LauncherUi {
     pub fn open_note(&mut self, k: Option<usize>) {
         self.page.note = k;
         self.page.note_scroll = 0.0;
+    }
+
+    /// The Online tab scrolled `px` down as the wheel would (a tool's pictures; its draw clamps it to the foot).
+    pub fn scroll_online(&mut self, px: f32) {
+        self.page.online_scroll = px;
     }
 
     /// An overlay opened as a click would (a tool's pictures of each screen): the guide, the settings at `tab`

@@ -446,6 +446,8 @@ pub struct NetService {
     /// The pages whose session left a relay of another version: their open, taken on to the next connection once the
     /// session is back out of the call.
     reopens: Vec<(PageId, SessionTarget)>,
+    /// Backends handed over while a session was open (`NetHandle::backends_when_free`), taken once none is.
+    held_backends: Option<(Box<OnlineBackends>, DirectOptions)>,
 }
 
 /// A link of its own to a relay under way (sessions.ts relayLinks' entry before its link is up): every join to that
@@ -536,6 +538,7 @@ impl NetService {
             slow: false,
             relay_other: None,
             reopens: Vec::new(),
+            held_backends: None,
         }
     }
 
@@ -1193,6 +1196,41 @@ impl NetService {
         // (turned off: forced from the next link on; turned on: for the friend games opened from now on)
         self.relay_check(now);
         self.settle(now);
+    }
+
+    /// A custom lobby or a queue is open (or a page's open is on its way to the next connection): a change of the
+    /// backends then waits (`hold_backends`).
+    pub fn session_open(&self) -> bool {
+        !self.reopens.is_empty() || self.pages.values().any(|p| p.session.is_some())
+    }
+
+    /// Backends the player changed while the game runs: given back to be set now when no session is open, else
+    /// held (a newer change replacing it) until `free_backends` gives them, once the session is over.
+    pub fn hold_backends(
+        &mut self,
+        b: Box<OnlineBackends>,
+        d: DirectOptions,
+    ) -> Option<(Box<OnlineBackends>, DirectOptions)> {
+        self.held_backends = Some((b, d));
+        self.free_backends()
+    }
+
+    /// The backends held, once no session is open.
+    pub fn free_backends(&mut self) -> Option<(Box<OnlineBackends>, DirectOptions)> {
+        if self.session_open() {
+            return None;
+        }
+        self.held_backends.take()
+    }
+
+    /// Backends set at once (`NetHandle::backends`, the update gate's): a change held before is dropped.
+    pub fn drop_held_backends(&mut self) {
+        self.held_backends = None;
+    }
+
+    /// A change of the backends waits for the session to close.
+    pub fn backends_held(&self) -> bool {
+        self.held_backends.is_some()
     }
 
     /// This install's key and names, for a link of a session's own whatever is signed in.
@@ -2614,6 +2652,8 @@ pub struct PagePort {
 enum ToService {
     Page(Sender<NetEvent>, Receiver<NetRequest>),
     Backends(Box<OnlineBackends>, DirectOptions),
+    /// The player's change: at once when no session is open, else once it closes.
+    BackendsWhenFree(Box<OnlineBackends>, DirectOptions),
     Quit,
 }
 
@@ -2643,8 +2683,15 @@ impl NetHandle {
     }
 
     /// Every backend of the online config, and this install's direct options (at the start and on each change).
+    /// A change these replace that waits for a session to close is dropped.
     pub fn backends(&self, b: OnlineBackends, direct: DirectOptions) {
         let _ = self.tx.send(ToService::Backends(Box::new(b), direct));
+    }
+
+    /// The backends the player changed while the game runs: set at once when no custom lobby or queue is open, else
+    /// held until it closes (`NetState::held` says so meanwhile); a newer change replaces one held.
+    pub fn backends_when_free(&self, b: OnlineBackends, direct: DirectOptions) {
+        let _ = self.tx.send(ToService::BackendsWhenFree(Box::new(b), direct));
     }
 
     /// Every backend's sign-in, as last told (the relay, Epic and LAN).
@@ -2722,8 +2769,15 @@ fn run(mut o: ServiceOptions, rx: Receiver<ToService>, state: Arc<Mutex<HandleSt
                     pages.push((id, tx, rx));
                 }
                 Ok(ToService::Backends(b, d)) => {
+                    svc.drop_held_backends();
                     svc.set_direct(Some(d));
                     signin.set(&mut svc, *b, now);
+                }
+                Ok(ToService::BackendsWhenFree(b, d)) => {
+                    if let Some((b, d)) = svc.hold_backends(b, d) {
+                        svc.set_direct(Some(d));
+                        signin.set(&mut svc, *b, now);
+                    }
                 }
                 Ok(ToService::Quit) | Err(std::sync::mpsc::TryRecvError::Disconnected) => {
                     if quitting.is_none() {
@@ -2754,6 +2808,11 @@ fn run(mut o: ServiceOptions, rx: Receiver<ToService>, state: Arc<Mutex<HandleSt
             pages.retain(|p| p.0 != id);
         }
         svc.pump(now);
+        // (a change held while a session was open, once it is over)
+        if let Some((b, d)) = svc.free_backends() {
+            svc.set_direct(Some(d));
+            signin.set(&mut svc, *b, now);
+        }
         for n in svc.take_notes() {
             match n {
                 ServiceNote::SignedOut(k, why) => signin.signed_out(&mut svc, k, &why, now),
@@ -2775,6 +2834,7 @@ fn run(mut o: ServiceOptions, rx: Receiver<ToService>, state: Arc<Mutex<HandleSt
                 direct: st.direct.clone(),
                 relay: svc.config.relay.clone(),
                 udp: svc.udp(),
+                held: svc.backends_held(),
             };
             drop(st);
             if told.as_ref() != Some(&now_state) {

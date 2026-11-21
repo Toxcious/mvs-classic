@@ -316,7 +316,8 @@ fn note_line(c: &mut Canvas, n: &super::Note, x: f32, y: f32, wd: f32) -> f32 {
 /// A text box of the Online tab (styles.css .field): its text, or the placeholder, and the caret while it has the
 /// focus; whether it was clicked.
 #[allow(clippy::too_many_arguments)]
-fn field(c: &mut Canvas, r: [f32; 4], text: &str, placeholder: &str, focused: bool, bad: bool) -> bool {
+/// `dim`: its text dim (the relay's box while its switch is off).
+fn field(c: &mut Canvas, r: [f32; 4], text: &str, placeholder: &str, focused: bool, bad: bool, dim: bool) -> bool {
     let border = if bad {
         BAD
     } else if focused {
@@ -331,7 +332,7 @@ fn field(c: &mut Canvas, r: [f32; 4], text: &str, placeholder: &str, focused: bo
     if text.is_empty() {
         c.text_cut(Face::Body, 15.0, r[0] + pad, ty, lh, placeholder, FAINT, r[2] - 2.0 * pad);
     } else {
-        c.text_cut(Face::Body, 15.0, r[0] + pad, ty, lh, text, WHITE, r[2] - 2.0 * pad);
+        c.text_cut(Face::Body, 15.0, r[0] + pad, ty, lh, text, if dim { DIM } else { WHITE }, r[2] - 2.0 * pad);
     }
     if focused && (c.t * 2.0).floor() % 2.0 == 0.0 {
         let tw = c.width(Face::Body, 15.0, 0.0, text).min(r[2] - 2.0 * pad);
@@ -380,9 +381,9 @@ fn mark(c: &mut Canvas, at: [f32; 2], t: Tone, running: bool) {
     }
 }
 
-/// The Online tab (launcher.ts index.html data-pane="online"): the one line of online play, Test connection and its
-/// lines with Copy (the port's own), then under the Advanced fold the relay's address, Epic, LAN with its port, and
-/// the direct links, each with its sign-in line.
+/// The Online tab (launcher.ts index.html data-pane="online"): where custom games and matchmaking go, the one line of
+/// online play, Test connection and its lines with Copy (the port's own), then the relay's switch with its address,
+/// Epic's and LAN's switches, each with its sign-in line, and under the Advanced fold LAN's port and the direct links.
 /// The pane scrolls in `r` (x, y, width, height) when the fold and the test's lines pass its foot.
 fn online_pane(c: &mut Canvas, o: &super::OnlineSettingsView, st: &mut PageState, r: [f32; 4], out: &mut Vec<Action>) {
     let mut scroll = st.online_scroll;
@@ -400,7 +401,7 @@ fn online_lines(
     y: f32,
     out: &mut Vec<Action>,
 ) -> f32 {
-    let mut y = y + 16.0;
+    let mut y = online_summary(c, o, x, y + 16.0) + 14.0;
     // (the port's own) The status card: the one line of online play behind its glowing dot, Test connection and
     // Copy result at its right, or under it when the line would wrap beside them.
     let pad = 16.0;
@@ -483,33 +484,37 @@ fn online_lines(
     }
     y += 16.0;
     c.hline(x, y, wd, LINE);
-    y += 12.0;
-    // the fold: its label and a chevron, the switches under it while open
-    let fold = [x, y, wd, 24.0];
-    let hover = c.hover(fold);
-    c.text(Face::Bold, 15.0, x, y + 2.0, 20.0, w::ADVANCED, if hover { WHITE } else { DIM });
-    let (cx, cy) = (x + wd - 10.0, y + 12.0);
-    let k = 5.0;
-    let path: [[f32; 2]; 3] = if o.advanced {
-        [[cx - k, cy - k * 0.5], [cx, cy + k * 0.5], [cx + k, cy - k * 0.5]]
-    } else {
-        [[cx - k * 0.5, cy - k], [cx + k * 0.5, cy], [cx - k * 0.5, cy + k]]
-    };
-    c.path(&path, 1.8, if hover { WHITE } else { DIM });
-    if c.clicked(fold) {
-        out.push(Action::ToggleAdvanced);
-    }
-    y += 24.0;
-    if !o.advanced {
-        // (a box folded away lets the keyboard go)
-        st.focus = super::Focus::None;
-        return y + 16.0;
-    }
-    online_switches(c, o, st, x, wd, y + 12.0, out) + 16.0
+    online_switches(c, o, st, x, wd, y + 17.0, out) + 16.0
 }
 
-/// The Online tab's Advanced fold: the relay's address, Epic, LAN with its port, and the direct links, each with its
-/// sign-in line; the y after it.
+/// (the port's own) The summary at the tab's top: where custom games and matchmaking go, one row each, and the line
+/// of a change the running game holds; the y after it.
+fn online_summary(c: &mut Canvas, o: &super::OnlineSettingsView, x: f32, y: f32) -> f32 {
+    use super::Way;
+    let (px, lh) = (15.0, 15.0 * 1.45);
+    let rows = [(w::SUMMARY_CUSTOM, o.summary.custom), (w::SUMMARY_QUEUE, o.summary.queue)];
+    let lw = rows.iter().map(|(l, _)| c.width(Face::Body, px, 0.0, l)).fold(0.0, f32::max) + 20.0;
+    let mut y = y;
+    for (label, way) in rows {
+        // (the body face sits lower in its line than the semibold one: lifted onto the words' baseline)
+        c.text(Face::Body, px, x, y - 1.5, lh, label, DIM);
+        let (words, why) = w::way(way);
+        let col = if matches!(way, Way::Off | Way::SignedOut) { WARN } else { WHITE };
+        let ww = c.text(Face::Semi, px, x + lw, y, lh, words, col);
+        if !why.is_empty() {
+            c.text(Face::Body, px, x + lw + ww + 8.0, y - 1.5, lh, why, DIM);
+        }
+        y += lh + 4.0;
+    }
+    if o.held {
+        c.text(Face::Body, 14.0, x, y + 2.0, 14.0 * 1.45, w::APPLIES_LATER, WARN);
+        y += 2.0 + 14.0 * 1.45 + 4.0;
+    }
+    y - 4.0
+}
+
+/// The Online tab's connections: the relay's switch with its address box and the default relay under it, Epic's and
+/// LAN's switches, each with its sign-in line, then the Advanced fold (LAN's port, the direct links); the y after it.
 fn online_switches(
     c: &mut Canvas,
     o: &super::OnlineSettingsView,
@@ -527,18 +532,40 @@ fn online_switches(
     if st.focus != Focus::Port {
         st.port_box.clone_from(&o.lan_port);
     }
-    c.text(Face::Bold, 15.0, x, y, 15.0 * 1.45, w::RELAY, WHITE);
-    y += 15.0 * 1.45 + 4.0;
-    y += c.para(Face::Body, 14.0, 14.0 * 1.45, x, y, wd, w::RELAY_DESC, DIM);
+    let (hit, ny) = switch(c, x, y, wd, w::RELAY, w::RELAY_DESC, o.relay_on);
+    if hit {
+        out.push(Action::ToggleRelay);
+    }
+    y = ny;
+    if !o.relay_far.is_empty() {
+        y += 4.0 + c.para(Face::Body, 13.5, 13.5 * 1.45, x, y + 4.0, wd, &o.relay_far, FAINT);
+    }
     y += 10.0;
     let rb = [x, y, wd, 38.0];
     let relay_text = st.relay_box.clone();
-    let hit = field(c, rb, &relay_text, w::RELAY_PLACEHOLDER, st.focus == Focus::Relay, o.relay_bad);
+    let hit = field(c, rb, &relay_text, w::RELAY_PLACEHOLDER, st.focus == Focus::Relay, o.relay_bad, !o.relay_on);
     let mut inside = hit || c.hover(rb);
     if hit {
         st.focus = Focus::Relay;
     }
     y += 38.0;
+    // (the default relay under the box, and "Use default" at its right while the box holds another address or none)
+    if !o.relay_default.is_empty() {
+        y += 6.0;
+        let lh = 13.5 * 1.45;
+        let hint = w::relay_default(&o.relay_default, &o.relay_region);
+        c.text_cut(Face::Body, 13.5, x, y, lh, &hint, FAINT, wd - 120.0);
+        if st.relay_box.trim() != o.relay_default {
+            let uw = c.width(Face::Semi, 13.5, 0.0, w::USE_DEFAULT);
+            let ur = [x + wd - uw, y, uw, lh];
+            let hover = c.hover(ur);
+            c.text(Face::Semi, 13.5, ur[0], y, lh, w::USE_DEFAULT, if hover { WHITE } else { ORANGE });
+            if c.clicked(ur) {
+                out.push(Action::RelayEnter(o.relay_default.clone()));
+            }
+        }
+        y += lh;
+    }
     y = note_line(c, &o.relay_status, x, y, wd);
     y = note_line(c, &o.relay_now, x, y, wd);
     y += 16.0;
@@ -556,28 +583,52 @@ fn online_switches(
     if hit {
         out.push(Action::ToggleLan);
     }
-    y = ny;
-    if o.lan.is_some() {
-        y += 10.0;
-        c.text(Face::Body, 14.0, x, y + 9.0, 14.0 * 1.45, w::PORT, DIM);
-        let pb = [x + 48.0, y, 90.0, 38.0];
-        let port_text = st.port_box.clone();
-        let hit = field(c, pb, &port_text, "", st.focus == Focus::Port, o.port_bad);
-        inside |= hit || c.hover(pb);
-        if hit {
-            st.focus = Focus::Port;
-        }
-        y += 38.0;
-    }
-    y = note_line(c, &o.lan_now, x, y, wd);
+    y = note_line(c, &o.lan_now, x, ny, wd);
     y += 16.0;
     c.hline(x, y, wd, LINE);
-    y += 17.0;
-    let (hit, ny) = switch(c, x, y, wd, w::DIRECT_LABEL, w::DIRECT_DESC, o.direct);
-    if hit {
-        out.push(Action::ToggleDirect);
+    y += 12.0;
+    // the fold: its label and a chevron, LAN's port and the direct links under it while open
+    let fold = [x, y, wd, 24.0];
+    let hover = c.hover(fold);
+    c.text(Face::Bold, 15.0, x, y + 2.0, 20.0, w::ADVANCED, if hover { WHITE } else { DIM });
+    let (cx, cy) = (x + wd - 10.0, y + 12.0);
+    let k = 5.0;
+    let path: [[f32; 2]; 3] = if o.advanced {
+        [[cx - k, cy - k * 0.5], [cx, cy + k * 0.5], [cx + k, cy - k * 0.5]]
+    } else {
+        [[cx - k * 0.5, cy - k], [cx + k * 0.5, cy], [cx - k * 0.5, cy + k]]
+    };
+    c.path(&path, 1.8, if hover { WHITE } else { DIM });
+    if c.clicked(fold) {
+        out.push(Action::ToggleAdvanced);
     }
-    let y = note_line(c, &o.direct_now, x, ny, wd);
+    y += 24.0;
+    if o.advanced {
+        y += 12.0;
+        // (LAN's port while LAN is on: a port typed with LAN off would turn it on)
+        if o.lan.is_some() {
+            c.text(Face::Bold, 15.0, x, y + 9.0, 20.0, w::LAN_PORT, WHITE);
+            let lw = c.width(Face::Bold, 15.0, 0.0, w::LAN_PORT);
+            let pb = [x + lw + 16.0, y, 90.0, 38.0];
+            let port_text = st.port_box.clone();
+            let hit = field(c, pb, &port_text, "", st.focus == Focus::Port, o.port_bad, false);
+            inside |= hit || c.hover(pb);
+            if hit {
+                st.focus = Focus::Port;
+            }
+            y += 38.0 + 16.0;
+            c.hline(x, y, wd, LINE);
+            y += 17.0;
+        }
+        let (hit, ny) = switch(c, x, y, wd, w::DIRECT_LABEL, w::DIRECT_DESC, o.direct);
+        if hit {
+            out.push(Action::ToggleDirect);
+        }
+        y = note_line(c, &o.direct_now, x, ny, wd);
+    } else if st.focus == Focus::Port {
+        // (a box folded away lets the keyboard go)
+        st.focus = Focus::None;
+    }
     // a click outside both boxes lets the keyboard go
     if c.pointer.click && !inside {
         st.focus = Focus::None;

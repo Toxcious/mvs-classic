@@ -1,4 +1,4 @@
-//! The launcher's Online tab ("Online (Settings > Online)"): the relay's address, Epic, LAN
+//! The launcher's Online tab ("Online (Settings > Online)"): the relay's switch and address, Epic, LAN
 //! and its port and the direct links over online.json's, saved into the player's settings. The look at a typed
 //! address runs on a thread and only the newest look's answer is shown or saved.
 //!
@@ -12,8 +12,11 @@
 //! (mvs_net NetState, read from the data folder's NET_STATE_FILE).
 //! Deviation: the net service is the game's, so with no game running the lines say only what each switch says (a
 //! net process does not run with the launcher).
-//! Above the switches (folded under Advanced) the menus' one line of online play, from the game's net state while it
-//! runs, else from the last Test connection (net_test.rs, a child process), whose lines it lists.
+//! At the top (the port's own) where custom games and matchmaking go (`summary_of_config`, `summary_of_state`); under
+//! it the menus' one line of online play, from the game's net state while it runs, else from the last Test connection
+//! (net_test.rs, a child process), whose lines it lists.
+//! A change the player makes reaches a running game through the settings file (glue.rs follow_settings): at once in
+//! the menus, else once its lobby or queue closes (NetState::held, "Applies when you leave the lobby").
 
 use std::io::Read;
 use std::path::Path;
@@ -31,9 +34,9 @@ use mvs_ui::menu::online_text::{host_start_why_text, off_why_text};
 
 use mvs_protocol::relay_wire::{KnownRelay, RELAY_PORT, parse_address};
 use mvs_settings::online::{
-    LAN_DISCOVERY_PORT, OnlineConfig, OnlineSetting, effective_online, read_online_config, same_address,
+    LAN_DISCOVERY_PORT, OnlineConfig, OnlineSetting, effective_online, read_online_config, relay_address, same_address,
 };
-use mvs_ui::launcher::{Note, OnlineSettingsView, Tone, words as w};
+use mvs_ui::launcher::{Note, OnlineSettingsView, OnlineSummary, Tone, Way, words as w};
 
 use super::game::GameArgs;
 use super::net_test::{self, LanPort, TestResult, TestUses};
@@ -220,19 +223,18 @@ impl OnlineTab {
     /// What the tab draws from the player's setting.
     pub fn view(&self, s: &OnlineSetting) -> OnlineSettingsView {
         let c = self.effective(s);
-        let relay_now = if c.relay.as_deref().is_some_and(|r| !r.is_empty()) {
+        let address = relay_address(&self.file, s).unwrap_or_default();
+        let relay_now = if c.relay.is_some() {
             Note::default()
+        } else if s.relay_on == Some(false) {
+            Note::new(w::RELAY_OFF, Tone::Plain)
         } else {
-            Note::new(
-                match (c.eos, c.lan.is_some()) {
-                    (true, true) => w::NO_RELAY_EPIC_LAN,
-                    (true, false) => w::NO_RELAY_EPIC,
-                    (false, true) => w::NO_RELAY_LAN,
-                    (false, false) => w::NO_RELAY_NONE,
-                },
-                Tone::Plain,
-            )
+            Note::new(w::RELAY_NO_ADDRESS, Tone::Plain)
         };
+        let default = self.file.relay.clone().unwrap_or_default();
+        let region = self.file.relay_region.clone().unwrap_or_default();
+        // (what the region means, while the default relay is on: another relay's region is not known)
+        let far = !region.is_empty() && c.relay.as_deref().is_some_and(|r| same_address(r, &default));
         let lan_now = if c.lan.is_none() {
             Note::new(w::LAN_OFF, Tone::Plain)
         } else if self.lan_line.text.is_empty() {
@@ -248,7 +250,13 @@ impl OnlineTab {
         let epic_now = self.backend_line(BackendKind::Epic, w::EPIC_SIGNED_IN, epic_off.clone()).unwrap_or(epic_off);
         let (line, line_detail) = self.line(&c);
         OnlineSettingsView {
-            relay: c.relay.clone().unwrap_or_default(),
+            summary: self.net.as_ref().map_or_else(|| summary_of_config(&c), summary_of_state),
+            held: self.net.as_ref().is_some_and(|n| n.held),
+            relay: address,
+            relay_on: c.relay.is_some(),
+            relay_far: if far { w::relay_region(&region) } else { String::new() },
+            relay_default: default,
+            relay_region: region,
             eos: c.eos,
             lan: c.lan,
             lan_port: c.lan.or(self.file.lan).unwrap_or(RELAY_PORT).to_string(),
@@ -407,6 +415,19 @@ impl OnlineTab {
         changed.then_some(said)
     }
 
+    /// The relay's switch: off keeps the address (D6); on with no address takes online.json's.
+    pub fn toggle_relay(&self, s: &mut OnlineSetting) -> String {
+        if self.effective(s).relay.is_some() {
+            s.relay_on = Some(false);
+            return w::RELAY_OFF_SAVED.to_string();
+        }
+        s.relay_on = None;
+        if relay_address(&self.file, s).is_none() {
+            s.relay = None;
+        }
+        w::RELAY_ON_SAVED.to_string()
+    }
+
     pub fn toggle_eos(&self, s: &mut OnlineSetting) -> String {
         let on = !self.effective(s).eos;
         s.eos = (self.file.eos != on).then_some(on);
@@ -526,6 +547,65 @@ impl OnlineTab {
             }
         }
     }
+}
+
+/// (the port's own) Where custom games and matchmaking go with no game running, from the switches (the net service's
+/// order, service.rs open: the relay, then Epic, then LAN, else a local lobby; the queue on the relay or Epic alone).
+// Unverified: whether each one signs in is not known before the game runs; the summary says where it would go.
+pub fn summary_of_config(c: &OnlineConfig) -> OnlineSummary {
+    let custom = if c.relay.is_some() {
+        Way::Relay
+    } else if c.eos {
+        Way::Epic
+    } else if c.lan.is_some() {
+        Way::Lan
+    } else {
+        Way::Local
+    };
+    let queue = if c.relay.is_some() {
+        Way::Relay
+    } else if c.eos {
+        Way::Epic
+    } else {
+        Way::Off
+    };
+    OnlineSummary { custom, queue }
+}
+
+/// (the port's own) Where custom games and matchmaking go while the game runs, from its net state: the first of the
+/// order signed in (LAN: listening); else signing in while one on still is; else a local lobby, and matchmaking not
+/// available (signed out when the relay or Epic is on, else off).
+pub fn summary_of_state(n: &NetState) -> OnlineSummary {
+    let of = |k: BackendKind| n.backends.iter().find(|b| b.kind == k && b.on);
+    let up = |k: BackendKind| of(k).is_some_and(|b| b.online);
+    let pending = |k: BackendKind| {
+        of(k).is_some_and(|b| !b.online && matches!(b.why, None | Some(OffWhy::SigningIn | OffWhy::Connecting { .. })))
+    };
+    let all = [BackendKind::Relay, BackendKind::Epic, BackendKind::Lan];
+    let custom = if up(BackendKind::Relay) {
+        Way::Relay
+    } else if up(BackendKind::Epic) {
+        Way::Epic
+    } else if up(BackendKind::Lan) {
+        Way::Lan
+    } else if all.into_iter().any(pending) {
+        Way::SigningIn
+    } else {
+        Way::Local
+    };
+    let online = [BackendKind::Relay, BackendKind::Epic];
+    let queue = if up(BackendKind::Relay) {
+        Way::Relay
+    } else if up(BackendKind::Epic) {
+        Way::Epic
+    } else if online.into_iter().any(pending) {
+        Way::SigningIn
+    } else if online.into_iter().any(|k| of(k).is_some()) {
+        Way::SignedOut
+    } else {
+        Way::Off
+    };
+    OnlineSummary { custom, queue }
 }
 
 /// The game's sign-in as its net state has it (the menus' NetStatus): online while any backend is, else each one
@@ -657,6 +737,7 @@ mod tests {
             }),
             relay: Some("relay.example.org".into()),
             udp: Some(true),
+            held: false,
         });
         let v = tab.view(&s);
         assert_eq!(v.relay_now, Note::new(w::relay_connected("relay.example.org"), Tone::Ok));
@@ -684,7 +765,8 @@ mod tests {
     /// A tab over an online.json whose relay is `relay.example` pinned to ID_A.
     fn pinned_tab() -> OnlineTab {
         let mut tab = OnlineTab::new(Path::new("no such online.json"));
-        tab.file = OnlineConfig { relay: Some("relay.example".into()), relay_id: Some(ID_A.into()), ..tab.file };
+        tab.file =
+            OnlineConfig { relay: Some("relay.example".into()), relay_id: Some(ID_A.into()), ..tab.file.clone() };
         tab
     }
 
@@ -765,5 +847,125 @@ mod tests {
         assert_eq!(read(&mut tab, OffWhy::Retrying { text: "refused".into(), in_ms: 2000 }), not_reached);
         assert_eq!(read(&mut tab, OffWhy::Connecting { address: "relay.example.org".into() }), not_reached);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    fn config(relay: bool, eos: bool, lan: bool) -> OnlineConfig {
+        OnlineConfig {
+            relay: relay.then(|| "relay.example".to_string()),
+            eos,
+            lan: lan.then_some(7777),
+            ..OnlineConfig::default()
+        }
+    }
+
+    fn summary(custom: Way, queue: Way) -> OnlineSummary {
+        OnlineSummary { custom, queue }
+    }
+
+    /// With no game running: the relay, else Epic, else LAN, else a local lobby; matchmaking on the relay or Epic.
+    #[test]
+    fn the_summary_follows_the_switches() {
+        assert_eq!(summary_of_config(&config(true, true, true)), summary(Way::Relay, Way::Relay));
+        assert_eq!(summary_of_config(&config(false, true, true)), summary(Way::Epic, Way::Epic));
+        assert_eq!(summary_of_config(&config(false, false, true)), summary(Way::Lan, Way::Off));
+        assert_eq!(summary_of_config(&config(false, false, false)), summary(Way::Local, Way::Off));
+    }
+
+    /// While the game runs: the first signed in of the order, signing in while one on still is, else a local lobby
+    /// and matchmaking signed out (or off when the relay and Epic are).
+    #[test]
+    fn the_summary_follows_the_games_net_state() {
+        let b = |kind, online, why| BackendState { kind, on: true, online, why };
+        let state = |backends| NetState { backends, ..NetState::default() };
+        let relay_down = b(BackendKind::Relay, false, Some(OffWhy::Retrying { text: "refused".into(), in_ms: 2000 }));
+        let epic_up = b(BackendKind::Epic, true, None);
+        let lan_up = b(BackendKind::Lan, true, None);
+        let all_up = state(vec![b(BackendKind::Relay, true, None), epic_up.clone(), lan_up.clone()]);
+        assert_eq!(summary_of_state(&all_up), summary(Way::Relay, Way::Relay));
+        assert_eq!(summary_of_state(&state(vec![relay_down.clone(), epic_up])), summary(Way::Epic, Way::Epic));
+        assert_eq!(
+            summary_of_state(&state(vec![relay_down.clone(), lan_up.clone()])),
+            summary(Way::Lan, Way::SignedOut)
+        );
+        assert_eq!(summary_of_state(&state(vec![lan_up])), summary(Way::Lan, Way::Off));
+        let signing = b(BackendKind::Epic, false, Some(OffWhy::SigningIn));
+        assert_eq!(
+            summary_of_state(&state(vec![relay_down.clone(), signing])),
+            summary(Way::SigningIn, Way::SigningIn)
+        );
+        assert_eq!(summary_of_state(&state(vec![relay_down])), summary(Way::Local, Way::SignedOut));
+        // (a backend in the state but not on: as if absent)
+        let off = BackendState { kind: BackendKind::Relay, on: false, online: false, why: Some(OffWhy::Off) };
+        assert_eq!(summary_of_state(&state(vec![off])), summary(Way::Local, Way::Off));
+        assert_eq!(summary_of_state(&NetState::default()), summary(Way::Local, Way::Off));
+    }
+
+    /// A tab over an online.json whose relay is `relay.example` in Europe.
+    fn default_tab() -> OnlineTab {
+        let mut tab = OnlineTab::new(Path::new("no such online.json"));
+        tab.file = OnlineConfig {
+            relay: Some("relay.example".into()),
+            relay_region: Some("Europe".into()),
+            ..tab.file.clone()
+        };
+        tab
+    }
+
+    /// The relay's switch keeps the address typed; on with none takes the default; the default's hint and region
+    /// line; "Use default" (the box's Enter on the default's address) gives the setting back to online.json.
+    #[test]
+    fn the_relays_switch_keeps_its_address() {
+        let mut tab = default_tab();
+        let mut s = OnlineSetting::default();
+        let v = tab.view(&s);
+        assert_eq!((v.relay.as_str(), v.relay_on), ("relay.example", true));
+        assert_eq!((v.relay_default.as_str(), v.relay_region.as_str()), ("relay.example", "Europe"));
+        assert_eq!(v.relay_far, w::relay_region("Europe"));
+        assert_eq!(v.summary, summary(Way::Relay, Way::Relay));
+        // another address: no region line
+        assert_eq!(tab.set_relay(&mut s, "mine.example:9000"), Some(w::relay_saved("mine.example:9000")));
+        let v = tab.view(&s);
+        assert_eq!((v.relay.as_str(), v.relay_far.as_str()), ("mine.example:9000", ""));
+        // off: the address kept, the summary without the relay
+        assert_eq!(tab.toggle_relay(&mut s), w::RELAY_OFF_SAVED);
+        let v = tab.view(&s);
+        assert_eq!((v.relay.as_str(), v.relay_on), ("mine.example:9000", false));
+        assert_eq!(v.relay_now, Note::new(w::RELAY_OFF, Tone::Plain));
+        assert_eq!(v.relay_far, "");
+        assert_eq!(v.summary, summary(Way::Epic, Way::Epic));
+        assert_eq!(tab.effective(&s).relay, None);
+        // on again: the same address
+        assert_eq!(tab.toggle_relay(&mut s), w::RELAY_ON_SAVED);
+        assert_eq!(tab.effective(&s).relay.as_deref(), Some("mine.example:9000"));
+        // Use default: the setting follows online.json again
+        assert_eq!(tab.set_relay(&mut s, "relay.example"), Some(w::relay_saved("relay.example")));
+        assert_eq!(s.relay, None);
+        // an emptied box: no relay, the switch shown off; on again takes the default
+        tab.set_relay(&mut s, "");
+        let v = tab.view(&s);
+        assert_eq!((v.relay.as_str(), v.relay_on), ("", false));
+        assert_eq!(v.relay_now, Note::new(w::RELAY_NO_ADDRESS, Tone::Plain));
+        tab.toggle_relay(&mut s);
+        assert_eq!(s, OnlineSetting::default());
+    }
+
+    /// The other switches as before, each against online.json's value; a running game's held change shows.
+    #[test]
+    fn the_switches_and_a_held_change() {
+        let mut tab = default_tab();
+        let mut s = OnlineSetting::default();
+        assert_eq!(tab.toggle_eos(&mut s), w::EPIC_OFF_SAVED);
+        assert_eq!(s.eos, Some(false));
+        assert_eq!(tab.toggle_eos(&mut s), w::EPIC_ON_SAVED);
+        assert_eq!(s.eos, None);
+        assert_eq!(tab.toggle_lan(&mut s, "9000"), w::lan_on_saved(9000));
+        assert_eq!(s.lan, Some(Some(9000)));
+        assert_eq!(tab.toggle_lan(&mut s, "9000"), w::LAN_OFF_SAVED);
+        assert_eq!(s.lan, None);
+        assert!(!tab.view(&s).held);
+        tab.net = Some(NetState { held: true, ..NetState::default() });
+        let v = tab.view(&s);
+        assert!(v.held);
+        assert_eq!(v.summary, summary(Way::Local, Way::Off));
     }
 }

@@ -3,7 +3,7 @@
 //! the code); the player's own choices in the launcher's Online settings are kept in `Settings.online` and win field
 //! by field. No code names the port's relay or its EOS product: they are values of that file.
 //!   online.json  { "relay": "host[:port]" | null, "relayId": "r<32 hex>" | null, "eos": true | false,
-//!                  "lan": port | null, "direct": true | false }
+//!                  "lan": port | null, "direct": true | false, "relayRegion": "where the relay is" (optional) }
 
 use std::path::Path;
 
@@ -21,6 +21,10 @@ pub struct OnlineConfig {
     /// another is refused. None: not pinned (a fork's or a dev config).
     #[serde(rename = "relayId", skip_serializing_if = "Option::is_none")]
     pub relay_id: Option<String>,
+    /// Where the release's relay is hosted, said beside its address in the launcher ("Europe"); None: not said (a
+    /// fork's file without it). Like relay_id, the effective config's is the file's only while its relay is in use.
+    #[serde(rename = "relayRegion", skip_serializing_if = "Option::is_none")]
+    pub relay_region: Option<String>,
     /// Epic Online Services signed in to.
     pub eos: bool,
     /// The LAN port a hosted LAN lobby listens on (never LAN_DISCOVERY_PORT); None: no LAN.
@@ -33,7 +37,7 @@ pub struct OnlineConfig {
 /// What the program uses when online.json is missing or a field of it is unreadable: no relay, Epic on, LAN off,
 /// direct friend links off (both opt-in).
 pub const ONLINE_DEFAULTS: OnlineConfig =
-    OnlineConfig { relay: None, relay_id: None, eos: true, lan: None, direct: false };
+    OnlineConfig { relay: None, relay_id: None, relay_region: None, eos: true, lan: None, direct: false };
 
 impl Default for OnlineConfig {
     fn default() -> OnlineConfig {
@@ -51,7 +55,7 @@ pub const LAN_DISCOVERY_PORT: u16 = 39417;
 /// The most relays a player's yes is kept for (the oldest dropped first).
 const KNOWN_RELAYS_MAX: usize = 32;
 
-/// The config's field names, in the file's order.
+/// The config's field names, in the file's order (relayRegion, optional and never the player's, is read on its own).
 pub const ONLINE_KEYS: [&str; 5] = ["relay", "relayId", "eos", "lan", "direct"];
 
 /// A port of JSON: a whole number from 1 to 65535.
@@ -137,6 +141,8 @@ pub fn read_online_config(file: &Path, log: &mut dyn FnMut(String)) -> OnlineCon
     let empty = Map::new();
     let o = raw.as_object().unwrap_or(&empty);
     let mut out = ONLINE_DEFAULTS;
+    out.relay_region =
+        o.get("relayRegion").and_then(Value::as_str).map(js_trim).filter(|r| !r.is_empty()).map(str::to_string);
     for k in ONLINE_KEYS {
         let f = o.get(k).and_then(|v| online_field(k, v));
         match f {
@@ -172,6 +178,9 @@ impl OnlineConfig {
 pub struct OnlineSetting {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub relay: Option<Option<String>>,
+    /// The relay's switch: Some(false) off, with the address in `relay` kept for when it is on again; None on.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub relay_on: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub eos: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -264,16 +273,23 @@ pub fn merge_known_relays(mine: &[KnownRelay], base: &[KnownRelay], disk: &[Know
 /// The config the program runs on: online.json's, each field the player set over it. The relay's id is the file's
 /// while the relay in use is the file's (the player's own address for it included), else None: a relay the player
 /// chose is checked against the id kept with it in `known_relays` (glue's pin), not here.
+/// The relay switched off (`relay_on`): no relay, the address kept in the setting.
 pub fn effective_online(file: &OnlineConfig, player: &OnlineSetting) -> OnlineConfig {
-    let relay = player.relay.clone().unwrap_or_else(|| file.relay.clone());
+    let relay = if player.relay_on == Some(false) { None } else { relay_address(file, player) };
     let release = matches!((&relay, &file.relay), (Some(a), Some(b)) if same_address(a, b));
     OnlineConfig {
         relay,
         relay_id: if release { file.relay_id.clone() } else { None },
+        relay_region: if release { file.relay_region.clone() } else { None },
         eos: player.eos.unwrap_or(file.eos),
         lan: player.lan.unwrap_or(file.lan),
         direct: player.direct.unwrap_or(file.direct),
     }
+}
+
+/// The relay's address the player's setting holds, its switch aside: the player's own, else online.json's.
+pub fn relay_address(file: &OnlineConfig, player: &OnlineSetting) -> Option<String> {
+    player.relay.clone().unwrap_or_else(|| file.relay.clone())
 }
 
 /// A saved relay the player said yes to: an address (saved before the ids were kept: id None) or { address, id }.
@@ -319,6 +335,8 @@ pub fn online_setting_of(v: &Value, file: &OnlineConfig) -> OnlineSetting {
             out.set(f);
         }
     }
+    // (only an off switch is kept: on is the field left out)
+    out.relay_on = o.get("relay_on").and_then(Value::as_bool).filter(|on| !on);
     // (one entry an address: a later one's id replaces an earlier's, in the earlier's place)
     if let Some(list) = o.get("known_relays").and_then(Value::as_array) {
         for k in list.iter().filter_map(known_relay_of) {
@@ -389,7 +407,7 @@ mod tests {
         assert_eq!(s.known_relays, vec![known("a:1"), known("b")]);
         let file = OnlineConfig { relay: Some("r:1".into()), ..ONLINE_DEFAULTS };
         let e = effective_online(&file, &s);
-        assert_eq!(e, OnlineConfig { relay: None, relay_id: None, eos: true, lan: Some(9000), direct: false });
+        assert_eq!(e, OnlineConfig { lan: Some(9000), ..ONLINE_DEFAULTS });
         let v = serde_json::to_value(&s).unwrap();
         assert_eq!(
             v,
@@ -507,6 +525,57 @@ mod tests {
         assert_eq!(s.online.known_relays, merged);
         assert_eq!(b.online.known_relays, merged);
         assert_eq!(crate::Settings::load(&dir).online.known_relays, merged);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The relay switched off keeps its address: no relay in the effective config, the address in the setting (and
+    /// in the file), and the same relay again once it is on.
+    #[test]
+    fn the_relay_switched_off_keeps_its_address() {
+        let file = OnlineConfig {
+            relay: Some("relay.example".into()),
+            relay_id: Some(ID_A.into()),
+            relay_region: Some("Europe".into()),
+            ..ONLINE_DEFAULTS
+        };
+        let mut s = OnlineSetting { relay: Some(Some("mine.example:9000".into())), ..OnlineSetting::default() };
+        s.relay_on = Some(false);
+        let e = effective_online(&file, &s);
+        assert_eq!((e.relay, e.relay_id, e.relay_region), (None, None, None));
+        assert_eq!(relay_address(&file, &s).as_deref(), Some("mine.example:9000"));
+        let v = serde_json::to_value(&s).unwrap();
+        assert_eq!(v, json!({ "relay": "mine.example:9000", "relay_on": false, "known_relays": [] }));
+        assert_eq!(online_setting_of(&v, &file), s);
+        // (on is the field left out)
+        assert_eq!(online_setting_of(&json!({ "relay_on": true }), &file).relay_on, None);
+        s.relay_on = None;
+        assert_eq!(effective_online(&file, &s).relay.as_deref(), Some("mine.example:9000"));
+        // the release's relay off, then on: its id and region again
+        let off = OnlineSetting { relay_on: Some(false), ..OnlineSetting::default() };
+        assert_eq!(effective_online(&file, &off).relay, None);
+        assert_eq!(relay_address(&file, &off).as_deref(), Some("relay.example"));
+        let on = effective_online(&file, &OnlineSetting::default());
+        assert_eq!((on.relay_id.as_deref(), on.relay_region.as_deref()), (Some(ID_A), Some("Europe")));
+    }
+
+    #[test]
+    fn the_relays_region_is_read_and_optional() {
+        let dir = std::env::temp_dir().join(format!("mvs-online-region-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("online.json");
+        let read = |text: &str, lines: &mut Vec<String>| {
+            std::fs::write(&file, text).unwrap();
+            read_online_config(&file, &mut |l| lines.push(l))
+        };
+        let full = r#"{ "relay": "r.example", "relayId": null, "eos": true, "lan": null, "direct": false"#;
+        let mut lines = Vec::new();
+        let c = read(&format!(r#"{full}, "relayRegion": " Europe " }}"#), &mut lines);
+        assert_eq!(c.relay_region.as_deref(), Some("Europe"));
+        // (missing, empty or not a string: none, and no log line)
+        for tail in ["", r#", "relayRegion": """#, r#", "relayRegion": 3"#] {
+            assert_eq!(read(&format!("{full}{tail} }}"), &mut lines).relay_region, None, "{tail}");
+        }
+        assert!(lines.is_empty(), "{lines:?}");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
