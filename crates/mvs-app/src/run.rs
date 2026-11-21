@@ -320,6 +320,7 @@ pub(crate) fn hud_setup(inputs: &HudInputs, world: &World, me: usize, online: bo
             online,
             arcade,
             ui: inputs.ui.clone(),
+            wheel: crate::wheel::hud_pool(setup),
         };
     }
     let players = world
@@ -361,6 +362,7 @@ pub(crate) fn hud_setup(inputs: &HudInputs, world: &World, me: usize, online: bo
         online,
         arcade,
         ui: inputs.ui.clone(),
+        wheel: crate::wheel::hud_pool(setup),
     }
 }
 

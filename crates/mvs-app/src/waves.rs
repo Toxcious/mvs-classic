@@ -85,6 +85,8 @@ pub fn hud_setup(world: &World, me: usize, usernames: &[String], ui: &mvs_settin
         online: false,
         arcade: None,
         ui: ui.clone(),
+        // (a Waves run has no wheel: `wheel::switched`)
+        wheel: None,
     }
 }
 

@@ -112,6 +112,10 @@ fn hud_setup(w: &mvs_sim::World, header: &mvs_ui::tape::TapeHeader) -> HudSetup 
         online: false,
         arcade: None,
         ui: mvs_settings::UiSettings::default(),
+        wheel: setup.wheel.as_ref().map(|w| {
+            let lobby = mvs_protocol::lobby_rules::LOBBY_MUTATORS;
+            w.pool.iter().filter_map(|k| lobby.iter().position(|l| l == k)).collect()
+        }),
     }
 }
 

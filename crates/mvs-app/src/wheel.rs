@@ -39,17 +39,30 @@ pub fn switch_rule(seconds: Option<f64>) -> Wheel {
     w
 }
 
+/// A pool entry by its place in the menus' names.
+fn lobby_index(key: &str) -> Option<usize> {
+    LOBBY_MUTATORS.iter().position(|k| *k == key)
+}
+
 /// The HUD's card of the rule's status: the pool's mutators by their place in the menus' names.
 pub fn hud_of(setup: &MatchSetup, s: &WheelStatus) -> WheelHud {
-    let named = |i: Option<usize>| {
-        let key = setup.wheel.as_ref()?.pool.get(i?)?;
-        LOBBY_MUTATORS.iter().position(|k| k == key)
-    };
+    let named = |i: Option<usize>| lobby_index(setup.wheel.as_ref()?.pool.get(i?)?);
+    // (the rule's draw ahead of a change, as `world::wheel` counts it: whole ticks, at least 1, at most a window)
+    let warn = setup.wheel.as_ref().map_or(0.0, |w| f64::from(w.warn));
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss, reason = "a clamped, rounded count")]
+    let warn_ticks = ((warn * TICKS_PER_SECOND).round().max(1.0) as u32).min(s.window_ticks);
     WheelHud {
         current: named(s.current),
         next: named(s.next),
-        seconds: s.ticks_left.map(|t| f64::from(t) / TICKS_PER_SECOND),
+        ticks_left: s.ticks_left,
+        window_ticks: s.window_ticks,
+        warn_ticks,
     }
+}
+
+/// The HUD's pool of a set-up's wheel, by the menus' names; None in a match with no wheel.
+pub fn hud_pool(setup: &MatchSetup) -> Option<Vec<usize>> {
+    Some(setup.wheel.as_ref()?.pool.iter().filter_map(|k| lobby_index(k)).collect())
 }
 
 /// The card of `world`'s rule, or None in a match with no wheel.
@@ -68,9 +81,15 @@ mod tests {
         let h = hud_of(&setup, &s);
         assert_eq!(h.current.map(|i| LOBBY_MUTATORS[i]), Some("Mutator_Giant"));
         assert_eq!(h.next.map(|i| LOBBY_MUTATORS[i]), Some("Mutator_RandomItemSpawns"));
-        assert_eq!(h.seconds, Some(1.5));
+        assert_eq!((h.ticks_left, h.window_ticks, h.warn_ticks), (Some(90), 1200, 180));
+        assert_eq!(hud_pool(&setup).map(|p| p.len()), Some(WHEEL_MUTATORS.len()));
+        assert_eq!(hud_pool(&MatchSetup::default()), None);
+        // a window shorter than the warning: the draw comes at the window's start
+        let short = MatchSetup { wheel: Some(switch_rule(Some(0.5))), ..MatchSetup::default() };
+        let s = WheelStatus { current: None, next: None, ticks_left: Some(30), window_ticks: 30 };
+        assert_eq!(hud_of(&short, &s).warn_ticks, 10);
         let plain = WheelStatus { current: None, next: None, ticks_left: None, window_ticks: 1200 };
-        assert_eq!(hud_of(&setup, &plain), WheelHud::default());
+        assert_eq!(hud_of(&setup, &plain), WheelHud { window_ticks: 1200, warn_ticks: 180, ..WheelHud::default() });
     }
 
     #[test]

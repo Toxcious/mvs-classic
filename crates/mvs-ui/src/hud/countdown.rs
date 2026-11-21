@@ -11,7 +11,7 @@ use crate::slate::{Geometry, Tree, Vis, WidgetId, instantiate, layout, paint};
 use crate::text::{Fonts, GameText};
 
 use super::common::Anim;
-use super::custom_text::stock_win_condition;
+use super::custom_text::{WHEEL_RULE, stock_win_condition};
 use super::game_text;
 
 /// PandaGameInstance: the Delay chain from BPI_ReportStartedCountdown to HideCountdown (2.5 + 3.65 + 0.5 s).
@@ -99,7 +99,8 @@ pub struct Countdown {
 
 impl Countdown {
     /// style: the match's TeamStyle (0..2); stocks: the experimental stock rule (knockouts_to_win is each player's
-    /// lives); stage: an arcade round's "Stage N of M".
+    /// lives); wheel: (the port's own) the Chaos Wheel, named on a line under the win condition; stage: an arcade
+    /// round's "Stage N of M".
     // Unverified: no rematch (DetermineScore's set score): the native game has none yet.
     pub fn new(
         b: &Bundle,
@@ -107,6 +108,7 @@ impl Countdown {
         style: usize,
         knockouts_to_win: i32,
         stocks: bool,
+        wheel: bool,
         stage: Option<&str>,
     ) -> Countdown {
         let mut t = instantiate(b, "UI_Countdown", "UI_Countdown");
@@ -115,11 +117,14 @@ impl Countdown {
         // StartCountdown.
         t.widget_mut(canvas).opacity = 1.0;
         // WinCondition: TextToUpper of the Format result.
-        let line = if stocks {
+        let mut line = if stocks {
             stock_win_condition(style, knockouts_to_win)
         } else {
             game_text(text, WIN_CONDITION[style]).replace("{int}", &knockouts_to_win.to_string())
         };
+        if wheel {
+            line = format!("{line}\n{WHEEL_RULE}");
+        }
         let win = t.find("WinCondition");
         t.widget_mut(win).text = line.to_uppercase();
         // In arcade (IsArcadeModeActive @3506): WinCondition = "Stage {Round} of {NumRounds}" (@4096, @4201; not

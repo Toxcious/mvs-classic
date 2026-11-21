@@ -23,6 +23,7 @@ mod input_label;
 mod pop;
 mod skill_shot;
 mod victory;
+mod wheel;
 pub mod world_widget;
 
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -59,6 +60,7 @@ pub use input_label::{LABEL_ACTIONS, LabelInput, Slots};
 use pop::{Place, PopId, PopParams, PopTexts};
 use skill_shot::SkillshotTargets;
 use victory::VictoryText;
+use wheel::WheelCard;
 
 /// The Lab's combo texts (TrainGameMode OnPlayerJuggled -> TrainingGameState DisplayComboCounts): the Lab menu's
 /// Show Juggle Combo and Show Hitstun Combo, and each fighter's PlayerIndex (its config slot, by sim id).
@@ -101,6 +103,9 @@ pub struct HudSetup {
     /// The UI preferences (Struct_Preferences_UI) as the match's start has them: the widgets' RespondToPreferences
     /// and the colour bindings PaletteForIndex resolves through.
     pub ui: mvs_settings::UiSettings,
+    /// (the port's own) The Chaos Wheel's pool, by index in `mvs_protocol::lobby_rules::LOBBY_MUTATORS`; None: the
+    /// match has no wheel.
+    pub wheel: Option<Vec<usize>>,
 }
 
 /// (the port's own) The HUD context mode of a Waves run: the player's portrait alone, the run's counter and clock.
@@ -119,14 +124,17 @@ pub struct WavesHud {
 
 /// (the port's own) The Chaos Wheel as the HUD reads it each frame (`Hud::set_wheel`). A mutator is its index in
 /// `mvs_protocol::lobby_rules::LOBBY_MUTATORS`, the order of the menus' names.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct WheelHud {
     /// The mutator that is on, or None in the plain first window.
     pub current: Option<usize>,
     /// The next mutator, once it is drawn.
     pub next: Option<usize>,
-    /// Seconds to the next change; None before the match starts and once it is over.
-    pub seconds: Option<f64>,
+    /// Ticks to the next change; None before the match starts and once it is over.
+    pub ticks_left: Option<u32>,
+    /// A window's length and how long ahead of a change the next mutator is drawn, ticks.
+    pub window_ticks: u32,
+    pub warn_ticks: u32,
 }
 
 /// An arcade round as the HUD reads it (AXFunctions GetArcadeInfo's round, GetNumArcadeLevels).
@@ -174,6 +182,20 @@ pub struct HudFrame<'a> {
 
 /// The match loop's step: a render module's pop text shows from the next tick.
 const STEP: f64 = 1.0 / 60.0;
+
+/// The world mutators' UI_PopTextParams class defaults, each lifetime and text_color: Mutator_RandomMutatorSelector's
+/// ModeText (5, white) and Mutator_ShrinkBlastBoxLastPoint's ShrinkingPopText (2, (0.701961, 0, 1, 1)).
+const SELECTOR_POP: (f64, Rgba) = (5.0, [1.0; 4]);
+const SHRINK_POP: (f64, Rgba) = (2.0, [0.701961, 0.0, 1.0, 1.0]);
+
+/// The rest of both: location (0.5, 0.2, 0) in space 2 (Normalized Screen: a fraction of the viewport), scale 2,
+/// centred, no delay, icons, audio or attach actor.
+fn mutator_pop(text: &str, lifetime: f64, color: Rgba) -> PopParams {
+    let mut p = PopParams::attached(usize::MAX, text, lifetime, color, [0.5, 0.2, 0.0]);
+    p.scale = 2.0;
+    p.place = Place::Viewport;
+    p
+}
 
 /// The string of a Game.locres key (the FText of a Blueprint text constant, namespace empty).
 // Unverified: a key the player's Game.locres lacks shows an empty text; the build would show the constant's source
@@ -324,6 +346,8 @@ pub(crate) struct Texts {
     transferred: String,
     /// Buff_Enlarge SpawnVFX @99.
     morphized: String,
+    /// Mutator_ShrinkBlastBoxLastPoint's ShrinkingPopText.
+    shrinking: String,
     /// Pawn_C017 RageCallout @23115.
     protect_friends: String,
     /// Comp_C023A_AllyAttach ClenseAttachAlly @1462.
@@ -388,6 +412,7 @@ impl Texts {
             air_refreshed: t("71AFA5834EA643019B993DAB4B8246C5"),
             transferred: t("9F5BFE5147F21F19200FB580F730CFF8"),
             morphized: t("48C721854824BD3DB58B4D93620F0BFF"),
+            shrinking: t("2239960947870E47D100D88B4499F4AD"),
             protect_friends: t("A882DC564AC074A4349DB5BBEB9A39B2"),
             cleanse: t("BD31705548BDB473C88DA7AAC5C1CD8A"),
             dancing: t("C229C3084D6AC8152106608A5D4090D2"),
@@ -471,7 +496,9 @@ pub struct Hud {
     ctx5: bool,
     /// (the port's own) The Waves run's counter, set each frame by the app in context `MODE_WAVES`.
     waves: Option<WavesHud>,
+    /// (the port's own) The Chaos Wheel's status, set each step by the app, and its card (a match with a wheel).
     wheel: Option<WheelHud>,
+    wheel_card: Option<WheelCard>,
     names: PlayerNumbers,
     /// A minion's own queue (BPI_PopText on the Watermelon, the pawn's AddPopTextToQueue), by its id.
     minion_queues: IndexMap<Fid, VecDeque<Queued>>,
@@ -538,6 +565,7 @@ enum Part {
     Dash(usize),
     Indicator(usize),
     Scoreboard,
+    Wheel,
     Victory,
     Pop(usize),
     Label(usize),
@@ -731,10 +759,15 @@ impl Hud {
             stage_label: setup.arcade.map(|a| arcade_stage(text, MI_ARCADE_STAGE, "{Number}", a)),
         };
         let scoreboard = Scoreboard::new(b, &players, 0.0, &sb, &ui, &abilities);
+        let wheel_card = setup.wheel.clone().map(|pool| {
+            let (clock, mode) = scoreboard.text_styles();
+            WheelCard::new(b, pool, mode, clock, &crate::menu::custom_text::MUTATORS)
+        });
         // (contexts 1 to 3: the versus levels' InToCountdown; the Lab and the tutorial level make none)
         let stage = setup.arcade.map(|a| arcade_stage(text, CD_ARCADE_STAGE, "{Round}", a));
         let countdown = (1..4).contains(&setup.mode).then(|| {
-            Countdown::new(b, text, usize::from(setup.mode - 1), setup.max_score, setup.stocks, stage.as_deref())
+            let style = usize::from(setup.mode - 1);
+            Countdown::new(b, text, style, setup.max_score, setup.stocks, setup.wheel.is_some(), stage.as_deref())
         });
         // UI_Game MatchEnded: EnemyWin = not a spectator, not local play, my team is not the winner, and
         // (IsPlayingOnline or Is1v1BotMatch); the port's local custom game takes IsPlayingOnline as true (a match
@@ -767,6 +800,7 @@ impl Hud {
             ctx5,
             waves: None,
             wheel: None,
+            wheel_card,
             names,
             minion_queues: IndexMap::new(),
             minion_pops: Vec::new(),
@@ -1020,6 +1054,7 @@ impl Hud {
         for e in events {
             self.event(w, e, now, real);
         }
+        self.observe_wheel(now);
         // BaseFighter AddPopTextToQueue / ApplyPopText: one text at a time per pawn, the next after the shown one's
         // lifetime.
         for q in &mut self.pop_queues {
@@ -1180,6 +1215,44 @@ impl Hud {
         self.pie_pops(w, now + STEP);
         self.pass_pops(w, now + STEP);
         self.snack_pops(w, now + STEP);
+    }
+
+    /// (the port's own) The Chaos Wheel after a step's events, off the status the app set for it: the roll's sound
+    /// when the next mutator is drawn, and at the change its sound and the mutator's name shown as the Silly
+    /// selector shows its pick (`mutator_pop`), in the menus' words.
+    fn observe_wheel(&mut self, now: f64) {
+        let Some(c) = &mut self.wheel_card else { return };
+        let (rolled, changed) = c.observe(self.wheel.as_ref());
+        if rolled {
+            self.sounds.push(wheel::ROLL_SOUND.to_owned());
+        }
+        if let Some(m) = changed {
+            self.sounds.push(wheel::CHANGE_SOUND.to_owned());
+            let name = crate::menu::custom_text::MUTATORS.get(m).copied().unwrap_or_default();
+            let p = mutator_pop(name, SELECTOR_POP.0, SELECTOR_POP.1);
+            self.pops.add(p, now, &mut self.order);
+        }
+    }
+
+    /// A world mutator's UI_Functions PopText (the sim's `MutatorPopText`) by its class and the class default it
+    /// passes: Mutator_RandomMutatorSelector's MulticastHandlePopText(ModeText) @1373 -> PopText @3136, one per
+    /// spawned fighter (each a widget of its own), the text DisplayNameMap's string of the pick (SetModeTextParams
+    /// @3192-3334, Conv_StringToText: the event's `text`); Mutator_ShrinkBlastBoxLastPoint's
+    /// HandlePopTextService(ShrinkingPopText) @1328, a Server event, not on a dedicated server -> PopText @3755 once.
+    // Unverified: on a dedicated server (a custom game in the build) HandlePopTextService sends BPI_PopText to every
+    // player's pawn instead (@1586-1883, the pawn's queue); the port shows the one text of a server that is not
+    // dedicated.
+    fn mutator_pop_text(&mut self, cls: &str, field: &str, text: Option<&str>, now: f64) {
+        let p = match (cls, field) {
+            ("Mutator_RandomMutatorSelector_C", "ModeText") => {
+                mutator_pop(text.unwrap_or_default(), SELECTOR_POP.0, SELECTOR_POP.1)
+            }
+            ("Mutator_ShrinkBlastBoxLastPoint_C", "ShrinkingPopText") => {
+                mutator_pop(&self.texts.shrinking, SHRINK_POP.0, SHRINK_POP.1)
+            }
+            _ => return,
+        };
+        self.pops.add(p, now, &mut self.order);
     }
 
     /// Buff_ScoobySnack's BPI After Status Update Multicast with BuffApplied (@1304 -> SpawnVFX @98, not on a
@@ -1425,6 +1498,10 @@ impl Hud {
                     );
                     self.pops.add(p, now, &mut self.order);
                 }
+            }
+            Event::MutatorPopText { cls, field, text } => {
+                let text = text.map(|t| w.names.str(t).to_owned());
+                self.mutator_pop_text(w.names.str(*cls), w.names.str(*field), text.as_deref(), now);
             }
             Event::SlotBound { fighter, slot } => {
                 if let Ok(slot) = usize::try_from(*slot) {
@@ -1935,13 +2012,16 @@ impl Hud {
             let counter = custom_text::waves_counter(r.ring_outs, r.target);
             self.scoreboard.waves(&counter, &custom_text::waves_clock(r.seconds, r.target.is_some()));
         }
-        if let Some(r) = self.wheel {
-            let name = |i: Option<usize>| i.and_then(|i| crate::menu::custom_text::MUTATORS.get(i).copied());
-            self.scoreboard.wheel(&custom_text::wheel_card(name(r.current), name(r.next), r.seconds));
-        }
         self.scoreboard.tick(&self.res, now, real, f.round_time_remaining, &mut self.sounds);
         if self.scoreboard.draw(fonts, out, size[0], size[1], dpi) {
             self.drawn.push(Part::Scoreboard);
+        }
+        // (the port's own) the Chaos Wheel's card, under the clock just painted
+        if let Some(c) = &mut self.wheel_card {
+            let place = self.scoreboard.clock_place();
+            if c.draw(self.wheel.as_ref(), place, self.setup.ui.hud_position_bottom, fonts, out, dpi) {
+                self.drawn.push(Part::Wheel);
+            }
         }
         // UI_VictoryText: UI_Game's next child.
         if let Some(v) = &mut self.victory {
@@ -1991,7 +2071,7 @@ impl Hud {
     }
 
     /// The widget trees the last draw painted, in paint order, each with its owner as the HUD tape names it
-    /// (`AttachedBottom[i]`, `AttachedTop[i]`, `Scoreboard`, `VictoryText`, `PopText`, `PopInputLabel`,
+    /// (`AttachedBottom[i]`, `AttachedTop[i]`, `Scoreboard`, `WheelCard`, `VictoryText`, `PopText`, `PopInputLabel`,
     /// `Countdown`, the character parts' owners, `SkillshotTarget`, `DashTarget`, `Indicator`):
     /// the check against the tape. Good until the next observe or draw.
     pub fn painted(&self) -> Vec<(String, &Tree)> {
@@ -2010,6 +2090,7 @@ impl Hud {
                     Part::Bottom(k) => (format!("AttachedBottom[{}]", self.pawns[k]?), &self.huds[k].t),
                     Part::Top(k) => (format!("AttachedTop[{}]", self.pawns[k]?), &self.tops[k].t),
                     Part::Scoreboard => ("Scoreboard".to_string(), &self.scoreboard.t),
+                    Part::Wheel => ("WheelCard".to_string(), &self.wheel_card.as_ref()?.t),
                     Part::Victory => ("VictoryText".to_string(), &self.victory.as_ref()?.t),
                     Part::Pop(k) => ("PopText".to_string(), &self.pops.pops().get(k)?.t),
                     Part::Label(k) => ("PopInputLabel".to_string(), &labels.get(k)?.t),
@@ -2074,7 +2155,7 @@ mod tests {
         assert_eq!(arcade_stage(&text, MI_ARCADE_STAGE, "{Number}", a), "Stage 2 of 5");
         let line = arcade_stage(&text, CD_ARCADE_STAGE, "{Round}", a);
         assert_eq!(line, "Stage 2 of 5");
-        let c = Countdown::new(&b, &text, 0, 3, false, Some(&line));
+        let c = Countdown::new(&b, &text, 0, 3, false, false, Some(&line));
         let win = c.t.find("WinCondition");
         assert_eq!(c.t.widget(win).text, "Stage 2 of 5");
         assert_eq!(c.t.widget(win).vis, crate::slate::Vis::SelfHitTestInvisible);
@@ -2091,18 +2172,6 @@ mod tests {
         assert_eq!(t.teleport, "Teleport");
         assert_eq!(t.solve_mystery, "Solve the Mystery!");
         assert_eq!(t.down_prefix, "DOWN + ");
-    }
-
-    /// A Waves run's words: the counter with and without a target, the clock with hundredths against the clock.
-    #[test]
-    fn wheel_words() {
-        assert_eq!(custom_text::wheel_card(None, None, Some(19.2)), "WHEEL 20");
-        assert_eq!(custom_text::wheel_card(Some("Giant"), None, Some(3.01)), "GIANT 4");
-        assert_eq!(custom_text::wheel_card(Some("Giant"), Some("Low Gravity"), Some(3.0)), "NEXT: LOW GRAVITY 3");
-        assert_eq!(custom_text::wheel_card(None, Some("Big Head"), Some(0.0)), "NEXT: BIG HEAD 0");
-        assert_eq!(custom_text::wheel_card(Some("Giant"), None, None), "GIANT");
-        assert_eq!(custom_text::wheel_card(None, None, None), "");
-        assert_eq!(custom_text::wheel_card(None, None, Some(f64::NAN)), "WHEEL 0");
     }
 
     #[test]
@@ -2132,6 +2201,107 @@ mod tests {
         s.max_score = -1;
         let hud = Hud::new(&bundle, &text, &h.w, &s).expect("the HUD");
         Some((h, hud, bundle))
+    }
+
+    /// A Lab HUD with the Chaos Wheel (pool `[4, 6]`, Giant and Low Gravity) and one without it: the card under the
+    /// clock, the scoreboard where it is without the card, the roll's and the change's sounds and the change's pop
+    /// text, and the world mutators' texts (needs the dev store).
+    #[test]
+    fn a_wheel_card_stands_under_the_clock_and_pops_at_the_change() {
+        use mvs_sim::setup::{MatchPlayer, MatchSetup};
+        let Ok(store) = mvs_store::Store::open(mvs_store::dev_store_dir()) else { return };
+        let player = |c: &str| MatchPlayer { character: Some(c.to_owned()), ..MatchPlayer::default() };
+        let ms = MatchSetup { players: vec![player("shaggy"), player("shaggy")], ..MatchSetup::default() };
+        let Some(h) = mvs_sim_trace::harness::fresh(&ms, 1) else { return };
+        let bundle = Bundle::load(&store, "hud").expect("the hud bundle");
+        let text = GameText::load(&store).expect("the game text");
+        let mut fonts = Fonts::new(&store, &bundle).expect("the fonts");
+        let mut s = setup(4, &[0, 1], &[false, true]);
+        s.max_score = -1;
+        let mut plain = Hud::new(&bundle, &text, &h.w, &s).expect("the HUD");
+        s.wheel = Some(vec![4, 6]);
+        let mut hud = Hud::new(&bundle, &text, &h.w, &s).expect("the HUD");
+        let id: mvs_view::M4 = std::array::from_fn(|r| std::array::from_fn(|c| f64::from(u8::from(r == c))));
+        let cam = Camera { origin: [0.0; 3], translated_world_to_view: id, view_to_clip: id };
+        let mut draw = |hud: &mut Hud, t: f64| {
+            let f = HudFrame {
+                size: [1920, 1080],
+                hud_time: t,
+                real: t,
+                bottom: &[],
+                top: &[],
+                camera: &cam,
+                items: &[],
+                skillshots: &[],
+                round_time_remaining: 0.0,
+                hold: false,
+            };
+            hud.draw(&f, &mut fonts, &mut ElementList::default());
+        };
+        let status =
+            |current, next, left| WheelHud { current, next, ticks_left: left, window_ticks: 1200, warn_ticks: 180 };
+        let step = |hud: &mut Hud, w: Option<WheelHud>, t: f64| {
+            hud.set_wheel(w);
+            hud.observe(&h.w, &[], t, t);
+        };
+        // before the start: no card
+        step(&mut hud, Some(status(None, None, None)), 2.0);
+        step(&mut plain, None, 2.0);
+        draw(&mut hud, 2.0);
+        draw(&mut plain, 2.0);
+        assert!(!hud.drawn.iter().any(|p| matches!(p, Part::Wheel)));
+        // the plain first window: the rule's name under the clock, nothing of the scoreboard moved
+        step(&mut hud, Some(status(None, None, Some(600))), 3.0);
+        step(&mut plain, None, 3.0);
+        draw(&mut hud, 3.0);
+        draw(&mut plain, 3.0);
+        assert!(hud.drawn.iter().any(|p| matches!(p, Part::Wheel)));
+        let card = hud.wheel_card.as_ref().unwrap();
+        let shown = |name: &str| card.t.widget(card.t.find(name)).text.clone();
+        assert_eq!((shown("WheelLabel"), shown("WheelName")), ("GET READY".to_owned(), "CHAOS WHEEL".to_owned()));
+        let (clock, _) = hud.scoreboard.clock_place().expect("the clock is painted");
+        let name = card.t.painted(card.t.find("WheelName")).unwrap();
+        assert!(name.transform[5] >= clock[1] + clock[3], "the card stands under the clock");
+        let fill = card.t.widget(card.t.find("WheelBarFill")).transform.scale[0];
+        assert_eq!(fill, 0.5);
+        for p in 0..2 {
+            assert_eq!(hud.slot_rect(p), plain.slot_rect(p));
+        }
+        assert_eq!(hud.scoreboard.clock_place(), plain.scoreboard.clock_place());
+        hud.take_sounds();
+        // the roll: its sound once
+        step(&mut hud, Some(status(None, Some(6), Some(180))), 4.0);
+        step(&mut hud, Some(status(None, Some(6), Some(179))), 4.1);
+        assert_eq!(hud.take_sounds(), vec![wheel::ROLL_SOUND.to_owned()]);
+        // the change: its sound and the name over the screen, as the Silly selector's pick
+        let before = hud.pops.pops().len();
+        step(&mut hud, Some(status(Some(6), None, Some(1200))), 5.0);
+        assert_eq!(hud.take_sounds(), vec![wheel::CHANGE_SOUND.to_owned()]);
+        let pops = hud.pops.pops();
+        assert_eq!(pops.len(), before + 1);
+        let p = &pops[before].p;
+        assert_eq!((p.text.as_str(), p.place.clone(), p.scale, p.lifetime), ("Low Gravity", Place::Viewport, 2.0, 5.0));
+        draw(&mut hud, 5.0);
+        let card = hud.wheel_card.as_ref().unwrap();
+        assert_eq!(card.t.widget(card.t.find("WheelName")).text, "LOW GRAVITY");
+        // the world mutators' texts: the shrink's line from the player's Game.locres, the selector's pick as sent
+        let w = &h.w;
+        let shrink = Event::MutatorPopText {
+            cls: w.lit("Mutator_ShrinkBlastBoxLastPoint_C"),
+            field: w.lit("ShrinkingPopText"),
+            text: None,
+        };
+        let pick = Event::MutatorPopText {
+            cls: w.lit("Mutator_RandomMutatorSelector_C"),
+            field: w.lit("ModeText"),
+            text: Some(w.lit("ModeText")),
+        };
+        hud.observe(w, &[shrink, pick], 6.0, 6.0);
+        let pops = hud.pops.pops();
+        let (a, b) = (&pops[pops.len() - 2].p, &pops[pops.len() - 1].p);
+        assert!(!a.text.is_empty());
+        assert_eq!((a.text_color, a.lifetime, a.place.clone()), ([0.701961, 0.0, 1.0, 1.0], 2.0, Place::Viewport));
+        assert_eq!((b.text.as_str(), b.text_color, b.lifetime), ("ModeText", [1.0; 4], 5.0));
     }
 
     /// Context 6: no versus card (pausing from the start), the scoreboard with the player's slot alone, the run's

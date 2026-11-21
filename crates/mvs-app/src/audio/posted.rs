@@ -479,7 +479,7 @@ pub const POSTED: &[(&str, &[&str])] = &[
     ("ui_tutorial_step_complete_03", &["sim"]),
     ("ui_tutorial_step_complete_04", &["sim"]),
     ("ui_tutorial_step_complete_05", &["sim"]),
-    ("ui_tutorial_task_complete", &["sim"]),
+    ("ui_tutorial_task_complete", &["sim", "ui"]),
     ("vo_announcer_rematch", &["menu"]),
     ("vo_announcer_rematch_accept", &["menu"]),
     ("vo_announcer_toast", &["menu"]),
