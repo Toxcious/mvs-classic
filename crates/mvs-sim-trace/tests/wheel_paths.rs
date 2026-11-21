@@ -1,6 +1,7 @@
 //! The port's own Chaos Wheel rule (`mvs_sim::world::wheel`) where the trace match `wheel-combat` cannot show it:
 //! each pool mutator on then off leaves a fighter as it found it, a Giant grown against a wall and under a ceiling,
-//! the clock's start with and without a flow, and a stage with no item area.
+//! the clock's start with and without a flow, a stage with no item area, and the rule on four fighters (2v2 and
+//! Free For All).
 
 use mvs_sim::fighter::FighterId;
 use mvs_sim::setup::{MatchPlayer, MatchSetup, Rules, TeamStyle, Wheel};
@@ -60,11 +61,16 @@ fn idle(h: &mut Harness, n: usize) {
 /// count and heights, falling acceleration, air control), cooldown and ability mods, air special max, its live buff
 /// list (the armor-break flag, the on-hit hooks and the gauntlet are buffs).
 fn snapshot(w: &World, f: FighterId) -> String {
+    format!("{} cooldowns {:?}", but_cooldowns(w, f), w.fighter(f).abilities)
+}
+
+/// `snapshot` without the abilities.
+fn but_cooldowns(w: &World, f: FighterId) -> String {
     let fr = w.fighter(f);
     let buffs: Vec<&str> = fr.buffs.buffs.iter().filter(|b| b.frames > 0.0).map(|b| w.names.str(b.cls)).collect();
     format!(
-        "size {:?} scaled {:?} head {:?} gravity {:?}/{:?} folds {:?} speed {:?} jumps {:?} cooldowns {:?} \
-         air special {:?} buffs {buffs:?}",
+        "size {:?} scaled {:?} head {:?} gravity {:?}/{:?} folds {:?} speed {:?} jumps {:?} air special {:?} \
+         buffs {buffs:?}",
         fr.body.size_scale,
         fr.scaled,
         fr.pose.head_scale.unwrap_or(1.0),
@@ -73,9 +79,26 @@ fn snapshot(w: &World, f: FighterId) -> String {
         fr.moves.folds,
         fr.buffs.speed_mod,
         mvs_sim::fighter::moves::max_jumps(w, f),
-        fr.abilities,
         fr.air.air_special_max_set,
     )
+}
+
+/// `snapshot` with each cooldown's length to a thousandth of a second: a cooldown multiplier's end multiplies the
+/// length by new / old (ApplyAbilityBuffs), and 14 x 0.6 x (1 / 0.6) is 14.000001 in float32, as at the end of any
+/// buff with a multiplier in the build.
+fn near(w: &World, f: FighterId) -> String {
+    let a = &w.fighter(f).abilities;
+    let slots: Vec<String> = a
+        .abilities
+        .iter()
+        .map(|s| {
+            format!(
+                "{} {} {} {} {} {:.3} {:.3} {}",
+                s.cooldown, s.cd_frames, s.ammo, s.ammo_cooldown, s.ammo_frames, s.default_cd, s.active_cd, s.ammo_max
+            )
+        })
+        .collect();
+    format!("{} cooldowns {slots:?} x{}", but_cooldowns(w, f), a.cooldown_multiplier)
 }
 
 #[test]
@@ -286,4 +309,101 @@ fn the_draw_never_gives_a_mutator_the_set_up_lists() {
     let Some(mut h) = harness::fresh(&s, 5) else { return };
     let c = changes(&mut h, 30 * 120);
     assert!(!c.contains(&0) && !c.contains(&12), "{c:?}");
+}
+
+/// Four fighters of `style` with rules and the whole pool, no flow.
+fn four(style: TeamStyle, seconds: Real) -> MatchSetup {
+    MatchSetup {
+        team_style: style,
+        players: vec![player("superman"), player("shaggy"), player("batman"), player("wonderwoman")],
+        ..setup(&POOL, seconds, false)
+    }
+}
+
+const ITEMS: usize = 12;
+
+#[test]
+fn each_pool_mutator_reaches_all_four_of_a_2v2_and_a_free_for_all_and_leaves_them_as_found() {
+    let mut bad = Vec::new();
+    for style in [TeamStyle::TwoVsTwo, TeamStyle::FreeForAll] {
+        for (i, key) in POOL.iter().enumerate() {
+            // (Free For All's own spawner runs all match: the rule never gives Random Items there)
+            if i == ITEMS {
+                continue;
+            }
+            let Some(mut h) = harness::fresh(&four(style, 10_000.0), 11) else { return };
+            idle(&mut h, 120);
+            let fs: Vec<FighterId> = (0..4).map(|n| h.fighter(n)).collect();
+            let before: Vec<String> = fs.iter().map(|&f| near(&h.w, f)).collect();
+            change_to(&mut h.w, Some(i));
+            idle(&mut h, 20);
+            for (n, &f) in fs.iter().enumerate() {
+                if near(&h.w, f) == before[n] {
+                    bad.push(format!("{style:?} {key} fighter {n}: nothing changed while on"));
+                }
+            }
+            change_to(&mut h.w, None);
+            idle(&mut h, 20);
+            for (n, &f) in fs.iter().enumerate() {
+                let after = near(&h.w, f);
+                if after != before[n] {
+                    bad.push(format!("{style:?} {key} fighter {n}:\n  before {}\n  after  {after}", before[n]));
+                }
+            }
+        }
+    }
+    assert!(bad.is_empty(), "{}", bad.join("\n"));
+}
+
+/// Over many windows a 2v2 rolls every mutator of the pool; a Free For All with rules (FFAGameMode's own item
+/// spawner) rolls every one but Random Items, and its own spawner runs on.
+#[test]
+fn a_2v2_rolls_the_whole_pool_and_a_free_for_all_all_but_random_items() {
+    let items = i32::try_from(ITEMS).expect("short");
+    let seen = |c: &[i32]| -> Vec<bool> { (0..13).map(|i| c.contains(&i)).collect() };
+    let Some(mut h) = harness::fresh(&four(TeamStyle::TwoVsTwo, 0.5), 5) else { return };
+    let c = changes(&mut h, 30 * 240);
+    assert!(seen(&c).iter().all(|&s| s), "a 2v2's draws: {c:?}");
+    assert!(c.windows(2).all(|p| p[0] != p[1]), "the one on is never drawn again");
+
+    let Some(mut h) = harness::fresh(&four(TeamStyle::FreeForAll, 0.5), 5) else { return };
+    let c = changes(&mut h, 30 * 240);
+    let s = seen(&c);
+    assert!(!s[ITEMS], "Random Items rolled beside Free For All's own items");
+    assert!(s.iter().enumerate().all(|(i, &on)| on || i == ITEMS), "a Free For All's draws: {c:?}");
+    assert!(!c.contains(&items));
+    let ar = h.w.item_area.as_ref().expect("Free For All's item area");
+    assert!(ar.timer_at >= 0 || ar.pending_at >= 0, "the mode's own spawner runs on");
+}
+
+/// A fighter out of play at the change gets the window's mutator at its respawn, and the window's end takes it
+/// back like the others'.
+#[test]
+fn a_fighter_rung_out_before_the_change_has_the_mutator_from_its_respawn() {
+    let Some(mut h) = harness::fresh(&four(TeamStyle::TwoVsTwo, 10_000.0), 11) else { return };
+    idle(&mut h, 120);
+    let (out, mate) = (h.fighter(1), h.fighter(0));
+    let plain = h.w.fighter(out).body.size_scale;
+    // (far under the stage: the blast box rings it out)
+    h.w.fighter_mut(out).body.y -= 100_000.0;
+    idle(&mut h, 5);
+    assert!(h.w.fighter(out).life.dead > 0.0, "out of play");
+    change_to(&mut h.w, Some(0));
+    let grown = h.w.fighter(mate).body.size_scale;
+    assert!(grown > plain, "Giant on the one in play");
+    let mut back = None;
+    for n in 0..1200 {
+        idle(&mut h, 1);
+        if h.w.fighter(out).life.dead <= 0.0 {
+            back = Some(n);
+            break;
+        }
+    }
+    assert!(back.is_some(), "no respawn in 20 s");
+    idle(&mut h, 5);
+    assert_eq!(h.w.fighter(out).body.size_scale, grown, "Giant from the respawn");
+    change_to(&mut h.w, None);
+    idle(&mut h, 5);
+    assert_eq!(h.w.fighter(out).body.size_scale, plain);
+    assert_eq!(h.w.fighter(mate).body.size_scale, plain);
 }
