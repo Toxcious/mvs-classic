@@ -881,14 +881,14 @@ impl Scoreboard {
     /// (the port's own) The clock as last painted, in device pixels of the HUD canvas (x, y, w, h), and the
     /// scoreboard's opacity: the Chaos Wheel's card stands under it. None before AnimateIn, once the board has left,
     /// or before its first paint.
-    pub fn clock_place(&self) -> Option<([f64; 4], f64)> {
+    pub fn clock_place(&self) -> Option<([f64; 4], f64, f64)> {
         let r = self.t.root();
         if self.t.widget(self.main).vis == Vis::Hidden || !self.t.widget(r).shown() {
             return None;
         }
         let m = self.t.painted(self.clock.w)?;
         let rect = [m.transform[4], m.transform[5], m.size[0] * m.transform[0], m.size[1] * m.transform[3]];
-        Some((rect, self.t.widget(r).opacity * self.t.widget(self.main).opacity))
+        Some((rect, self.t.widget(r).opacity * self.t.widget(self.main).opacity, m.transform[0]))
     }
 
     /// (the port's own) The clock's label and modeLabel, whose fonts and colours the Chaos Wheel's card takes.

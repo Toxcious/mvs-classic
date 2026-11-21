@@ -15,17 +15,20 @@ use crate::text::Fonts;
 use super::WheelHud;
 use super::custom_text::{WHEEL_FIRST, WHEEL_NEXT, WHEEL_RULE};
 
-/// The card's width and the gap between it and the clock, Slate units.
-const WIDTH: f64 = 600.0;
-const GAP: f64 = 4.0;
-/// The label's and the name's sizes, and the bar's size.
-const LABEL_SIZE: f64 = 14.0;
-const NAME_SIZE: f64 = 24.0;
-const BAR: [f64; 2] = [220.0, 6.0];
+/// The card's width and the gap between it and the clock, in the clock's own units (the scoreboard's, inside its
+/// ScaleBox).
+const WIDTH: f64 = 660.0;
+const GAP: f64 = 4.4;
+/// The label's and the name's sizes, the bar's size and the gap over it.
+const LABEL_SIZE: f64 = 15.4;
+const NAME_SIZE: f64 = 26.4;
+const BAR: [f64; 2] = [242.0, 6.6];
+const BAR_GAP: f64 = 2.2;
 /// The bar's ground under its fill.
 const BAR_GROUND: Rgba = [0.0, 0.0, 0.0, 0.45];
 /// The build's events the card posts (UI_Game's PF_Post_Global_Event): at the roll (the spin's start) and at the
 /// change, both of the match's base scope (the banks a match keeps loaded).
+// Unverified: the beta has no such rule and so no sound for it; the two are picked by their names, not by ear.
 pub const ROLL_SOUND: &str = "ui_countdown_card_intro";
 pub const CHANGE_SOUND: &str = "ui_tutorial_task_complete";
 /// The share of the warning the spin takes: it lands at half, so the name stands a moment before the change.
@@ -76,17 +79,17 @@ pub fn card_line(h: &WheelHud, pool: &[usize]) -> Option<CardLine> {
 
 /// The name the spin shows `left` ticks before the change, the next mutator drawn `warn` ticks ahead of it: the pool's
 /// names, fast and slowing (a quadratic ease out over a count of steps), landed on `next` by `warn / SPIN_SHARE`
-/// ticks in. A name outside the pool, or a pool of one, shows at once.
+/// ticks in. A name outside the pool, a pool of one, or a warning too short for a step shows at once.
 pub fn spin(next: usize, left: u32, warn: u32, pool: &[usize]) -> usize {
     let Some(at) = pool.iter().position(|&m| m == next) else { return next };
     let n = pool.len();
     let land = (warn / SPIN_SHARE).max(1);
     let gone = warn.saturating_sub(left);
-    if n < 2 || gone >= land {
+    // (two turns of the pool, fewer in a short warning: about one name every one and a half ticks at the start)
+    let steps = (2 * n).min(usize::try_from(land * 2 / 3).unwrap_or(usize::MAX));
+    if n < 2 || gone >= land || steps == 0 {
         return next;
     }
-    // (two turns of the pool, fewer in a short warning: about one name every one and a half ticks at the start)
-    let steps = (2 * n).min(usize::try_from(land * 2 / 3).unwrap_or(usize::MAX)).max(1);
     let p = f64::from(gone) / f64::from(land);
     let eased = 1.0 - (1.0 - p) * (1.0 - p);
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss, reason = "a rounded count in 0..=steps")]
@@ -157,7 +160,7 @@ impl WheelCard {
             let x = t.widget_mut(bar);
             x.h_align = HAlign::Center;
             x.v_align = VAlign::Top;
-            x.pad.t = 2.0;
+            x.pad.t = BAR_GAP;
             x.vis = Vis::HitTestInvisible;
         }
         let ground = bar_box(&mut t, b, "WheelBarGround", BAR, BAR_GROUND);
@@ -181,30 +184,31 @@ impl WheelCard {
     }
 
     /// After each observe: what changed since the last one, as (the spin started, the mutator that came on). A
-    /// match started again (the Lab's reset) starts from a plain window.
+    /// status that shows no card (before the start, the match over) changes nothing and is not kept: online the
+    /// status is the predicted match's, and a match end a rollback takes back must not play the change again.
     pub fn observe(&mut self, h: Option<&WheelHud>) -> (bool, Option<usize>) {
-        let now = h.filter(|h| h.ticks_left.is_some()).map(|h| (h.current, h.next));
-        let was = self.seen.replace(now.unwrap_or((None, None)));
-        let Some((current, next)) = now else { return (false, None) };
-        let (was_current, was_next) = was.unwrap_or((None, None));
+        let Some(h) = h.filter(|h| h.ticks_left.is_some()) else { return (false, None) };
+        let (current, next) = (h.current, h.next);
+        let (was_current, was_next) = self.seen.replace((current, next)).unwrap_or((None, None));
         let rolled = next.is_some() && was_next.is_none();
         let changed = current.filter(|_| current != was_current);
         (rolled, changed)
     }
 
-    /// The frame's card under the clock (`clock`: its rectangle in device pixels, the scoreboard's opacity; None: the
-    /// scoreboard is not shown), above it with the HUD at the bottom. -> whether its root was painted.
+    /// The frame's card under the clock (`clock`: its rectangle in device pixels, the scoreboard's opacity and the
+    /// clock's painted scale, device pixels a Slate unit, which the card takes so it grows and shrinks with the
+    /// scoreboard's ScaleBox; None: the scoreboard is not shown), above it with the HUD at the bottom. -> whether
+    /// its root was painted.
     pub fn draw(
         &mut self,
         h: Option<&WheelHud>,
-        clock: Option<([f64; 4], f64)>,
+        clock: Option<([f64; 4], f64, f64)>,
         bottom: bool,
         fonts: &mut Fonts,
         out: &mut ElementList,
-        dpi: f64,
     ) -> bool {
         let root = self.t.root();
-        let (Some(line), Some((r, opacity))) = (h.and_then(|h| card_line(h, &self.pool)), clock) else {
+        let (Some(line), Some((r, opacity, dpi))) = (h.and_then(|h| card_line(h, &self.pool)), clock) else {
             self.t.widget_mut(root).vis = Vis::Collapsed;
             return false;
         };
@@ -278,6 +282,8 @@ mod tests {
         assert_eq!(spin(9, 30, 60, &POOL), 9);
         assert_eq!(spin(3, 180, 180, &POOL), 3);
         assert_eq!(spin(9, 180, 180, &[9]), 9);
+        assert_eq!(spin(9, 1, 1, &POOL), 9);
+        assert_eq!(spin(9, 2, 2, &POOL), 9);
     }
 
     #[test]
@@ -290,9 +296,14 @@ mod tests {
         assert_eq!(c.observe(Some(&hud(None, Some(9), Some(179)))), (false, None));
         assert_eq!(c.observe(Some(&hud(Some(9), None, Some(1200)))), (false, Some(9)));
         assert_eq!(c.observe(Some(&hud(Some(9), None, Some(1199)))), (false, None));
-        // over: nothing; a reset to the plain window and a new first change: seen again
+        // a predicted end a rollback takes back (no card, or no status at all, between two frames of one window):
+        // neither the change nor, inside the warning, the roll plays again
         assert_eq!(c.observe(Some(&hud(Some(9), None, None))), (false, None));
-        assert_eq!(c.observe(Some(&hud(None, None, Some(1200)))), (false, None));
-        assert_eq!(c.observe(Some(&hud(Some(9), None, Some(1200)))), (false, Some(9)));
+        assert_eq!(c.observe(None), (false, None));
+        assert_eq!(c.observe(Some(&hud(Some(9), None, Some(1198)))), (false, None));
+        assert_eq!(c.observe(Some(&hud(Some(9), Some(4), Some(100)))), (true, None));
+        assert_eq!(c.observe(Some(&hud(Some(9), Some(4), None))), (false, None));
+        assert_eq!(c.observe(Some(&hud(Some(9), Some(4), Some(99)))), (false, None));
+        assert_eq!(c.observe(Some(&hud(Some(4), None, Some(1200)))), (false, Some(4)));
     }
 }

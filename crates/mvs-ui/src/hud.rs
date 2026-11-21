@@ -1239,9 +1239,10 @@ impl Hud {
     /// spawned fighter (each a widget of its own), the text DisplayNameMap's string of the pick (SetModeTextParams
     /// @3192-3334, Conv_StringToText: the event's `text`); Mutator_ShrinkBlastBoxLastPoint's
     /// HandlePopTextService(ShrinkingPopText) @1328, a Server event, not on a dedicated server -> PopText @3755 once.
-    // Unverified: on a dedicated server (a custom game in the build) HandlePopTextService sends BPI_PopText to every
-    // player's pawn instead (@1586-1883, the pawn's queue); the port shows the one text of a server that is not
-    // dedicated.
+    // Deviation: the port raises the one text (@3755) on every peer of every match. The build branches on
+    // IsDedicatedServer (@3715): a dedicated server (a custom game) sends BPI_PopText to each player's pawn instead
+    // (@1586-1883, the pawn's queue), and HandlePopTextService being a Server event, a listen server's clients see
+    // no text at all.
     fn mutator_pop_text(&mut self, cls: &str, field: &str, text: Option<&str>, now: f64) {
         let p = match (cls, field) {
             ("Mutator_RandomMutatorSelector_C", "ModeText") => {
@@ -2019,7 +2020,7 @@ impl Hud {
         // (the port's own) the Chaos Wheel's card, under the clock just painted
         if let Some(c) = &mut self.wheel_card {
             let place = self.scoreboard.clock_place();
-            if c.draw(self.wheel.as_ref(), place, self.setup.ui.hud_position_bottom, fonts, out, dpi) {
+            if c.draw(self.wheel.as_ref(), place, self.setup.ui.hud_position_bottom, fonts, out) {
                 self.drawn.push(Part::Wheel);
             }
         }
@@ -2174,6 +2175,7 @@ mod tests {
         assert_eq!(t.down_prefix, "DOWN + ");
     }
 
+    /// A Waves run's words: the counter with and without a target, the clock with hundredths against the clock.
     #[test]
     fn waves_words() {
         assert_eq!(custom_text::waves_counter(12, Some(100)), "RING-OUTS 12 / 100");
@@ -2259,7 +2261,7 @@ mod tests {
         let card = hud.wheel_card.as_ref().unwrap();
         let shown = |name: &str| card.t.widget(card.t.find(name)).text.clone();
         assert_eq!((shown("WheelLabel"), shown("WheelName")), ("GET READY".to_owned(), "CHAOS WHEEL".to_owned()));
-        let (clock, _) = hud.scoreboard.clock_place().expect("the clock is painted");
+        let (clock, _, _) = hud.scoreboard.clock_place().expect("the clock is painted");
         let name = card.t.painted(card.t.find("WheelName")).unwrap();
         assert!(name.transform[5] >= clock[1] + clock[3], "the card stands under the clock");
         let fill = card.t.widget(card.t.find("WheelBarFill")).transform.scale[0];
