@@ -313,6 +313,21 @@ fn has_bytes(seen: &[RelayEvent], b: &[u8]) -> usize {
 
 /// A dropped socket starts a second connection at once: on a relay that kept the seat it is resumed, on one that did
 /// not the client signs out with that reason, in either case well before the keepalive's 20 s.
+/// The welcome names the game protocol of the relay's cores: the client and the launcher's look both read it.
+#[test]
+fn the_welcome_names_the_relays_game_protocol() {
+    use mvs_net::link::relay::{RelayProbe, probe_relay};
+    let addr = local_relay();
+    let epoch = Instant::now();
+    let c = client(&addr, epoch, false);
+    assert_eq!(c.proto(), Some(PROTOCOL));
+    c.shutdown();
+    match probe_relay(&addr, &ClientOptions::new("mvs-test 0", epoch)) {
+        RelayProbe::Found { proto, .. } => assert_eq!(proto, Some(PROTOCOL)),
+        RelayProbe::Failed(why) => panic!("not found: {why}"),
+    }
+}
+
 #[test]
 fn a_dropped_socket_tries_a_second_connection_at_once() {
     let addr = local_relay();

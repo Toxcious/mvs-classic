@@ -298,8 +298,8 @@ fn path_box(c: &mut Canvas, r: [f32; 3], text: &str, pad: [f32; 2]) -> f32 {
     h
 }
 
-/// A line of the Online tab's notes in its tone (the page's .desc.spaced with ok / bad); the y after it. Nothing for
-/// a note with no text.
+/// A line of the Online tab's notes in its tone (the page's .desc.spaced with ok / bad; a warning the launcher's
+/// orange); the y after it. Nothing for a note with no text.
 fn note_line(c: &mut Canvas, n: &super::Note, x: f32, y: f32, wd: f32) -> f32 {
     if n.text.is_empty() {
         return y;
@@ -307,6 +307,7 @@ fn note_line(c: &mut Canvas, n: &super::Note, x: f32, y: f32, wd: f32) -> f32 {
     let col = match n.tone {
         Tone::Ok => GOOD,
         Tone::Bad => BAD,
+        Tone::Warn => WARN,
         _ => DIM,
     };
     let h = c.para(Face::Body, 14.0, 14.0 * 1.45, x, y + 10.0, wd, &n.text, col);
@@ -499,7 +500,7 @@ fn online_summary(c: &mut Canvas, o: &super::OnlineSettingsView, x: f32, y: f32)
         // (the body face sits lower in its line than the semibold one: lifted onto the words' baseline)
         c.text(Face::Body, px, x, y - 1.5, lh, label, DIM);
         let (words, why) = w::way(way);
-        let col = if matches!(way, Way::Off | Way::SignedOut) { WARN } else { WHITE };
+        let col = if matches!(way, Way::Off | Way::SignedOut | Way::RelayVersion) { WARN } else { WHITE };
         let ww = c.text(Face::Semi, px, x + lw, y, lh, words, col);
         if !why.is_empty() {
             c.text(Face::Body, px, x + lw + ww + 8.0, y - 1.5, lh, why, DIM);

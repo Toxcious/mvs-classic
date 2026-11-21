@@ -346,13 +346,17 @@ pub enum ServerMessage {
     },
     #[serde(rename = "welcome")]
     /// `resumed` is the count of channel-0 data frames the relay took from the seat (None: a new seat, and the old
-    /// lobbies and links are gone); see the resume rule at [`ClientMessage::Hello`].
+    /// lobbies and links are gone); see the resume rule at [`ClientMessage::Hello`]. `proto` (the port's own, no
+    /// wire version of its own: an older relay sends none, an older client reads past it) is the game protocol
+    /// (`version::PROTOCOL`) of the cores the relay hosts.
     Welcome {
         id: String,
         token: String,
         udp: u16,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         resumed: Option<u64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        proto: Option<u32>,
     },
     #[serde(rename = "refused")]
     Refused { why: String },

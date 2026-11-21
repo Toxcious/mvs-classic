@@ -145,6 +145,11 @@ pub trait Backend: Send {
     /// This player's id on the backend.
     fn me(&self) -> &str;
     fn kind(&self) -> BackendKind;
+    /// A relay's sign-in: the game protocol of the cores it hosts, as its welcome said (None: it did not say, or not a
+    /// relay).
+    fn relay_proto(&self) -> Option<u32> {
+        None
+    }
     /// A lobby of `max` members owned by this player, no host migration, joined by its id; answered `Created`.
     /// `listed`: searches find it (public), with its attributes; otherwise invite-only, found by its id alone.
     fn create_lobby(&mut self, bucket: &str, max: u32, listed: Option<Listed>) -> Ask;

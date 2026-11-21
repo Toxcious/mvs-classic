@@ -85,6 +85,8 @@ fn handshake_the_id_of_the_key_the_relay_proves_its_own() {
         );
         assert_eq!(a.welcome.borrow().as_ref().unwrap().udp, relay.port);
         assert_eq!(a.welcome.borrow().as_ref().unwrap().id, id);
+        // (the welcome names the game protocol of the cores the relay hosts)
+        assert_eq!(a.welcome.borrow().as_ref().unwrap().proto, Some(u64::from(PROTOCOL)));
         a.send(json!({ "t": "ping" }));
         a.msg("pong").await;
         a.end();

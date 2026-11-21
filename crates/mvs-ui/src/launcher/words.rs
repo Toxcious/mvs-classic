@@ -364,6 +364,13 @@ pub const LAN_NO_NETWORK: &str = "This PC is not on a network: nobody can join a
 pub fn relay_connected(address: &str) -> String {
     format!("Connected to the relay server at {address}.")
 }
+/// The relay reached runs another version of the game (`theirs`, this game `ours`): the look's line, the running
+/// game's and the test's.
+pub fn relay_other_version(theirs: u32, ours: u32) -> String {
+    format!(
+        "Connected, but this server runs another game version ({theirs}, this game {ours}). Custom games and matchmaking will not use it."
+    )
+}
 /// A sign-in under way: the reason as a sentence.
 pub fn sign_in_pending(why: &str) -> String {
     sentence(why)
@@ -465,6 +472,7 @@ pub fn way(w: Way) -> (&'static str, &'static str) {
         Way::SigningIn => ("Signing in…", ""),
         Way::Off => ("Not available", "needs the relay server or Epic"),
         Way::SignedOut => ("Not available", "not signed in"),
+        Way::RelayVersion => ("Not available", "the relay server runs another game version"),
     }
 }
 /// A change the running game takes once its lobby or queue closes.

@@ -566,6 +566,10 @@ pub struct NetState {
     /// (`NetHandle::backends_when_free`).
     #[serde(default)]
     pub held: bool,
+    /// (the port's own) The signed-in relay's cores run this other game protocol (its welcome said so, or its first
+    /// lobby's core did): custom games and matchmaking do not use it. None: this game's, or not known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub relay_proto: Option<u32>,
 }
 
 /// The net state's file in the data folder.

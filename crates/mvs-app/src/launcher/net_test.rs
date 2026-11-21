@@ -2,7 +2,8 @@
 //! process) tries each way online on the player's settings for a few seconds and prints the result as JSON: the
 //! relay reached and its round trip (or the other key it proved than the one the game expects of it), UDP through
 //! or not, Epic signed in or why not, the LAN port free or in use, and what online play will use. While the game
-//! runs, Epic's and LAN's lines are its net state's.
+//! runs, Epic's and LAN's lines are its net state's. A relay whose welcome names another game protocol than this
+//! game's is reached but not used (the net service skips it: service.rs open).
 
 use std::net::{Ipv4Addr, TcpListener, UdpSocket};
 use std::path::PathBuf;
@@ -12,6 +13,7 @@ use mvs_net::backend::BackendKind;
 use mvs_net::link::relay::{ClientOptions, NetFaults, RelayProbe, probe_relay};
 use mvs_net::service::api::{BackendState, OffWhy, OnlineBackends, RelayPin};
 use mvs_net::service::{ServiceOptions, spawn};
+use mvs_protocol::version::PROTOCOL;
 use mvs_ui::launcher::{Note, Tone, words as w};
 use mvs_ui::menu::online_text::off_why_text;
 use serde::{Deserialize, Serialize};
@@ -69,6 +71,12 @@ pub struct TestResult {
     /// the release's relay, and the id it proved. The game will not use it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub other_key: Option<(bool, String)>,
+    /// The address tested and the game protocol of the cores the relay reached hosts, as its welcome said (None: no
+    /// relay set, or it did not say).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub relay_address: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub relay_proto: Option<u32>,
 }
 
 impl Default for TestResult {
@@ -81,7 +89,16 @@ impl Default for TestResult {
             lan: LanPort::Off,
             uses: TestUses::Nothing,
             other_key: None,
+            relay_address: None,
+            relay_proto: None,
         }
+    }
+}
+
+impl TestResult {
+    /// The relay reached runs another game protocol than this game's: its number.
+    pub fn relay_other_version(&self) -> Option<u32> {
+        self.relay_proto.filter(|p| self.relay.is_ok() && *p != PROTOCOL)
     }
 }
 
@@ -103,27 +120,30 @@ fn test(o: &TestOptions, all: bool) -> TestResult {
         crate::online::glue::backends_of(&o.online_defaults, &settings, &o.data, false, false, NetFaults::default());
     let address = b.relay.as_ref().map(|r| r.address.clone());
     let pin = b.relay.as_ref().and_then(|r| r.pin.clone());
-    let ((relay, udp, proved), epic) = std::thread::scope(|s| {
+    let (probe, epic) = std::thread::scope(|s| {
         let probe = s.spawn(|| relay_test(address.as_deref()));
         let epic = if all { epic_test(&b) } else { Err(OffWhy::NotOn) };
-        (probe.join().unwrap_or_else(|_| (Err(w::TEST_PROBE_STOPPED.to_owned()), None, String::new())), epic)
+        (probe.join().unwrap_or_else(|_| Some(RelayProbe::Failed(w::TEST_PROBE_STOPPED.to_owned()))), epic)
     });
+    let (relay, udp, proved, relay_proto) = match probe {
+        None => (Err(String::new()), None, String::new(), None),
+        Some(RelayProbe::Found { version, relay, ms, udp, proto }) => (Ok((ms, version)), Some(udp), relay, proto),
+        Some(RelayProbe::Failed(why)) => (Err(why), None, String::new(), None),
+    };
     let lan = if all { lan_test(b.lan.as_ref().map(|l| l.port), o.loopback) } else { LanPort::Off };
     let other_key = other_key_of(pin.as_ref(), relay.is_ok(), proved);
-    let mut r = TestResult { relay, udp, epic, lan, uses: TestUses::Nothing, other_key };
+    let mut r =
+        TestResult { relay, udp, epic, lan, uses: TestUses::Nothing, other_key, relay_address: address, relay_proto };
     r.uses = uses_of(&r);
     r
 }
 
 /// The relay's probe (the launcher's look at an address: its hello and a UDP probe), under the game's product and
-/// version, with the id of the key it proved. No relay set: Err('').
-fn relay_test(address: Option<&str>) -> (Result<(u64, u32), String>, Option<bool>, String) {
-    let Some(address) = address else { return (Err(String::new()), None, String::new()) };
+/// version: the id of the key it proved and the game protocol its welcome named among what it found. None: no relay
+/// set.
+fn relay_test(address: Option<&str>) -> Option<RelayProbe> {
     let app = format!("{} {}", crate::online::glue::PRODUCT, mvs_release::VERSION);
-    match probe_relay(address, &ClientOptions::new(&app, Instant::now())) {
-        RelayProbe::Found { version, relay, ms, udp } => (Ok((ms, version)), Some(udp), relay),
-        RelayProbe::Failed(why) => (Err(why), None, String::new()),
-    }
+    address.map(|a| probe_relay(a, &ClientOptions::new(&app, Instant::now())))
 }
 
 /// The relay reached proved another id than the game's pin of it (`reached`: the probe reached it): whether the pin
@@ -194,9 +214,10 @@ pub(crate) fn lan_test(port: Option<u16>, loopback: bool) -> LanPort {
     if tcp && udp { LanPort::Free(port) } else { LanPort::InUse(port) }
 }
 
-/// What online play will use: the relay first (by UDP, else the slower way), then Epic, then LAN alone.
+/// What online play will use: the relay first (by UDP, else the slower way; not one of another key or another game
+/// version), then Epic, then LAN alone.
 pub fn uses_of(r: &TestResult) -> TestUses {
-    if r.relay.is_ok() && r.other_key.is_none() {
+    if r.relay.is_ok() && r.other_key.is_none() && r.relay_other_version().is_none() {
         return if r.udp == Some(true) { TestUses::Relay } else { TestUses::RelaySlower };
     }
     if r.epic.is_ok() {
@@ -210,14 +231,15 @@ pub fn uses_of(r: &TestResult) -> TestUses {
 
 /// The result as the launcher's lines: the relay, UDP (once a relay answered), Epic, LAN, then what online uses.
 pub fn notes(r: &TestResult) -> Vec<Note> {
-    let mut out = vec![match (&r.relay, &r.other_key) {
-        (Ok(_), Some((release, id))) => Note::new(w::test_relay_other_key(*release, id), Tone::Bad),
-        (Ok((ms, _)), None) => Note::new(w::test_relay_reached(*ms), Tone::Ok),
-        (Err(why), _) if why.is_empty() => Note::new(w::TEST_NO_RELAY, Tone::Plain),
-        (Err(why), _) => Note::new(w::test_relay_not_reached(why), Tone::Bad),
+    let mut out = vec![match (&r.relay, &r.other_key, r.relay_other_version()) {
+        (Ok(_), Some((release, id)), _) => Note::new(w::test_relay_other_key(*release, id), Tone::Bad),
+        (Ok(_), None, Some(p)) => Note::new(w::relay_other_version(p, PROTOCOL), Tone::Warn),
+        (Ok((ms, _)), None, None) => Note::new(w::test_relay_reached(*ms), Tone::Ok),
+        (Err(why), _, _) if why.is_empty() => Note::new(w::TEST_NO_RELAY, Tone::Plain),
+        (Err(why), _, _) => Note::new(w::test_relay_not_reached(why), Tone::Bad),
     }];
     // (no UDP line for a relay the game will not use)
-    match r.udp.filter(|_| r.other_key.is_none()) {
+    match r.udp.filter(|_| r.other_key.is_none() && r.relay_other_version().is_none()) {
         Some(true) => out.push(Note::new(w::TEST_UDP_ON, Tone::Ok)),
         // (a relay UDP does not reach is a plain line, not a bad one)
         Some(false) => out.push(Note::new(w::TEST_UDP_OFF, Tone::Plain)),
@@ -315,9 +337,40 @@ mod tests {
         epic: Result<(), OffWhy>,
         lan: LanPort,
     ) -> TestResult {
-        let mut r = TestResult { relay, udp, epic, lan, uses: TestUses::Nothing, other_key: None };
+        let mut r = TestResult { relay, udp, epic, lan, ..TestResult::default() };
         r.uses = uses_of(&r);
         r
+    }
+
+    /// A relay reached whose welcome names another game protocol: a warning line, no UDP line, online does not use
+    /// it; one naming this game's, or none (an older relay), is used.
+    #[test]
+    fn a_relay_of_another_game_version_is_reported() {
+        let mut r = result(Ok((42, 7)), Some(true), Ok(()), LanPort::Off);
+        r.relay_address = Some("relay.example".into());
+        r.relay_proto = Some(PROTOCOL - 1);
+        r.uses = uses_of(&r);
+        assert_eq!(r.relay_other_version(), Some(PROTOCOL - 1));
+        assert_eq!(r.uses, TestUses::Epic);
+        let n = notes(&r);
+        assert_eq!(n[0], Note::new(w::relay_other_version(PROTOCOL - 1, PROTOCOL), Tone::Warn));
+        assert_eq!(n.len(), 4, "no UDP line: {n:?}");
+        let j = serde_json::to_string(&r).expect("json");
+        assert_eq!(serde_json::from_str::<TestResult>(&j).expect("read"), r);
+        for p in [Some(PROTOCOL), None] {
+            r.relay_proto = p;
+            r.uses = uses_of(&r);
+            assert_eq!((r.relay_other_version(), r.uses), (None, TestUses::Relay), "{p:?}");
+            assert_eq!(notes(&r)[0], Note::new(w::test_relay_reached(42), Tone::Ok));
+        }
+        // (no relay reached: nothing said of its version)
+        let mut down = result(Err("refused".into()), None, Ok(()), LanPort::Off);
+        down.relay_proto = Some(PROTOCOL - 1);
+        assert_eq!(down.relay_other_version(), None);
+        // (an older launcher's JSON, with neither field, reads)
+        let old = r#"{"relay":{"Ok":[42,7]},"udp":true,"epic":{"Ok":null},"lan":{"state":"off"},"uses":"relay"}"#;
+        let o: TestResult = serde_json::from_str(old).expect("read");
+        assert_eq!((o.relay_address, o.relay_proto), (None, None));
     }
 
     /// A relay reached that proves another key than the game's pin: a bad line, no UDP line, online does not use it.

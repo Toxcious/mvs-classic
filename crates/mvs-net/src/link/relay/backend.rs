@@ -177,6 +177,10 @@ impl Backend for RelayClient {
         BackendKind::Relay
     }
 
+    fn relay_proto(&self) -> Option<u32> {
+        RelayClient::proto(self)
+    }
+
     fn create_lobby(&mut self, bucket: &str, max: u32, listed: Option<Listed>) -> Ask {
         self.call(Request::Create { bucket: bucket.to_owned(), max, listed, host: false }, Kind::Created)
     }

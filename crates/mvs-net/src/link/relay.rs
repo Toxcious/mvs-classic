@@ -321,6 +321,9 @@ struct Welcome {
     ms: f64,
     /// The welcome's count of the channel-0 frames the relay took from the seat (None: a new seat).
     resumed: Option<u64>,
+    /// The game protocol of the cores the relay hosts, as its welcome said (None: it did not say, or not as a whole
+    /// number).
+    proto: Option<u32>,
     /// What this client sends with after its prove, frames and datagrams (relay_seal), derived at the challenge.
     tx: TxSeal,
     /// What the relay's datagrams are opened with.
@@ -584,6 +587,7 @@ fn start(
                     udp_from: None,
                     ms: *ms,
                     resumed: m.get("resumed").and_then(Value::as_u64),
+                    proto: welcome_proto(&m),
                     tx,
                     datagrams,
                     tcp,
@@ -592,6 +596,17 @@ fn start(
             return Err(fail("the relay answered out of turn"));
         }
     }
+}
+
+/// The welcome's `proto`, leniently: None when it is missing or not a whole number that fits a u32 (an older relay
+/// sends none).
+fn welcome_proto(m: &Map<String, Value>) -> Option<u32> {
+    let p = m
+        .get("proto")
+        .and_then(Value::as_f64)
+        .filter(|p| p.fract() == 0.0 && (0.0..=f64::from(u32::MAX)).contains(p))?;
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss, reason = "checked to be a whole u32 above")]
+    Some(p as u32)
 }
 
 /// What the game thread asks of the net thread.
@@ -1821,6 +1836,8 @@ pub struct RelayClient {
     me: String,
     relay_key: String,
     version: u32,
+    /// The game protocol of the cores the relay hosts, as its welcome said (None: it did not say).
+    proto: Option<u32>,
     ms: f64,
     request_ms: f64,
     cmds: Sender<Cmd>,
@@ -1907,7 +1924,7 @@ impl RelayClient {
         let (cmd_tx, cmd_rx) = mpsc::channel();
         let (ev_tx, ev_rx) = mpsc::channel();
         let me = w.id.clone();
-        let (relay_key, version, ms) = (w.relay_key.clone(), w.version, w.ms);
+        let (relay_key, version, proto, ms) = (w.relay_key.clone(), w.version, w.proto, w.ms);
         let now = o.epoch.elapsed().as_secs_f64() * 1000.0;
         let stats = Arc::new(Mutex::new(RelayStats::default()));
         let rtt = Arc::new(AtomicU64::new(NO_RTT));
@@ -1985,6 +2002,7 @@ impl RelayClient {
             me,
             relay_key,
             version,
+            proto,
             ms,
             request_ms: o.times.request_ms,
             cmds: cmd_tx,
@@ -2016,6 +2034,11 @@ impl RelayClient {
     /// The relay's key (raw, base64), its wire version and the hello's time to its challenge (ms).
     pub fn relay(&self) -> (&str, u32, f64) {
         (&self.relay_key, self.version, self.ms)
+    }
+
+    /// The game protocol of the cores the relay hosts, as its welcome said (None: it did not say: an older relay).
+    pub fn proto(&self) -> Option<u32> {
+        self.proto
     }
 
     /// What the connection has sent and refused so far (the net thread's count, a millisecond late at the most).
@@ -2181,12 +2204,14 @@ impl RelayClient {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum RelayProbe {
     Failed(String),
-    /// The relay's wire version, its id, the hello's time to its challenge (ms) and whether a UDP probe came back.
+    /// The relay's wire version, its id, the hello's time to its challenge (ms), whether a UDP probe came back and
+    /// the game protocol of the cores it hosts (None: it did not say: an older relay).
     Found {
         version: u32,
         relay: String,
         ms: u64,
         udp: bool,
+        proto: Option<u32>,
     },
 }
 
@@ -2236,7 +2261,7 @@ pub fn probe_relay(address: &str, o: &ClientOptions) -> RelayProbe {
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss, reason = "a time in ms")]
     let ms = w.ms.round().max(0.0) as u64;
     let _ = w.tcp.shutdown(Shutdown::Both);
-    RelayProbe::Found { version: w.version, relay, ms, udp: acked }
+    RelayProbe::Found { version: w.version, relay, ms, udp: acked, proto: w.proto }
 }
 
 impl Drop for RelayClient {
@@ -2260,7 +2285,29 @@ pub fn begin_probe(address: String, o: ClientOptions) -> crate::pending::Pending
 
 #[cfg(test)]
 mod tests {
-    use super::{RelayError, is_referee_id, other_key};
+    use super::{RelayError, is_referee_id, other_key, welcome_proto};
+
+    /// A welcome with no `proto` (an older relay) signs in as before, its protocol not known; one that is not a whole
+    /// u32 is not known either.
+    #[test]
+    fn the_welcomes_proto_is_read_leniently() {
+        let w = |v: serde_json::Value| welcome_proto(v.as_object().expect("an object"));
+        let base = serde_json::json!({ "t": "welcome", "id": "r1", "token": "dA==", "udp": 7777 });
+        assert_eq!(w(base.clone()), None);
+        let mut with = base.clone();
+        for (p, want) in [
+            (serde_json::json!(28), Some(28)),
+            (serde_json::json!(27.0), Some(27)),
+            (serde_json::json!(27.5), None),
+            (serde_json::json!(-1), None),
+            (serde_json::json!("28"), None),
+            (serde_json::json!(null), None),
+            (serde_json::json!(4_294_967_296_u64), None),
+        ] {
+            with["proto"] = p.clone();
+            assert_eq!(w(with.clone()), want, "{p}");
+        }
+    }
 
     #[test]
     fn other_key_reads_its_id_back() {

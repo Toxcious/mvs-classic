@@ -120,6 +120,8 @@ pub struct Welcome {
     pub udp: u16,
     /// The count of channel-0 data frames the relay took from the seat (None: a new seat).
     pub resumed: Option<u64>,
+    /// The game protocol of the cores the relay hosts (None: the relay did not say).
+    pub proto: Option<u64>,
 }
 
 /// A test client: frames in a queue, waited for by a predicate.
@@ -436,7 +438,8 @@ impl Client {
         let id = w["id"].as_str().unwrap().to_string();
         let token = unb64(&w["token"]).try_into().unwrap();
         let udp = w["udp"].as_u64().unwrap() as u16;
-        *self.welcome.borrow_mut() = Some(Welcome { id: id.clone(), token, udp, resumed: w["resumed"].as_u64() });
+        *self.welcome.borrow_mut() =
+            Some(Welcome { id: id.clone(), token, udp, resumed: w["resumed"].as_u64(), proto: w["proto"].as_u64() });
         id
     }
 

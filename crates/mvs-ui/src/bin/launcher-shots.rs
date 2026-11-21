@@ -386,6 +386,23 @@ fn main() -> Result<(), String> {
             (false, Some(2), false, false),
         ),
         (
+            "settings-online-relay-version",
+            |m| {
+                m.screen = Screen::Home;
+                let o = &mut m.settings.online;
+                online_default(o);
+                // (a look at a relay of the version before, Epic off: a local lobby, no matchmaking)
+                let ours = mvs_protocol::version::PROTOCOL;
+                o.relay = "mine.example.org:9000".into();
+                o.relay_far = String::new();
+                o.relay_status = Note::new(w::relay_other_version(ours - 1, ours), Tone::Warn);
+                o.eos = false;
+                o.epic_now = Note::new(w::EPIC_OFF, Tone::Plain);
+                o.summary = OnlineSummary { custom: Way::Local, queue: Way::RelayVersion };
+            },
+            (false, Some(2), false, false),
+        ),
+        (
             "settings-online-nothing",
             |m| {
                 m.screen = Screen::Home;

@@ -214,6 +214,8 @@ pub enum Way {
     Off,
     /// Matchmaking with the relay or Epic on, neither signed in.
     SignedOut,
+    /// Matchmaking with the relay reached but running another version of the game, and Epic not signed in.
+    RelayVersion,
 }
 
 /// (the port's own) The Online tab's summary: where custom games and matchmaking go, from the switches while no game

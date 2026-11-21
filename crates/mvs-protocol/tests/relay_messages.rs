@@ -86,7 +86,17 @@ fn server_messages() {
     );
     both_ways(
         r#"{"t":"welcome","id":"rab","token":"dG9rZW4=","udp":7777}"#,
-        &ServerMessage::Welcome { id: "rab".into(), token: "dG9rZW4=".into(), udp: 7777, resumed: None },
+        &ServerMessage::Welcome { id: "rab".into(), token: "dG9rZW4=".into(), udp: 7777, resumed: None, proto: None },
+    );
+    both_ways(
+        r#"{"t":"welcome","id":"rab","token":"dG9rZW4=","udp":7777,"resumed":2,"proto":28}"#,
+        &ServerMessage::Welcome {
+            id: "rab".into(),
+            token: "dG9rZW4=".into(),
+            udp: 7777,
+            resumed: Some(2),
+            proto: Some(28),
+        },
     );
     both_ways(
         r#"{"t":"res","id":3,"ok":true,"value":{"lobby":"l1"}}"#,

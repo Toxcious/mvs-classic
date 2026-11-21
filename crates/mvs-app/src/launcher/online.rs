@@ -17,6 +17,9 @@
 //! (net_test.rs, a child process), whose lines it lists.
 //! A change the player makes reaches a running game through the settings file (glue.rs follow_settings): at once in
 //! the menus, else once its lobby or queue closes (NetState::held, "Applies when you leave the lobby").
+//! A relay whose welcome names another game protocol than this game's (or whose lobby did, while the game runs:
+//! NetState::relay_proto) is reached but not used: its lines warn, and the summary leaves it out (with no game, from
+//! the newest look or test of the address in use).
 
 use std::io::Read;
 use std::path::Path;
@@ -33,6 +36,7 @@ use mvs_ui::menu::online_line::{self, LineTone};
 use mvs_ui::menu::online_text::{host_start_why_text, off_why_text};
 
 use mvs_protocol::relay_wire::{KnownRelay, RELAY_PORT, parse_address};
+use mvs_protocol::version::PROTOCOL;
 use mvs_settings::online::{
     LAN_DISCOVERY_PORT, OnlineConfig, OnlineSetting, effective_online, read_online_config, relay_address, same_address,
 };
@@ -94,6 +98,9 @@ pub struct OnlineTab {
     /// The newest look's relay, known with another id than it proved: kept by an Enter on its address (`set_relay`
     /// before the look again), dropped at the next text.
     other_key: Option<KnownRelay>,
+    /// The newest look or test that reached a relay: its address and the game protocol its welcome named (None: it
+    /// did not say). The summary with no game leaves out a relay of another version at the address in use.
+    relay_seen: Option<(String, Option<u32>)>,
 }
 
 impl Drop for OnlineTab {
@@ -146,6 +153,7 @@ impl OnlineTab {
             latch: LineLatch::default(),
             found: None,
             other_key: None,
+            relay_seen: None,
         }
     }
 
@@ -246,11 +254,16 @@ impl OnlineTab {
         let signed = self.net.as_ref().and_then(|n| n.relay.as_deref()).or(c.relay.as_deref()).unwrap_or_default();
         let relay_up = w::relay_connected(signed);
         let relay_now = self.backend_line(BackendKind::Relay, &relay_up, relay_now.clone()).unwrap_or(relay_now);
+        // (signed in to a relay of another game version: reached, not used)
+        let relay_now = match self.net.as_ref().and_then(|n| n.relay_proto) {
+            Some(p) if relay_now.tone == Tone::Ok => Note::new(w::relay_other_version(p, PROTOCOL), Tone::Warn),
+            _ => relay_now,
+        };
         let epic_off = if c.eos { Note::default() } else { Note::new(w::EPIC_OFF, Tone::Plain) };
         let epic_now = self.backend_line(BackendKind::Epic, w::EPIC_SIGNED_IN, epic_off.clone()).unwrap_or(epic_off);
         let (line, line_detail) = self.line(&c);
         OnlineSettingsView {
-            summary: self.net.as_ref().map_or_else(|| summary_of_config(&c), summary_of_state),
+            summary: self.net.as_ref().map_or_else(|| summary_of_config(&c, self.relay_other(&c)), summary_of_state),
             held: self.net.as_ref().is_some_and(|n| n.held),
             relay: address,
             relay_on: c.relay.is_some(),
@@ -277,6 +290,14 @@ impl OnlineTab {
             },
             testing: self.test.is_some(),
             advanced: self.advanced,
+        }
+    }
+
+    /// The newest look or test found the relay `c` uses running another game version.
+    fn relay_other(&self, c: &OnlineConfig) -> bool {
+        match (&self.relay_seen, &c.relay) {
+            (Some((at, Some(p))), Some(r)) => *p != PROTOCOL && same_address(at, r),
+            _ => false,
         }
     }
 
@@ -357,6 +378,9 @@ impl OnlineTab {
             Err(mpsc::TryRecvError::Disconnected) => Err(w::TEST_STOPPED.to_owned()),
         };
         let Some(t) = self.test.take() else { return false };
+        if let Ok(r) = &got {
+            self.relay_seen = r.relay_address.clone().filter(|_| r.relay.is_ok()).map(|a| (a, r.relay_proto));
+        }
         if t.relay_only && got.is_ok() {
             if let Some(n) = &self.net {
                 self.tested = Some(got.map(|mut r| {
@@ -519,11 +543,12 @@ impl OnlineTab {
     fn answer(&mut self, s: &OnlineSetting, text: String, r: Look) -> Option<String> {
         match r {
             RelayProbe::Failed(why) => {
+                self.relay_seen = None;
                 let saved = self.effective(s).relay.as_deref() == Some(text.trim());
                 self.status = Note::new(w::not_reached(&why, saved), Tone::Bad);
                 None
             }
-            RelayProbe::Found { version, relay, ms, udp } => {
+            RelayProbe::Found { version, relay, ms, udp, proto } => {
                 let address = text.trim();
                 match self.expected(s, address) {
                     Some((want, true)) if want != relay => {
@@ -537,8 +562,13 @@ impl OnlineTab {
                     }
                     _ => {}
                 }
-                // (a relay UDP does not reach is a plain line, not a good one)
-                self.status = Note::new(w::reached(ms, version, udp), if udp { Tone::Ok } else { Tone::Plain });
+                self.relay_seen = Some((address.to_string(), proto));
+                // (a relay UDP does not reach is a plain line, not a good one; one of another game version a warning:
+                // its address is kept all the same, the game skips it)
+                self.status = match proto.filter(|p| *p != PROTOCOL) {
+                    Some(p) => Note::new(w::relay_other_version(p, PROTOCOL), Tone::Warn),
+                    None => Note::new(w::reached(ms, version, udp), if udp { Tone::Ok } else { Tone::Plain }),
+                };
                 // (a probe that read no key id keeps nothing: the id is what the game is pinned to)
                 if mvs_protocol::relay_wire::is_key_id(&relay) {
                     self.found = Some(KnownRelay { address: address.to_string(), id: Some(relay) });
@@ -551,9 +581,11 @@ impl OnlineTab {
 
 /// (the port's own) Where custom games and matchmaking go with no game running, from the switches (the net service's
 /// order, service.rs open: the relay, then Epic, then LAN, else a local lobby; the queue on the relay or Epic alone).
+/// `relay_other`: the newest look or test found the relay running another game version, which the game skips.
 // Unverified: whether each one signs in is not known before the game runs; the summary says where it would go.
-pub fn summary_of_config(c: &OnlineConfig) -> OnlineSummary {
-    let custom = if c.relay.is_some() {
+pub fn summary_of_config(c: &OnlineConfig, relay_other: bool) -> OnlineSummary {
+    let relay = c.relay.is_some() && !relay_other;
+    let custom = if relay {
         Way::Relay
     } else if c.eos {
         Way::Epic
@@ -562,10 +594,12 @@ pub fn summary_of_config(c: &OnlineConfig) -> OnlineSummary {
     } else {
         Way::Local
     };
-    let queue = if c.relay.is_some() {
+    let queue = if relay {
         Way::Relay
     } else if c.eos {
         Way::Epic
+    } else if relay_other && c.relay.is_some() {
+        Way::RelayVersion
     } else {
         Way::Off
     };
@@ -574,10 +608,13 @@ pub fn summary_of_config(c: &OnlineConfig) -> OnlineSummary {
 
 /// (the port's own) Where custom games and matchmaking go while the game runs, from its net state: the first of the
 /// order signed in (LAN: listening); else signing in while one on still is; else a local lobby, and matchmaking not
-/// available (signed out when the relay or Epic is on, else off).
+/// available (signed out when the relay or Epic is on, else off). A relay signed in that runs another game version
+/// (`NetState::relay_proto`) is left out: matchmaking then says why when Epic is not signed in.
 pub fn summary_of_state(n: &NetState) -> OnlineSummary {
     let of = |k: BackendKind| n.backends.iter().find(|b| b.kind == k && b.on);
-    let up = |k: BackendKind| of(k).is_some_and(|b| b.online);
+    let signed = |k: BackendKind| of(k).is_some_and(|b| b.online);
+    let other = n.relay_proto.is_some() && signed(BackendKind::Relay);
+    let up = |k: BackendKind| signed(k) && !(k == BackendKind::Relay && other);
     let pending = |k: BackendKind| {
         of(k).is_some_and(|b| !b.online && matches!(b.why, None | Some(OffWhy::SigningIn | OffWhy::Connecting { .. })))
     };
@@ -600,6 +637,8 @@ pub fn summary_of_state(n: &NetState) -> OnlineSummary {
         Way::Epic
     } else if online.into_iter().any(pending) {
         Way::SigningIn
+    } else if other {
+        Way::RelayVersion
     } else if online.into_iter().any(|k| of(k).is_some()) {
         Way::SignedOut
     } else {
@@ -738,6 +777,7 @@ mod tests {
             relay: Some("relay.example.org".into()),
             udp: Some(true),
             held: false,
+            relay_proto: None,
         });
         let v = tab.view(&s);
         assert_eq!(v.relay_now, Note::new(w::relay_connected("relay.example.org"), Tone::Ok));
@@ -759,7 +799,7 @@ mod tests {
     const ID_B: &str = "rfedcba9876543210fedcba9876543210";
 
     fn found(id: &str) -> Look {
-        RelayProbe::Found { version: 7, relay: id.into(), ms: 20, udp: true }
+        RelayProbe::Found { version: 7, relay: id.into(), ms: 20, udp: true, proto: Some(PROTOCOL) }
     }
 
     /// A tab over an online.json whose relay is `relay.example` pinned to ID_A.
@@ -865,10 +905,82 @@ mod tests {
     /// With no game running: the relay, else Epic, else LAN, else a local lobby; matchmaking on the relay or Epic.
     #[test]
     fn the_summary_follows_the_switches() {
-        assert_eq!(summary_of_config(&config(true, true, true)), summary(Way::Relay, Way::Relay));
-        assert_eq!(summary_of_config(&config(false, true, true)), summary(Way::Epic, Way::Epic));
-        assert_eq!(summary_of_config(&config(false, false, true)), summary(Way::Lan, Way::Off));
-        assert_eq!(summary_of_config(&config(false, false, false)), summary(Way::Local, Way::Off));
+        assert_eq!(summary_of_config(&config(true, true, true), false), summary(Way::Relay, Way::Relay));
+        assert_eq!(summary_of_config(&config(false, true, true), false), summary(Way::Epic, Way::Epic));
+        assert_eq!(summary_of_config(&config(false, false, true), false), summary(Way::Lan, Way::Off));
+        assert_eq!(summary_of_config(&config(false, false, false), false), summary(Way::Local, Way::Off));
+        // (a relay of another game version: left out)
+        assert_eq!(summary_of_config(&config(true, true, true), true), summary(Way::Epic, Way::Epic));
+        assert_eq!(summary_of_config(&config(true, false, true), true), summary(Way::Lan, Way::RelayVersion));
+        assert_eq!(summary_of_config(&config(true, false, false), true), summary(Way::Local, Way::RelayVersion));
+    }
+
+    /// A look at a relay of another game version: a warning line, the address kept all the same; the summary with no
+    /// game leaves that relay out while it is the one in use, until a look or test finds it on this game's version.
+    #[test]
+    fn a_look_at_a_relay_of_another_version_warns() {
+        let mut tab = default_tab();
+        let mut s = OnlineSetting::default();
+        let other = RelayProbe::Found { version: 7, relay: ID_A.into(), ms: 20, udp: true, proto: Some(PROTOCOL - 1) };
+        assert_eq!(
+            look_answer(&mut tab, &mut s, "mine.example:9000", other.clone()),
+            Some(w::relay_saved("mine.example:9000"))
+        );
+        assert_eq!(tab.status, Note::new(w::relay_other_version(PROTOCOL - 1, PROTOCOL), Tone::Warn));
+        let v = tab.view(&s);
+        assert_eq!(v.relay_status.tone, Tone::Warn);
+        assert_eq!(v.summary, summary(Way::Epic, Way::Epic));
+        tab.toggle_eos(&mut s);
+        assert_eq!(tab.view(&s).summary, summary(Way::Local, Way::RelayVersion));
+        // (another address in use: as before)
+        tab.set_relay(&mut s, "relay.example");
+        assert_eq!(tab.view(&s).summary, summary(Way::Relay, Way::Relay));
+        // (none said, an older relay: as before; this game's: the relay)
+        for proto in [None, Some(PROTOCOL)] {
+            let r = RelayProbe::Found { version: 7, relay: ID_A.into(), ms: 20, udp: true, proto };
+            look_answer(&mut tab, &mut s, "mine.example:9000", r);
+            assert_eq!(tab.status, Note::new(w::reached(20, 7, true), Tone::Ok));
+            assert_eq!(tab.view(&s).summary, summary(Way::Relay, Way::Relay));
+        }
+        // (a test of the address in use says it too, and a failed look forgets it)
+        tab.tested = None;
+        let mut r = TestResult { relay: Ok((20, 7)), udp: Some(true), ..TestResult::default() };
+        r.relay_address = Some("mine.example:9000".into());
+        r.relay_proto = Some(PROTOCOL + 1);
+        tab.relay_seen = r.relay_address.clone().map(|a| (a, r.relay_proto));
+        assert_eq!(tab.view(&s).summary, summary(Way::Local, Way::RelayVersion));
+        look_answer(&mut tab, &mut s, "mine.example:9000", RelayProbe::Failed("nothing answers".into()));
+        assert_eq!(tab.view(&s).summary, summary(Way::Relay, Way::Relay));
+    }
+
+    /// While the game runs signed in to a relay of another game version: its line warns, and the summary leaves it
+    /// out (matchmaking says why when Epic is not signed in).
+    #[test]
+    fn a_running_games_relay_of_another_version_warns() {
+        let mut tab = default_tab();
+        let s = OnlineSetting::default();
+        let b = |kind, online, why| BackendState { kind, on: true, online, why };
+        let relay_up = b(BackendKind::Relay, true, None);
+        let epic_up = b(BackendKind::Epic, true, None);
+        let other = |backends| NetState {
+            backends,
+            relay: Some("relay.example".into()),
+            relay_proto: Some(PROTOCOL - 1),
+            ..NetState::default()
+        };
+        tab.net = Some(other(vec![relay_up.clone(), epic_up]));
+        let v = tab.view(&s);
+        assert_eq!(v.relay_now, Note::new(w::relay_other_version(PROTOCOL - 1, PROTOCOL), Tone::Warn));
+        assert_eq!(v.summary, summary(Way::Epic, Way::Epic));
+        tab.net = Some(other(vec![relay_up.clone()]));
+        assert_eq!(tab.view(&s).summary, summary(Way::Local, Way::RelayVersion));
+        let signing = b(BackendKind::Epic, false, Some(OffWhy::SigningIn));
+        assert_eq!(summary_of_state(&other(vec![relay_up.clone(), signing])), summary(Way::SigningIn, Way::SigningIn));
+        // (this game's: the relay as before)
+        tab.net = Some(NetState { relay_proto: None, ..other(vec![relay_up]) });
+        let v = tab.view(&s);
+        assert_eq!(v.relay_now, Note::new(w::relay_connected("relay.example"), Tone::Ok));
+        assert_eq!(v.summary, summary(Way::Relay, Way::Relay));
     }
 
     /// While the game runs: the first signed in of the order, signing in while one on still is, else a local lobby

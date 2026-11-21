@@ -970,7 +970,10 @@ fn on_message(sh: &Rc<Shared>, st: &mut State, conn: &Rc<ConnCell>, m: Map<Strin
         say_log(&sh.log, &format!("{address} {id} in"));
         let mut lost = None;
         let s = conn.c.borrow().session.clone().expect("a session");
-        if !conn.say(sh, &ServerMessage::Welcome { id, token: b64(&token), udp: sh.port.get(), resumed }, &mut lost) {
+        // (the game protocol of the cores this relay hosts, the one mvs-host's core names in its `server`)
+        let proto = Some(mvs_protocol::version::PROTOCOL);
+        let welcome = ServerMessage::Welcome { id, token: b64(&token), udp: sh.port.get(), resumed, proto };
+        if !conn.say(sh, &welcome, &mut lost) {
             return park(st, sh, lost);
         }
         // (what the seat is owed goes after the welcome)

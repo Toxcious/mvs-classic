@@ -2,7 +2,8 @@
 //! the relay, else Epic, else LAN, else a local lobby (the host core in the service with no backend under it); a relay
 //! whose cores run another version of the game's protocol is left before the page hears of it, remembered until its
 //! sign-in or its address changes, and the open goes on to the next step; the queue then takes Epic or closes
-//! `RelayVersion`. Every `Opened` says what the session is connected through. The memory net's hosted cores answer a
+//! `RelayVersion`. A relay whose sign-in names its cores' protocol is known from that sign-in on (another: skipped
+//! with no lobby tried; this game's: used). Every `Opened` says what the session is connected through. The memory net's hosted cores answer a
 //! knock with their first message alone (`MemoryNetOptions::core_proto`). LAN over 127.0.0.1.
 
 use std::net::TcpListener;
@@ -14,7 +15,7 @@ use serde_json::{Value, json};
 use mvs_net::backend::BackendKind;
 use mvs_net::backend::memory::{MemoryNet, MemoryNetOptions};
 use mvs_net::service::api::{
-    ClosedWhy, DirectOptions, LanOptions, LocalWhy, NetEvent, NetRequest, SessionOn, SessionTarget, StatusWhy,
+    ClosedWhy, DirectOptions, LanOptions, LocalWhy, NetEvent, NetRequest, OffWhy, SessionOn, SessionTarget, StatusWhy,
 };
 use mvs_net::service::{NetService, PageId, ServiceConfig, ServiceOptions};
 use mvs_protocol::version::PROTOCOL;
@@ -53,6 +54,15 @@ impl Rig {
             svc.start_backend(BackendKind::Epic, Box::new(net.player(Some("E1"), BackendKind::Epic)), 1.0);
         }
         Rig { net, svc, t: 1.0, log }
+    }
+
+    /// A service whose relay signs in with a welcome naming `welcome` as its cores' protocol, its cores really of
+    /// `cores`; Epic signed in with `epic`.
+    fn signed(welcome: Option<u32>, cores: u32, epic: bool) -> Rig {
+        let mut r = Rig::new(config(), false, epic, cores);
+        let relay = r.net.player(Some("R1"), BackendKind::Relay).with_relay_proto(welcome);
+        r.svc.start_backend(BackendKind::Relay, Box::new(relay), 1.0);
+        r
     }
 
     /// Runs the service and the net `ms` more, 1 ms at a time; the page's events in that time.
@@ -162,6 +172,7 @@ fn a_relay_of_another_version_is_left_for_epic_and_remembered_until_it_signs_in_
     assert_eq!(on, SessionOn::Epic);
     assert!(code.starts_with('e'), "an Epic code: {code}");
     assert!(r.logged(&format!("the relay runs protocol {}", PROTOCOL - 1)), "the skip is logged");
+    assert_eq!(r.svc.relay_other_proto(), Some(PROTOCOL - 1), "learned from the lobby");
     // (the relay's lobby is left: its leader gone, the lobby with it)
     r.run(page, 1000.0);
     assert!(r.net.lobbies().iter().all(|l| l.owner != "R1"), "the relay's lobby is left: {:?}", r.net.lobbies());
@@ -221,6 +232,69 @@ fn the_queue_past_a_relay_of_another_version_takes_epic_or_says_why() {
     let t = r.t;
     r.svc.take(page, NetRequest::Open(SessionTarget::Queue), t);
     assert_eq!(closed(&r.svc.events(page)), [ClosedWhy::RelayVersion]);
+}
+
+/// A relay whose sign-in names another protocol is skipped from the first open: Epic, else a local lobby; the queue
+/// takes Epic or closes `RelayVersion` at once; no lobby is ever made on the relay.
+#[test]
+fn a_relay_that_signs_in_naming_another_version_is_skipped_at_once() {
+    // (its cores answer this game's protocol: only the welcome's word keeps the relay out)
+    let mut r = Rig::signed(Some(PROTOCOL - 1), PROTOCOL, true);
+    assert_eq!(r.svc.relay_other_proto(), Some(PROTOCOL - 1));
+    assert!(r.logged(&format!("its cores run protocol {}", PROTOCOL - 1)), "the sign-in's word is logged");
+    let (_, seen) = r.open(SessionTarget::Host);
+    assert_eq!(one_open(&seen, "Epic at once").0, SessionOn::Epic);
+    assert!(r.logged("custom: not hosted on the relay: it runs protocol"), "the skip at once is logged");
+    assert!(!r.logged("the relay runs protocol"), "no lobby was made on the relay");
+    let (_, seen) = r.open(SessionTarget::Queue);
+    let o = opened(&seen);
+    assert_eq!((o.len(), o.first().map(|o| o.0.clone())), (1, Some(SessionOn::Epic)), "the queue on Epic: {seen:?}");
+    assert!(r.net.lobbies().iter().all(|l| l.owner != "R1"), "nothing on the relay: {:?}", r.net.lobbies());
+
+    let mut r = Rig::signed(Some(PROTOCOL + 1), PROTOCOL, false);
+    let (_, seen) = r.open(SessionTarget::Host);
+    assert_eq!(one_open(&seen, "local").0, SessionOn::Local { why: LocalWhy::RelayVersion });
+    let page = r.svc.open_page(r.t);
+    let _ = r.svc.events(page);
+    let t = r.t;
+    r.svc.take(page, NetRequest::Open(SessionTarget::Queue), t);
+    assert_eq!(closed(&r.svc.events(page)), [ClosedWhy::RelayVersion], "closed at once");
+    assert!(r.net.lobbies().iter().all(|l| l.owner != "R1"), "nothing on the relay: {:?}", r.net.lobbies());
+
+    // (signed in again naming this game's: used again)
+    let t = r.t;
+    let again = r.net.player(Some("R2"), BackendKind::Relay).with_relay_proto(Some(PROTOCOL));
+    r.svc.start_backend(BackendKind::Relay, Box::new(again), t);
+    assert_eq!(r.svc.relay_other_proto(), None);
+    let (_, seen) = r.open(SessionTarget::Host);
+    assert_eq!(one_open(&seen, "the relay again").0, SessionOn::Relay);
+}
+
+/// A relay whose sign-in names this game's protocol is used; one that names none keeps learning it from its first
+/// lobby (the N1 rule); a sign-in's word replaces what a lobby taught.
+#[test]
+fn a_relay_that_signs_in_naming_this_version_or_none() {
+    let mut r = Rig::signed(Some(PROTOCOL), PROTOCOL, true);
+    assert_eq!(r.svc.relay_other_proto(), None);
+    let (_, seen) = r.open(SessionTarget::Host);
+    assert_eq!(one_open(&seen, "the relay").0, SessionOn::Relay);
+
+    // (none named: the first lobby tells, then the skip holds)
+    let mut r = Rig::signed(None, PROTOCOL - 1, true);
+    assert_eq!(r.svc.relay_other_proto(), None, "not known before a lobby");
+    let (_, seen) = r.open(SessionTarget::Host);
+    assert_eq!(one_open(&seen, "past the relay").0, SessionOn::Epic);
+    assert!(r.logged("the relay runs protocol"), "a lobby was tried on the relay");
+    assert_eq!(r.svc.relay_other_proto(), Some(PROTOCOL - 1));
+
+    // (a sign-in naming another keeps it skipped; then the relay signed out: nothing said of it)
+    let t = r.t;
+    let again = r.net.player(Some("R2"), BackendKind::Relay).with_relay_proto(Some(PROTOCOL - 2));
+    r.svc.start_backend(BackendKind::Relay, Box::new(again), t);
+    assert_eq!(r.svc.relay_other_proto(), Some(PROTOCOL - 2));
+    let t = r.t;
+    r.svc.stop_backend(BackendKind::Relay, OffWhy::TurnedOff, t);
+    assert_eq!(r.svc.relay_other_proto(), None, "no relay signed in");
 }
 
 /// LAN's direct host hosts it when the relay is off or of another version; its `Opened` names its address.

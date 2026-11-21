@@ -375,7 +375,7 @@ impl MemoryNet {
             gone: false,
         });
         s.players.insert(id.clone(), end);
-        MemoryBackend { net: self.clone(), me: id, end, kind, asks: 0 }
+        MemoryBackend { net: self.clone(), me: id, end, kind, asks: 0, relay_proto: None }
     }
 
     /// Runs every delivery due by `now`, in time order.
@@ -425,9 +425,19 @@ pub struct MemoryBackend {
     end: usize,
     kind: BackendKind,
     asks: u32,
+    /// What its sign-in says of the relay's cores' protocol (`with_relay_proto`).
+    relay_proto: Option<u32>,
 }
 
 impl MemoryBackend {
+    /// The backend as a relay's sign-in whose welcome names its cores' protocol `proto` (None: says none, as an
+    /// older relay).
+    #[must_use]
+    pub fn with_relay_proto(mut self, proto: Option<u32>) -> MemoryBackend {
+        self.relay_proto = proto;
+        self
+    }
+
     fn ask(&mut self) -> Ask {
         self.asks += 1;
         Ask(self.asks)
@@ -514,6 +524,10 @@ impl Backend for MemoryBackend {
 
     fn kind(&self) -> BackendKind {
         self.kind
+    }
+
+    fn relay_proto(&self) -> Option<u32> {
+        self.relay_proto
     }
 
     fn create_lobby(&mut self, bucket: &str, max: u32, listed: Option<Listed>) -> Ask {

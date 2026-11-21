@@ -440,8 +440,9 @@ pub struct NetService {
     connect_n: u32,
     /// The way to the relay as last told the pages (`NetEvent::Way`): slower, by TCP alone.
     slow: bool,
-    /// The signed-in relay's cores run another version of the game's protocol (the one a core's first message named):
-    /// custom games and the queue skip it until the relay's sign-in or its address changes.
+    /// The signed-in relay's cores run another version of the game's protocol (the one its sign-in's welcome named,
+    /// else the one a core's first message named): custom games and the queue skip it until the relay's sign-in or its
+    /// address changes.
     relay_other: Option<String>,
     /// The pages whose session left a relay of another version: their open, taken on to the next connection once the
     /// session is back out of the call.
@@ -953,6 +954,13 @@ impl NetService {
         self.relay_other = Some(proto.to_string());
     }
 
+    /// The game protocol the signed-in relay's cores run when it is another than this game's (its sign-in's welcome
+    /// said it, or a core's first message did); None: this game's, not known yet, not a number, or no relay signed
+    /// in.
+    pub fn relay_other_proto(&self) -> Option<u32> {
+        self.relay_other.as_deref().filter(|_| self.eos_of(BackendKind::Relay).is_some()).and_then(|p| p.parse().ok())
+    }
+
     fn retire(&mut self, s: Session) {
         if s.next_due().is_some() {
             self.retired.push(s);
@@ -1054,10 +1062,15 @@ impl NetService {
             self.epic_mode = None;
             self.relay_check(now);
         }
-        // (a new sign-in knows nothing of this player's presence, and may be a relay redeployed: its version is tried
-        // again)
+        // (a new sign-in knows nothing of this player's presence, and may be a relay redeployed: its version is the
+        // one its welcome names, this game's or another; a relay that names none is tried again, its first lobby's
+        // core saying it)
         if kind == BackendKind::Relay {
-            self.relay_other = None;
+            let proto = self.backends.get(&kind).and_then(|b| lock(b).relay_proto());
+            self.relay_other = proto.filter(|p| *p != PROTOCOL).map(|p| p.to_string());
+            if let Some(p) = &self.relay_other {
+                self.log(&format!("relay: signed in, its cores run protocol {p} (this game {PROTOCOL}): not used"));
+            }
             self.relay_epoch += 1;
             self.published = Published { epoch: self.relay_epoch, has: None, busy: false };
             self.publish(now);
@@ -2835,6 +2848,7 @@ fn run(mut o: ServiceOptions, rx: Receiver<ToService>, state: Arc<Mutex<HandleSt
                 relay: svc.config.relay.clone(),
                 udp: svc.udp(),
                 held: svc.backends_held(),
+                relay_proto: svc.relay_other_proto(),
             };
             drop(st);
             if told.as_ref() != Some(&now_state) {
