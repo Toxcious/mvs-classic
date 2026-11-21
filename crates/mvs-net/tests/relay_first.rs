@@ -1,4 +1,5 @@
-//! Relay first (online plan v4 section 5): a custom game is hosted on the relay, else on Epic, else on LAN; the queue
+//! Relay first (online plan v4 section 5): a custom game is hosted on the relay, else on Epic, else on LAN, else
+//! locally (host_order.rs has the rest of that order); the queue
 //! stays on the relay, else Epic. A relay-hosted session's match path that wants its Epic links counts in Epic's relay
 //! control (`NetService::relay_check`): a forced path (a queue's) has Epic's relays forced at once when it says it
 //! wants its links (`path_wanted`) and holds them QUEUE_HOLD_MS after its end, a direct custom path alone allows
@@ -11,8 +12,9 @@ use mvs_net::backend::{BackendKind, RelayMode};
 use std::net::TcpListener;
 use std::time::Instant;
 
-use mvs_net::service::api::{ClosedWhy, DirectOptions, LanOptions, NetEvent, NetRequest, SessionTarget};
+use mvs_net::service::api::{DirectOptions, LanOptions, NetEvent, NetRequest, SessionOn, SessionTarget};
 use mvs_net::service::{NetService, PageId, QUEUE_HOLD_MS, ServiceConfig, ServiceOptions};
+use mvs_protocol::version::PROTOCOL;
 
 const RELAY: &str = "127.0.0.1:7777";
 
@@ -30,7 +32,9 @@ struct Rig {
 impl Rig {
     /// A service with the config and the backends named signed in.
     fn new(c: ServiceConfig, relay: bool, epic: bool) -> Rig {
-        let net = MemoryNet::new(MemoryNetOptions { relay_ids: true, ..Default::default() }, 0.0);
+        // (the relay's cores answer with their first message: the page's Opened waits for it)
+        let o = MemoryNetOptions { relay_ids: true, core_proto: Some(PROTOCOL), ..Default::default() };
+        let net = MemoryNet::new(o, 0.0);
         let mut svc = NetService::new(ServiceOptions::default(), 0.0);
         svc.configure(c, 0.0);
         if relay {
@@ -105,10 +109,12 @@ fn a_custom_game_is_hosted_on_epic_when_the_relay_is_off_or_cannot_host() {
 }
 
 #[test]
-fn with_neither_a_custom_game_is_not_hosted() {
+fn with_neither_a_custom_game_is_hosted_locally() {
     let mut r = Rig::new(config(), false, false);
     let (_, seen) = r.open(SessionTarget::Host);
-    assert!(seen.iter().any(|e| matches!(e, NetEvent::Closed(ClosedWhy::Offline { .. }))), "offline: {seen:?}");
+    assert!(!seen.iter().any(|e| matches!(e, NetEvent::Closed(_))), "not closed: {seen:?}");
+    let local = seen.iter().any(|e| matches!(e, NetEvent::Opened { on: SessionOn::Local { .. }, .. }));
+    assert!(local, "a local lobby: {seen:?}");
 }
 
 #[test]

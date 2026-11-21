@@ -1,5 +1,5 @@
 //! A custom lobby's host and guest sessions. Since wire 5 a host
-//! session runs on Epic alone (its core in this process); a relay's and a LAN host's lobbies are hosted by their relay
+//! session runs on Epic, or on no backend (a local lobby), its core in this process; a relay's and a LAN host's lobbies are hosted by their relay
 //! core (`relay_host`). A guest links to the core wherever it runs.
 //!
 //! The awaited starts (a direct host's open, a direct code's join, a relay code's link of its own) run on a
@@ -19,7 +19,7 @@ use crate::lan::direct_code::direct_text;
 use crate::link::relay::key::RelayKey;
 use crate::link::relay::{ClientOptions, RelayClient, StartWith, other_key};
 use crate::pending::Pending;
-use crate::service::api::{AskWhat, ClosedWhy, DirectOptions, JoinWhy, NetEvent};
+use crate::service::api::{AskWhat, ClosedWhy, DirectOptions, JoinWhy, LocalWhy, NetEvent, SessionOn};
 use crate::service::hosting::{GuestNote, Guesting, Hosting, HostingEvent};
 use crate::service::page::{PageId, Timers};
 use crate::service::path::{self, PathSide, hello_text};
@@ -56,6 +56,9 @@ fn join_why(e: &str) -> Option<JoinWhy> {
 pub(crate) fn app_of(o: &DirectOptions) -> String {
     format!("{} {}", o.product, o.version)
 }
+
+/// This player's id in a local lobby (its core's host, its matches' referee): no backend gives one there.
+const LOCAL_ME: &str = "local";
 
 /// The listing: the core's latest, the one the backend has, whether an update is out or waiting its gap, the lobby's
 /// `at` (its create's time, the browser's order).
@@ -108,6 +111,25 @@ impl HostSession {
         }
         let mut s = HostSession::new(base);
         s.create(svc);
+        s
+    }
+
+    /// A local lobby: the host core in this process with no backend under it, for this page's player and bots alone
+    /// (`why`: why no connection hosts it). Open at once, with no code; a backend signing in later does not move it.
+    // Deviation: the port's own (the build's custom games are all on its servers): a custom game whatever the
+    // connection, as the Epic and LAN hosts' in-process core and referee run it.
+    pub fn open_local(svc: &mut NetService, page: PageId, why: LocalWhy, now: f64) -> HostSession {
+        let mut base = SessionBase::new(page, None, false, false);
+        base.me = LOCAL_ME.to_string();
+        base.on = Some(SessionOn::Local { why });
+        let mut s = HostSession::new(base);
+        let mut h = Hosting::new(svc, &s.base, SessionKind::Custom, None, now);
+        svc.log("hosting a local lobby");
+        let e = s.base.opened();
+        svc.post(page, e);
+        h.connect_local(svc, &s.base, now);
+        s.h = Some(h);
+        s.after(svc, now);
         s
     }
 
@@ -488,6 +510,7 @@ impl GuestSession {
                 if self.base.closed {
                     return;
                 }
+                self.base.on = Some(SessionOn::Lan { at: link.at.clone() });
                 let n = svc.add_own(Box::new(link.client), OwnKind::DirectJoin);
                 self.base.via = Some(Via::Own(n));
                 self.base.release = Some(n);
@@ -517,6 +540,7 @@ impl GuestSession {
     }
 
     fn relay_joined(&mut self, svc: &mut NetService, n: u32, lobby: &str) {
+        self.base.on = Some(SessionOn::Relay);
         self.base.via = Some(Via::Own(n));
         self.base.release = Some(n);
         self.base.me = svc.me_on(Via::Own(n));

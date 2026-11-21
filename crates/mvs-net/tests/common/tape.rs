@@ -60,9 +60,10 @@ pub struct SvcReport {
     pub calls_port: usize,
     /// Equal events or calls at another time than the tape's.
     pub late: usize,
-    /// The ms of the port's first match.away, where the oracle's referee had a silent peer leave (match.left
-    /// disconnected): both streams are compared up to it alone, the rest is the port's own away rule.
-    pub cut: Option<f64>,
+    /// Where both streams are compared up to, and why: the ms of the port's first match.away, where the oracle's
+    /// referee had a silent peer leave (match.left disconnected), the rest the port's own away rule; or of a local
+    /// lobby the port opens where the oracle closed the session as offline.
+    pub cut: Option<(f64, &'static str)>,
     /// Checks of the replay itself that failed (an accept, a draw), in words.
     pub misses: Vec<String>,
     /// The first event and the first call that differ (the tape's, the port's), in words.
@@ -150,7 +151,7 @@ pub fn check(name: &str, reports: &[SvcReport], known: &[Known]) {
             r.calls_tape,
             r.calls_port,
             r.late,
-            r.cut.map_or(String::new(), |t| format!(", up to the away at {t}")),
+            r.cut.map_or(String::new(), |(t, why)| format!(", up to {why} at {t}")),
             if r.misses.is_empty() { String::new() } else { format!(", misses {}", r.misses.len()) }
         );
         if !r.equal() {
@@ -987,7 +988,22 @@ fn replay_service(s: &Value, rand: &Draws, world: usize) -> SvcReport {
         for l in [&mut tape_events, &mut port_events, &mut tape_calls, &mut port_calls] {
             l.retain(|x| x.0 < cut);
         }
-        r.cut = Some(cut);
+        r.cut = Some((cut, "the away"));
+    }
+    // Deviation: the port's own local lobby (a custom game with no connection on) where the oracle closed the session
+    // as offline; what follows it has no tape.
+    let is_local = |v: &Value| v["ev"]["t"] == "opened" && v["ev"]["code"] == "" && v["ev"]["me"] == "local";
+    if let Some(cut) = port_events.iter().find(|(_, v)| is_local(v)).map(|x| x.0) {
+        let offline = |v: &Value| {
+            v["ev"]["t"] == "closed" && v["ev"]["why"].as_str().is_some_and(|w| w.starts_with("online play is off"))
+        };
+        if !tape_events.iter().any(|(t, v)| *t == cut && offline(v)) {
+            r.misses.push(format!("t {cut}: the port's local lobby where the tape's session did not close offline"));
+        }
+        for l in [&mut tape_events, &mut port_events, &mut tape_calls, &mut port_calls] {
+            l.retain(|x| x.0 < cut);
+        }
+        r.cut = Some((cut, "the local lobby"));
     }
     // (MVS_TAPE_DUMP=<world>.<service>: both streams of that service on stderr)
     if std::env::var("MVS_TAPE_DUMP").ok() == Some(format!("{world}.{svc_n}")) {

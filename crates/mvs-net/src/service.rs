@@ -46,6 +46,7 @@ use mvs_protocol::names::{BAD_WORDS, Profanity, clean_name};
 use mvs_protocol::online::QueueMode;
 use mvs_protocol::p2p_frame::FRAME_PARTY;
 use mvs_protocol::relay_wire::{KnownRelay, Presence as RelayPresence, WHO_LIMIT, Who, parse_address};
+use mvs_protocol::version::PROTOCOL;
 
 use crate::backend::{Answer, Ask, Backend, BackendEvent, BackendKind, Channel, FoundLobby, LobbyChange, RelayMode};
 use crate::codes::{CodeMakeWhy, LobbyCode, decode_lobby_code, encode_lobby_code, normal_relay, same_relay};
@@ -56,7 +57,7 @@ use crate::link::relay::{NetFaults, RelayClient, RelayError};
 use crate::pending::Pending;
 use api::{
     BackendOff, BackendState, BackendText, BrowseWhy, BrowsedLobby, ClosedWhy, DirectOptions, DirectStatus, InviteKind,
-    JoinWhy, LanOptions, MenuFighter, NetEvent, NetRequest, NetState, OffWhy, OnlineBackends, PartyJoinWhy,
+    JoinWhy, LanOptions, LocalWhy, MenuFighter, NetEvent, NetRequest, NetState, OffWhy, OnlineBackends, PartyJoinWhy,
     SessionTarget, StatusWhy,
 };
 use custom::{GuestSession, GuestVia, HostSession};
@@ -439,6 +440,12 @@ pub struct NetService {
     connect_n: u32,
     /// The way to the relay as last told the pages (`NetEvent::Way`): slower, by TCP alone.
     slow: bool,
+    /// The signed-in relay's cores run another version of the game's protocol (the one a core's first message named):
+    /// custom games and the queue skip it until the relay's sign-in or its address changes.
+    relay_other: Option<String>,
+    /// The pages whose session left a relay of another version: their open, taken on to the next connection once the
+    /// session is back out of the call.
+    reopens: Vec<(PageId, SessionTarget)>,
 }
 
 /// A link of its own to a relay under way (sessions.ts relayLinks' entry before its link is up): every join to that
@@ -527,6 +534,8 @@ impl NetService {
             relay_connects: Vec::new(),
             connect_n: 0,
             slow: false,
+            relay_other: None,
+            reopens: Vec::new(),
         }
     }
 
@@ -653,23 +662,27 @@ impl NetService {
             SessionTarget::Queue => false,
         };
         let epic = self.eos_of(BackendKind::Epic).is_some();
-        let relay = self.eos_of(BackendKind::Relay).is_some();
+        let signed = self.eos_of(BackendKind::Relay).is_some();
+        // (a relay whose cores run another version of the game's protocol is skipped: `RelayHosted::skip`)
+        let other = self.relay_other.clone().filter(|_| signed);
+        let relay = signed && other.is_none();
         let lan = self.lan.is_some();
+        let other_text = other.as_ref().map(|p| format!("it runs protocol {p} (this game {PROTOCOL})"));
         if host {
             // (the relay first, which hosts the lobby's core itself and lets the match's path go over Epic where that
             // is shorter; then Epic: direct links and the host's own core and referee; then LAN, whose direct host's
-            // relay core hosts it as the relay's does)
+            // relay core hosts it as the relay's does; then a local lobby, this PC's alone)
             // Deviation: online plan v4 section 5 turns v3's order (Epic first) round; the TS hosts on Epic first.
             let relay_why = if relay { self.relay_host_why() } else { None };
-            if let Some(w) = &relay_why {
+            if let Some(w) = relay_why.as_ref().map(CodeOnWhy::log_text).or(other_text) {
                 let then = if epic {
                     "hosted on Epic"
                 } else if lan {
                     "hosted on LAN"
                 } else {
-                    "not hosted"
+                    "hosted locally"
                 };
-                self.log(&format!("custom: not hosted on the relay: {}; {then}", w.log_text()));
+                self.log(&format!("custom: not hosted on the relay: {w}; {then}"));
             }
             let s = if relay && relay_why.is_none() {
                 let via = Via::Backend(BackendKind::Relay);
@@ -680,12 +693,17 @@ impl NetService {
                 let o = self.lan.as_ref().map(|l| l.o.clone()).expect("LAN is on");
                 Session::Hosted(Box::new(RelayHosted::open_lan(page, &o)))
             } else {
-                let why = self.status_why();
-                return self.post(page, NetEvent::Closed(ClosedWhy::Offline { why }));
+                let why =
+                    if other.is_some() { LocalWhy::RelayVersion } else { LocalWhy::Status { why: self.status_why() } };
+                Session::Host(Box::new(HostSession::open_local(self, page, why, now)))
             };
             return self.place(page, s, now);
         }
         // (the relay first: its one queue core holds every queuer; never LAN)
+        if let Some(w) = other_text {
+            let then = if epic { "on Epic" } else { "not queued" };
+            self.log(&format!("queue: not on the relay: {w}; {then}"));
+        }
         if relay {
             let s = RelayHosted::open_queue(self, page, now);
             self.place(page, Session::Hosted(Box::new(s)), now);
@@ -697,6 +715,8 @@ impl NetService {
                     self.place(page, Session::Queue(s), now);
                 }
             }
+        } else if other.is_some() {
+            self.post(page, NetEvent::Closed(ClosedWhy::RelayVersion));
         } else if lan {
             self.post(page, NetEvent::Closed(ClosedWhy::NoQueue));
         } else {
@@ -909,6 +929,25 @@ impl NetService {
             self.retire(s);
         }
         self.path_seen(page, way.filter(|_| placed), now);
+        // (a session that left a relay of another version: the page's open on the next connection)
+        if let Some(i) = self.reopens.iter().position(|r| r.0 == page) {
+            let (_, target) = self.reopens.remove(i);
+            if self.pages.get(&page).is_some_and(|p| p.session.is_none()) {
+                self.open(page, target, now);
+            }
+        }
+    }
+
+    /// The session of `page` left a relay of another version: its open goes on to the next connection once it is
+    /// back out of its call.
+    pub(crate) fn reopen(&mut self, page: PageId, target: SessionTarget) {
+        self.reopens.push((page, target));
+    }
+
+    /// A relay's core named another version of the game's protocol (`proto`, as it wrote it): the relay is skipped
+    /// until its sign-in or its address changes.
+    pub(crate) fn relay_other_version(&mut self, proto: &str) {
+        self.relay_other = Some(proto.to_string());
     }
 
     fn retire(&mut self, s: Session) {
@@ -1012,8 +1051,10 @@ impl NetService {
             self.epic_mode = None;
             self.relay_check(now);
         }
-        // (a new sign-in knows nothing of this player's presence)
+        // (a new sign-in knows nothing of this player's presence, and may be a relay redeployed: its version is tried
+        // again)
         if kind == BackendKind::Relay {
+            self.relay_other = None;
             self.relay_epoch += 1;
             self.published = Published { epoch: self.relay_epoch, has: None, busy: false };
             self.publish(now);
@@ -1145,6 +1186,9 @@ impl NetService {
 
     /// The config's values the sessions read, on each change.
     pub fn configure(&mut self, c: ServiceConfig, now: f64) {
+        if c.relay != self.config.relay {
+            self.relay_other = None;
+        }
         self.config = c;
         // (turned off: forced from the next link on; turned on: for the friend games opened from now on)
         self.relay_check(now);

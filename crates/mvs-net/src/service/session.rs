@@ -70,6 +70,9 @@ pub struct SessionBase {
     /// The backend `via` named when the service last put the session back: kept so that its last leave and close go to
     /// it after the backend went off.
     pub held: Option<Held>,
+    /// What the session is connected through where its backend does not say it all (None: its backend's kind): a
+    /// LAN host's or a direct code's address, a relay code's link of its own, a local lobby.
+    pub on: Option<SessionOn>,
 }
 
 /// A session's backend as it was (SessionBase::held): the same backend when it is the same one.
@@ -105,6 +108,7 @@ impl SessionBase {
             release: None,
             cancelled: false,
             held: None,
+            on: None,
         }
     }
 
@@ -134,12 +138,12 @@ impl SessionBase {
 
     /// The session is open: its code and this player's id in it, to the page.
     pub fn opened(&self) -> NetEvent {
-        // (N1's net track: a direct link's address, and a local lobby's `Local`)
-        let on = match self.backend {
+        let on = self.on.clone().unwrap_or(match self.backend {
             Some(BackendKind::Relay) => SessionOn::Relay,
             Some(BackendKind::Epic) => SessionOn::Epic,
+            // (a LAN host and a direct code's join set their address)
             _ => SessionOn::Lan { at: String::new() },
-        };
+        });
         NetEvent::Opened { code: self.code.clone(), me: self.me.clone(), chosen: self.chosen(), on }
     }
 

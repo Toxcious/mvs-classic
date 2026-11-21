@@ -29,6 +29,9 @@ use super::{
     Answer, Ask, Backend, BackendEvent, BackendKind, CODE_BYTES, Channel, FoundLobby, INFO_BYTES, Listed, LobbyChange,
     P2P_MAX_PACKET, Presence, RelayMode, RelayPresence, Who,
 };
+use mvs_protocol::messages::ServerMessage;
+use mvs_protocol::p2p_frame::{FRAME_OPEN, split_message};
+use mvs_protocol::relay_wire::{QUEUE_HOST, is_host_id};
 
 /// The net's lags, losses and draws.
 #[derive(Default)]
@@ -45,6 +48,10 @@ pub struct MemoryNetOptions {
     pub search_lag_ms: f64,
     /// Lobby ids as a relay writes them (l and 20 hex digits), so that a relay lobby code holds them.
     pub relay_ids: bool,
+    /// A relay's (or LAN's) hosted cores, a hosted lobby's host id and the queue's QUEUE_HOST: Some, each answers a
+    /// member's first knock with the first message of a core of that protocol (`server`) and says nothing more; None,
+    /// they never answer. `MemoryNet::set_core_proto` changes it (a relay redeployed).
+    pub core_proto: Option<u32>,
     /// The loss and jitter draws in [0, 1) (the system's by default).
     pub random: Option<Box<dyn FnMut() -> f64 + Send>>,
 }
@@ -88,13 +95,14 @@ struct End {
     gone: bool,
 }
 
-/// What a delivery does when it is due.
+/// What a delivery does when it is due (`Core`: a hosted core's packet to a member, `core_proto`).
 enum Act {
     Members { lobby: String, id: String, members: Vec<String> },
     Closed { id: String, lobby: String, why: String },
     Unlinked { a: String, b: String, tell: String, other: String },
     Linked { a: String, b: String, me: String, other: String, relayed: bool },
     Refused { end: usize, to: String },
+    Core { end: usize, from: String, bytes: Vec<u8> },
     Give { from: String, to: String, channel: Channel, bytes: Vec<u8> },
     Search { end: usize, ask: Ask, bucket: String, limit: u32, full: bool },
     Invite { end: usize, from: String, payload: String },
@@ -122,6 +130,8 @@ struct NetState {
     n: u32,
     due: Vec<Due>,
     due_n: u64,
+    /// The hosted cores' members that had their first message (`core_proto`): the member and the core's id.
+    core_told: IndexSet<(String, String)>,
 }
 
 fn link_key(a: &str, b: &str) -> String {
@@ -256,6 +266,9 @@ impl NetState {
                 }
             }
             Act::Refused { end, to } => self.ends[end].events.push_back(BackendEvent::PeerClosed(to)),
+            Act::Core { end, from, bytes } => {
+                self.ends[end].events.push_back(BackendEvent::Packet { from, channel: Channel::Messages, bytes });
+            }
             Act::Give { from, to, channel, bytes } => {
                 if self.linked(&from, &to) {
                     self.push(&to, BackendEvent::Packet { from, channel, bytes });
@@ -325,7 +338,13 @@ impl MemoryNet {
             n: 0,
             due: Vec::new(),
             due_n: 0,
+            core_told: IndexSet::new(),
         })))
+    }
+
+    /// The protocol the hosted cores' first message names from now on (`MemoryNetOptions::core_proto`).
+    pub fn set_core_proto(&self, proto: Option<u32>) {
+        self.state().o.core_proto = proto;
     }
 
     fn state(&self) -> MutexGuard<'_, NetState> {
@@ -518,7 +537,8 @@ impl Backend for MemoryBackend {
     }
 
     /// A relay's or LAN's player (an Epic one hosts nothing): the lobby made as `create_lobby` makes it, answered with
-    /// its host id. Unverified: the net runs no host core, so the lobby's host never answers its members' knocks.
+    /// its host id. Unverified: the net runs no host core, so the lobby's host answers its members' knocks with a
+    /// core's first message at the most (`core_proto`).
     fn host_lobby(&mut self, bucket: &str, max: u32, listed: Option<Listed>) -> Option<Ask> {
         if self.kind == BackendKind::Epic {
             return None;
@@ -608,6 +628,19 @@ impl Backend for MemoryBackend {
 
     fn send(&mut self, to: &str, channel: Channel, bytes: &[u8]) -> bool {
         let mut s = self.net.state();
+        if self.kind != BackendKind::Epic
+            && (is_host_id(to) || to == QUEUE_HOST)
+            && let Some(proto) = s.o.core_proto
+        {
+            // (a knock: the core's first message, once per member)
+            if bytes == [FRAME_OPEN] && s.core_told.insert((self.me.clone(), to.to_owned())) {
+                let text = ServerMessage::Server { proto, name: "memory".to_owned() }.text();
+                for p in split_message(text.as_bytes(), P2P_MAX_PACKET) {
+                    s.later(0.0, Act::Core { end: self.end, from: to.to_owned(), bytes: p });
+                }
+            }
+            return true;
+        }
         let peer = s.players.get(to).copied();
         let Some(peer) = peer else { return false };
         if s.ends[self.end].gone || to == self.me || bytes.len() > P2P_MAX_PACKET {

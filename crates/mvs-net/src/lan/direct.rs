@@ -390,6 +390,8 @@ pub struct DirectJoinOptions {
 /// A direct code joined: the signed-in client, the host core's lobby the code names and the host's own id.
 pub struct DirectLink {
     pub client: RelayClient,
+    /// The code's address the link was made to (`address:port`).
+    pub at: String,
     pub lobby: String,
     pub host: String,
     pub code: DirectCode,
@@ -523,7 +525,7 @@ pub fn join_direct(text: &str, o: DirectJoinOptions) -> Result<DirectLink, Direc
         attempt(i, &mut running);
     }
     let mut why: Vec<Option<String>> = vec![None; code.addresses.len()];
-    let link = loop {
+    let (link, at) = loop {
         // (a cancel from outside ends the tries; their results follow)
         if cancelled() {
             cancel_all();
@@ -537,7 +539,7 @@ pub fn join_direct(text: &str, o: DirectJoinOptions) -> Result<DirectLink, Direc
         match r {
             Ok(client) => {
                 cancel_all();
-                break client;
+                break (client, format!("{}:{}", code.addresses[i], code.port));
             }
             Err(e) => {
                 let mut again: Vec<usize> = Vec::new();
@@ -591,5 +593,5 @@ pub fn join_direct(text: &str, o: DirectJoinOptions) -> Result<DirectLink, Direc
         return Err(DirectJoinWhy::Cancelled);
     }
     let host = B64.decode(link.relay().0).map(|r| key_id(&r)).unwrap_or_default();
-    Ok(DirectLink { client: link, lobby: code.lobby.clone(), host, code })
+    Ok(DirectLink { client: link, at, lobby: code.lobby.clone(), host, code })
 }

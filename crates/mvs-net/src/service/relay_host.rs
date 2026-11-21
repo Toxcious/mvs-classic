@@ -15,10 +15,14 @@
 //! member. The listing the lobby's core tells its owner (`BackendEvent::Listing`, None while private) is the lobby's:
 //! on a relay it goes to the backend's list (`set_listed`, with the code), as the in-process host lists its lobby; on
 //! LAN the session announces it, counting the core's humans.
+//!
+//! Either way the page's `Opened` waits for the core's first message (`server`, its protocol): a relay's core of
+//! another version is left quietly, and the page's open goes on to the next connection.
 
 use serde_json::Value;
 
 use mvs_protocol::relay_wire::QUEUE_HOST;
+use mvs_protocol::version::PROTOCOL;
 
 use crate::backend::{Answer, Ask, BackendKind, Listed, LobbyChange};
 use crate::codes::is_short;
@@ -26,7 +30,7 @@ use crate::lan::announce::{Announcement, AnnouncerOptions, LanAnnouncer};
 use crate::lan::direct::{DirectHost, DirectHostOptions, HostStartWhy, begin_host};
 use crate::lan::direct_code::DIRECT_ADDRESSES;
 use crate::pending::Pending;
-use crate::service::api::{ClosedWhy, LanOptions, NetEvent};
+use crate::service::api::{ClosedWhy, LanOptions, NetEvent, SessionOn, SessionTarget};
 use crate::service::custom::make_why;
 use crate::service::hosting::{GuestNote, Guesting};
 use crate::service::page::{PageId, Timers};
@@ -101,6 +105,9 @@ pub struct RelayHosted {
     timers: Timers<HostedDue>,
     /// The match's path while the core measures or a player's app referees (None: the relay's alone).
     pub path: Option<Box<PathSide>>,
+    /// The page's `Opened` waits for the core's first message: a relay's core of another version of the game's
+    /// protocol is left before the page hears of it (`skip`).
+    first: bool,
 }
 
 impl RelayHosted {
@@ -114,6 +121,7 @@ impl RelayHosted {
             notes: Vec::new(),
             timers: Timers::default(),
             path: None,
+            first: false,
         }
     }
 
@@ -153,7 +161,7 @@ impl RelayHosted {
         let mut base = SessionBase::new(page, Some(kind), true, false);
         base.me = svc.me_on(Via::Backend(kind));
         let mut s = RelayHosted::new(base, true);
-        svc.post(page, s.base.opened());
+        s.first = true;
         s.g = Some(Guesting::new(svc, &s.base, "", QUEUE_HOST, QUEUE_HOST, &[], now));
         s
     }
@@ -209,6 +217,7 @@ impl RelayHosted {
         self.base.via = Some(Via::Own(n));
         self.base.release = Some(n);
         self.base.me = svc.me_on(Via::Own(n));
+        self.base.on = Some(SessionOn::Lan { at: at.clone() });
         self.custom.lan = Some((n, loopback));
         svc.listening(Some((n, at)), None, None);
         self.create(svc, now);
@@ -272,8 +281,9 @@ impl RelayHosted {
         self.custom.members = 1;
         self.custom.listing.at = svc.wall();
         svc.log(&format!("hosted lobby {id} on {host}"));
-        let e = self.base.opened();
-        svc.post(self.base.page, e);
+        // Deviation: the TS told the page Opened here; the port at the core's first message (`core_said`), so that
+        // a relay of another version is left before the page hears of it.
+        self.first = true;
         let me = self.base.me.clone();
         self.g = Some(Guesting::new(svc, &self.base, id, host, &me, std::slice::from_ref(&me), now));
     }
@@ -396,6 +406,16 @@ impl RelayHosted {
         if self.base.closed {
             return;
         }
+        if self.first {
+            self.first = false;
+            if self.base.backend == Some(BackendKind::Relay)
+                && let Some(proto) = other_protocol(text)
+            {
+                return self.skip(svc, &proto, now);
+            }
+            let e = self.base.opened();
+            svc.post(self.base.page, e);
+        }
         if path::is_path_text(text) && (self.path_told(svc, text, now) || self.base.closed) {
             return;
         }
@@ -423,6 +443,30 @@ impl RelayHosted {
             self.core_lobby(text, now);
         }
         svc.post(self.base.page, NetEvent::Msg(text.to_string()));
+    }
+
+    /// The relay's core runs another version of the game's protocol (`proto` its number as it wrote it): the relay
+    /// is remembered as of another version, the lobby left quietly (no `Closed` and none of the core's messages to the
+    /// page), and the page's open goes on to the next connection (`NetService::open`).
+    // Deviation: the port's own; the page's own check of the core's first message closed the session.
+    fn skip(&mut self, svc: &mut NetService, proto: &str, now: f64) {
+        let what = if self.queue { "queue" } else { "custom" };
+        svc.log(&format!(
+            "{what}: the relay runs protocol {proto} (this game {PROTOCOL}): left for the next connection"
+        ));
+        svc.relay_other_version(proto);
+        self.end_path(svc, now);
+        // (the core is told the page left: the relay's own close of a leader's lobby follows)
+        let why = ClosedWhy::Left;
+        if self.base.over(why.clone()).is_none() {
+            return;
+        }
+        svc.drop_asks(self.base.page);
+        if let Some(g) = self.g.as_mut() {
+            g.end(svc, &self.base, &why, now);
+        }
+        let target = if self.queue { SessionTarget::Queue } else { SessionTarget::Host };
+        svc.reopen(self.base.page, target);
     }
 
     /// A core text of the match's path (`path::told`): true when it is the path's alone.
@@ -646,6 +690,17 @@ fn start_direct(s: &mut RelayHosted, o: &LanOptions) {
         interfaces: None,
     });
     s.custom.starting = Some((d, o.direct.loopback));
+}
+
+/// The protocol a core's first message names when it is `server` with another than this game's (its JSON text);
+/// None for this game's protocol or any other message.
+fn other_protocol(text: &str) -> Option<String> {
+    let m: Value = serde_json::from_str(text).ok()?;
+    if m.get("t").and_then(Value::as_str) != Some("server") {
+        return None;
+    }
+    let proto = m.get("proto").cloned().unwrap_or(Value::Null);
+    (proto.as_u64() != Some(u64::from(PROTOCOL))).then(|| proto.to_string())
 }
 
 /// A queue.join's text with `"rtt"` (whole ms, rounded) as its last key; the text as it is when it is no object.

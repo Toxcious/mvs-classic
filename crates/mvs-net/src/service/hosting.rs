@@ -6,7 +6,8 @@
 //! shares with them: a member's packets are sent at once (the core's order), a member's close is sent its bye at once
 //! and taken out of the hosting's lists after the call; the page's own link's texts are handed to the session after
 //! the call, in order; a match the referee starts here gets its pump's timer after the call. Since wire 5 a hosting
-//! runs on Epic only: a relay hosts its lobbies' cores itself (`relay_host`).
+//! runs on Epic, or on no backend at all (a local lobby: this page's player and bots alone): a relay hosts its
+//! lobbies' cores itself (`relay_host`).
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -22,7 +23,7 @@ use crate::backend::{Channel, LobbyChange, P2P_MAX_PACKET};
 use crate::service::api::ClosedWhy;
 use crate::service::page::{TimerId, Timers};
 use crate::service::refereed::{Outs, RefOut, Refereed};
-use crate::service::session::{SessionBase, Via};
+use crate::service::session::SessionBase;
 use crate::service::{
     BYE_MS, KNOCK_WAIT_MS, NetService, OPEN_EVERY_MS, OPEN_FOR_MS, REFEREE_PUMP_MS, RELINK_MS, Shared, lock,
 };
@@ -237,15 +238,15 @@ pub struct Hosting {
     local: Option<ConnKey>,
     ended: bool,
     me: String,
-    via: Via,
-    backend: Shared,
+    /// The session's backend (None: a local lobby's core, with this page's player and bots alone).
+    backend: Option<Shared>,
     cell: CellRef,
     events: Vec<HostingEvent>,
 }
 
 impl Hosting {
-    /// A host core of `kind` for the session (its `via` must stand), this player its host. `lobby_id`: a custom
-    /// lobby's code.
+    /// A host core of `kind` for the session (its `via` must stand; None: a local lobby's, no backend under it), this
+    /// player its host. `lobby_id`: a custom lobby's code.
     pub fn new(
         svc: &mut NetService,
         base: &SessionBase,
@@ -253,8 +254,7 @@ impl Hosting {
         lobby_id: Option<String>,
         now: f64,
     ) -> Hosting {
-        let via = base.via.expect("a hosting's session stands");
-        let backend = svc.backend(via).expect("a hosting's backend stands");
+        let backend = base.via.map(|via| svc.backend(via).expect("a hosting's backend stands"));
         let me = base.me.clone();
         let cell = Arc::new(Mutex::new(Cell {
             now,
@@ -292,7 +292,6 @@ impl Hosting {
             local: None,
             ended: false,
             me,
-            via,
             backend,
             cell,
             events: Vec::new(),
@@ -376,8 +375,8 @@ impl Hosting {
                     let Some(id) = id else { continue };
                     if id == self.me {
                         base.from_referee(svc, &bytes);
-                    } else {
-                        send_on(&self.backend, &id, Channel::Match, &bytes);
+                    } else if let Some(b) = &self.backend {
+                        send_on(b, &id, Channel::Match, &bytes);
                     }
                 }
                 RefOut::News(slot, news) => {
@@ -471,13 +470,16 @@ impl Hosting {
     }
 
     fn kick(&self, lobby: &str, id: &str) {
-        lock(&self.backend).kick(lobby, id);
+        if let Some(b) = &self.backend {
+            lock(b).kick(lobby, id);
+        }
     }
 
     pub fn message(&mut self, svc: &mut NetService, base: &SessionBase, from: &str, bytes: &[u8], now: f64) {
         if self.ended {
             return;
         }
+        let Some(backend) = self.backend.clone() else { return };
         let Some(l) = self.links.get_mut(from) else {
             let knock = bytes.len() == 1 && bytes[0] == FRAME_OPEN;
             if !knock || self.done.contains(from) || self.allow.as_ref().is_some_and(|a| !a.contains(from)) {
@@ -490,12 +492,7 @@ impl Hosting {
                 self.timers.cancel(t);
             }
             let closed = Arc::new(AtomicBool::new(false));
-            let m = Member {
-                id: from.to_string(),
-                backend: self.backend.clone(),
-                closed: closed.clone(),
-                cell: self.cell.clone(),
-            };
+            let m = Member { id: from.to_string(), backend, closed: closed.clone(), cell: self.cell.clone() };
             // (in the list before the core's call: its first message goes inside it)
             self.links.insert(from.to_string(), Link { key: ConnKey(0), closed, joiner: MessageJoiner::new() });
             svc.log(&format!("member linked {from}"));
@@ -763,11 +760,6 @@ impl Hosting {
     pub fn next_key(&self) -> Option<(f64, u64)> {
         let core = self.core.next_due().map(|t| (t, u64::MAX));
         [self.timers.next_key(), core].into_iter().flatten().min_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)))
-    }
-
-    /// The hosting's backend way (its session's).
-    pub fn via(&self) -> Via {
-        self.via
     }
 }
 

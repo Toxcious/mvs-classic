@@ -425,9 +425,8 @@ pub enum NetEvent {
     Status { online: bool, me: String, why: StatusWhy },
     /// The session is open: `code` its lobby code (shown to the players and pasted to join; '' a local lobby's); `me`
     /// this player's id in it; `chosen` it is on a backend of the status (false: a direct code's join, on a link of
-    /// its own); `on` what it is connected through. A second `Opened` of one session replaces the first: the session
-    /// went on to the next connection (a relay of another version of the game), and its host's first message comes
-    /// again.
+    /// its own, and a local lobby); `on` what it is connected through. Once per session: a relay-hosted one's waits
+    /// for its core's first message, so a relay of another version is passed over before the page hears of it.
     Opened { code: String, me: String, chosen: bool, on: SessionOn },
     /// A message from the session's host core: a JSON text (mvs_protocol::messages::ServerMessage).
     Msg(String),

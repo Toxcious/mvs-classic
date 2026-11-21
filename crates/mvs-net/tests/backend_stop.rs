@@ -6,6 +6,7 @@ use mvs_net::backend::BackendKind;
 use mvs_net::backend::memory::{MemoryNet, MemoryNetOptions};
 use mvs_net::service::api::{BrowseWhy, ClosedWhy, NetEvent, NetRequest, OffWhy, SessionTarget};
 use mvs_net::service::{NetService, PageId, ServiceConfig, ServiceOptions};
+use mvs_protocol::version::PROTOCOL;
 
 const RELAY: &str = "127.0.0.1:7777";
 
@@ -48,7 +49,9 @@ fn browsed(seen: &[(PageId, NetEvent)], page: PageId, id: u32) -> Option<BrowseW
 
 #[test]
 fn stopped_mid_browse_and_mid_create() {
-    let net = MemoryNet::new(MemoryNetOptions { search_lag_ms: 50.0, relay_ids: true, ..Default::default() }, 0.0);
+    // (the relay's cores answer with their first message: the page's Opened waits for it)
+    let o = MemoryNetOptions { search_lag_ms: 50.0, relay_ids: true, core_proto: Some(PROTOCOL), ..Default::default() };
+    let net = MemoryNet::new(o, 0.0);
     let mut svc = NetService::new(ServiceOptions::default(), 0.0);
     svc.configure(config(), 0.0);
     let browser = svc.open_page(0.0);
