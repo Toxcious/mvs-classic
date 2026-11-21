@@ -244,6 +244,8 @@ pub fn closed_why_text(why: &ClosedWhy) -> String {
         ClosedWhy::NoSession => t::CLOSED_NO_SESSION.to_string(),
         ClosedWhy::Offline { why } => lead(t::ONLINE_OFF, &status_why_text(why)),
         ClosedWhy::NoQueue => lead(t::ONLINE_OFF, t::NO_QUEUE),
+        // (N1's app track words it)
+        ClosedWhy::RelayVersion => t::PROTOCOL_DIFFERS.to_string(),
         ClosedWhy::NotRelayed { text } => lead(t::CLOSED_NOT_RELAYED, text),
         ClosedWhy::BackendOff { kind, why } => {
             t::CLOSED_BACKEND_OFF.replace("{backend}", backend_name(*kind)).replace("{why}", &off_why_text(*kind, why))

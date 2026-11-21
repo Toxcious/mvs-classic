@@ -215,6 +215,31 @@ pub enum StatusWhy {
     Off { backends: Vec<BackendOff> },
 }
 
+/// What a session is connected through (`NetEvent::Opened`): the lobby's connection line.
+/// Deviation: the port's own (the build's lobbies are all on its servers).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "code", rename_all = "snake_case")]
+pub enum SessionOn {
+    /// The relay hosts it.
+    Relay,
+    /// A player's game hosts it, over Epic Online Services.
+    Epic,
+    /// A player's game hosts it on a direct link (LAN, or a direct code's join): `at` the host's `address:port`.
+    Lan { at: String },
+    /// This game hosts it with no connection under it: this PC's players and bots alone.
+    Local { why: LocalWhy },
+}
+
+/// Why a custom game is local (`SessionOn::Local`).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "code", rename_all = "snake_case")]
+pub enum LocalWhy {
+    /// The relay is signed in and runs another version of the game's protocol, and no other connection is on.
+    RelayVersion,
+    /// No connection is signed in: the status's why (signing in, or each backend off with its reason).
+    Status { why: StatusWhy },
+}
+
 /// Why a session (NetEvent 'closed') or a party (NetEvent 'party' null) is over for this page. On the wire too: a
 /// host's FRAME_BYE carries its why as this code's JSON (`Other` the text of a peer that sent none of these).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -233,6 +258,8 @@ pub enum ClosedWhy {
     /// 'online play is off: ' + NO_QUEUE ('the queue needs the relay or Epic, and neither is signed in (LAN has no
     /// queue): host a custom lobby, or turn on the relay or Epic in the launcher').
     NoQueue,
+    /// The queue's relay runs another version of the game's protocol and Epic is not signed in. Never on the wire.
+    RelayVersion,
     /// QUEUE_NOT_RELAYED ('Epic could not keep this match relayed: ') + EOS's reason.
     NotRelayed { text: String },
     /// '<Name> is off: <why>'.
@@ -396,9 +423,12 @@ pub enum InviteKind {
 pub enum NetEvent {
     /// The sign-in, on the port's open and on each change: `me` this player's id ('' while signed out).
     Status { online: bool, me: String, why: StatusWhy },
-    /// The session is open: `code` its lobby code (shown to the players and pasted to join); `me` this player's id in
-    /// it; `chosen` it is on a backend of the status (false: a direct code's join, on a link of its own).
-    Opened { code: String, me: String, chosen: bool },
+    /// The session is open: `code` its lobby code (shown to the players and pasted to join; '' a local lobby's); `me`
+    /// this player's id in it; `chosen` it is on a backend of the status (false: a direct code's join, on a link of
+    /// its own); `on` what it is connected through. A second `Opened` of one session replaces the first: the session
+    /// went on to the next connection (a relay of another version of the game), and its host's first message comes
+    /// again.
+    Opened { code: String, me: String, chosen: bool, on: SessionOn },
     /// A message from the session's host core: a JSON text (mvs_protocol::messages::ServerMessage).
     Msg(String),
     /// The session is over for this page.

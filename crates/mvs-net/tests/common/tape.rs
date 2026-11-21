@@ -1193,6 +1193,7 @@ pub fn closed_text(w: &ClosedWhy) -> String {
         ClosedWhy::NoSession => "no such session".into(),
         ClosedWhy::Offline { why } => format!("online play is off: {}", status_text(why)),
         ClosedWhy::NoQueue => format!("online play is off: {NO_QUEUE}"),
+        ClosedWhy::RelayVersion => "the relay runs another version of the game".into(),
         ClosedWhy::NotRelayed { text } => format!("Epic could not keep this match relayed: {text}"),
         ClosedWhy::BackendOff { kind, why } => format!("{} is off: {}", backend_name(*kind), off_text(*kind, why)),
         ClosedWhy::RelayLost { text } => format!("the link to the relay was lost: {text}"),
@@ -1285,7 +1286,7 @@ pub fn ts_event(e: &NetEvent) -> Value {
         NetEvent::Status { online, me, why } => {
             json!({ "t": "status", "online": online, "me": me, "why": status_text(why) })
         }
-        NetEvent::Opened { code, me, chosen } => json!({ "t": "opened", "code": code, "me": me, "chosen": chosen }),
+        NetEvent::Opened { code, me, chosen, .. } => json!({ "t": "opened", "code": code, "me": me, "chosen": chosen }),
         NetEvent::Msg(text) => json!({ "t": "msg", "text": text }),
         NetEvent::Closed(why) => json!({ "t": "closed", "why": closed_text(why) }),
         NetEvent::Packets { from, packets } => json!({

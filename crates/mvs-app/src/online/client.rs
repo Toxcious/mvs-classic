@@ -8,6 +8,8 @@
 
 use std::collections::{BTreeMap, VecDeque};
 
+#[cfg(test)]
+use mvs_net::service::api::SessionOn;
 use mvs_net::service::api::{AskWhat, ClosedWhy, NetEvent, NetRequest};
 use mvs_protocol::match_wire::PingWindow;
 use mvs_protocol::messages::{ClientMessage, ServerMessage};
@@ -147,7 +149,7 @@ impl NetClient {
             return out;
         }
         match e {
-            NetEvent::Opened { code, me, chosen } => {
+            NetEvent::Opened { code, me, chosen, .. } => {
                 self.code.clone_from(code);
                 self.me.clone_from(me);
                 self.chosen = *chosen;
@@ -408,7 +410,7 @@ mod tests {
     fn opens_on_the_protocol_and_pings() {
         let (mut p, w) = fake::port();
         let mut c = NetClient::open(&mut p, SessionTarget::Host, 0.0, true, 0.0);
-        let e = NetEvent::Opened { code: "r-1".into(), me: "me".into(), chosen: true };
+        let e = NetEvent::Opened { code: "r-1".into(), me: "me".into(), chosen: true, on: SessionOn::Relay };
         assert!(c.take(&mut p, &e, 1, 0.0).is_empty());
         assert_eq!(c.take(&mut p, &server(PROTOCOL), 1, 10.0), [News::Ready]);
         assert!(c.code == "r-1" && c.server_name == "core");

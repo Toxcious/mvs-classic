@@ -3,7 +3,7 @@
 //! that needs the service takes the session out of its page for the call and puts it back after, unless it is over.
 
 use crate::backend::{Answer, Ask, BackendKind, Channel, LobbyChange, P2P_MAX_PACKET};
-use crate::service::api::{ClosedWhy, NetEvent};
+use crate::service::api::{ClosedWhy, NetEvent, SessionOn};
 use crate::service::custom::{GuestSession, HostSession};
 use crate::service::page::PageId;
 use crate::service::party::{PartyNote, SessionNote};
@@ -134,7 +134,13 @@ impl SessionBase {
 
     /// The session is open: its code and this player's id in it, to the page.
     pub fn opened(&self) -> NetEvent {
-        NetEvent::Opened { code: self.code.clone(), me: self.me.clone(), chosen: self.chosen() }
+        // (N1's net track: a direct link's address, and a local lobby's `Local`)
+        let on = match self.backend {
+            Some(BackendKind::Relay) => SessionOn::Relay,
+            Some(BackendKind::Epic) => SessionOn::Epic,
+            _ => SessionOn::Lan { at: String::new() },
+        };
+        NetEvent::Opened { code: self.code.clone(), me: self.me.clone(), chosen: self.chosen(), on }
     }
 
     /// Marks the session over and does the service's part: the page told `Closed`, Epic's

@@ -1784,7 +1784,7 @@ fn wall_ms() -> f64 {
 mod tests {
     use super::super::port::fake;
     use super::*;
-    use mvs_net::service::api::{BackendOff, InviteKind, PartyMember, StatusWhy};
+    use mvs_net::service::api::{BackendOff, InviteKind, PartyMember, SessionOn, StatusWhy};
 
     fn msg(m: &ServerMessage) -> NetEvent {
         NetEvent::Msg(m.text())
@@ -1819,7 +1819,7 @@ mod tests {
         assert!(w.borrow().posted.iter().any(|r| matches!(r, NetRequest::Presence(p) if p.name == "Me" && !p.busy)));
         h.run(OnlineCmd::Open(SessionTarget::Host), &|_| None, 0.0);
         w.borrow_mut().events = vec![
-            NetEvent::Opened { code: "r-1".into(), me: "p1".into(), chosen: true },
+            NetEvent::Opened { code: "r-1".into(), me: "p1".into(), chosen: true, on: SessionOn::Relay },
             msg(&ServerMessage::Server { proto: PROTOCOL, name: "core".into() }),
         ];
         let v = h.frame(prefs(true), 10.0);
@@ -1838,7 +1838,7 @@ mod tests {
         h.frame(prefs(true), 0.0);
         h.run(OnlineCmd::Open(SessionTarget::Host), &|_| None, 0.0);
         w.borrow_mut().events = vec![
-            NetEvent::Opened { code: "r-1".into(), me: "p1".into(), chosen: true },
+            NetEvent::Opened { code: "r-1".into(), me: "p1".into(), chosen: true, on: SessionOn::Relay },
             msg(&ServerMessage::Server { proto: PROTOCOL, name: "core".into() }),
         ];
         h.frame(prefs(true), 10.0);
@@ -1870,7 +1870,7 @@ mod tests {
         assert_eq!(last(&w), Some((Some(PresenceStatus::Menus), false)));
         h.run(OnlineCmd::Open(SessionTarget::Host), &|_| None, 0.0);
         w.borrow_mut().events = vec![
-            NetEvent::Opened { code: "r-1".into(), me: "a".into(), chosen: true },
+            NetEvent::Opened { code: "r-1".into(), me: "a".into(), chosen: true, on: SessionOn::Relay },
             msg(&ServerMessage::Server { proto: PROTOCOL, name: "core".into() }),
         ];
         h.frame(prefs(true), 10.0);
@@ -1913,7 +1913,7 @@ mod tests {
         h.frame(prefs(true), 0.0);
         h.run(OnlineCmd::Open(SessionTarget::Host), &|_| None, 0.0);
         w.borrow_mut().events = vec![
-            NetEvent::Opened { code: "r-1".into(), me: "p1".into(), chosen: true },
+            NetEvent::Opened { code: "r-1".into(), me: "p1".into(), chosen: true, on: SessionOn::Relay },
             msg(&ServerMessage::Server { proto: PROTOCOL, name: "core".into() }),
         ];
         h.frame(prefs(true), 10.0);
@@ -1941,7 +1941,7 @@ mod tests {
         let (mut h, w) = hub();
         h.run(OnlineCmd::Open(SessionTarget::Host), &|_| None, 0.0);
         w.borrow_mut().events = vec![
-            NetEvent::Opened { code: "r-1".into(), me: "a".into(), chosen: true },
+            NetEvent::Opened { code: "r-1".into(), me: "a".into(), chosen: true, on: SessionOn::Relay },
             msg(&ServerMessage::Server { proto: PROTOCOL, name: "core".into() }),
         ];
         h.frame(prefs(true), 10.0);
@@ -1973,7 +1973,7 @@ mod tests {
         let begin: ServerMessage = serde_json::from_value(begin).unwrap();
         let path = ServerMessage::PmPath { referee: 1, ms: vec![Some(120), Some(0)], far: vec![false, false] };
         w.borrow_mut().events = vec![
-            NetEvent::Opened { code: "r-1".into(), me: "a".into(), chosen: true },
+            NetEvent::Opened { code: "r-1".into(), me: "a".into(), chosen: true, on: SessionOn::Relay },
             msg(&ServerMessage::Server { proto: PROTOCOL, name: "core".into() }),
             msg(&begin),
             msg(&path),
@@ -2104,7 +2104,7 @@ mod tests {
         let (mut h, w) = hub();
         h.run(OnlineCmd::Open(SessionTarget::Host), &|_| None, 0.0);
         w.borrow_mut().events = vec![
-            NetEvent::Opened { code: "r-1".into(), me: "p1".into(), chosen: true },
+            NetEvent::Opened { code: "r-1".into(), me: "p1".into(), chosen: true, on: SessionOn::Relay },
             msg(&ServerMessage::Server { proto: PROTOCOL, name: "core".into() }),
             msg(&ServerMessage::Notice { text: "hi".into() }),
             msg(&ServerMessage::Notice { text: "again".into() }),
