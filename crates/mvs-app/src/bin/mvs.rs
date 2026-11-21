@@ -11,7 +11,7 @@
 //!   [--bench <secs>] [--stage <key>] [--shot-results <secs>] [--press-results <secs>] [--no-audio] [--input-script <jsonl>] [--menu-tape <out>]
 //!   [--shot-frames <frame>[,..]] [--live-loads] [--audio-tape <file>]
 //!   [--waves endless|100 [--character <key>] [--waves-bot <level>]]   (a Waves run on `--stage`, cast from `--seed`)
-//!   [--wheel]   (with `--play` too: the Chaos Wheel rule in the command line's match, a Lab and Local Play)
+//!   [--wheel [--wheel-seconds <n>]]   (with `--play` too: the Chaos Wheel rule in the command line's match, a Lab and Local Play)
 //!   [--relay <addr> (--host | --join <lobby>) [--key <file>] [--feed <trace match>]]
 //!   [--online-config <file> [--direct-loopback] [--online-open host|join:<code>|queue:<mode>[,..]] [--online-lag <ms>]
 //!   [--online-desync-at <tick>] [--feed <trace match>]]
@@ -60,7 +60,7 @@ mvs --play --store <dir> [--data <dir>] [--size 1920x1080] [--full-screen] [--ad
 mvs [--data <dir>] [--store <dir>] [--size 1920x1080] [--full-screen] [--adapter <text>] [--seed <n>] [--no-ui] \
 [--replay <trace match> [--trace-out <file>]] [--real-pace] [--shot <tick>[,..]] [--out <dir>] [--throttle <rate>] \
 [--bench <secs>] [--shot-results <secs>] [--no-audio] [--input-script <jsonl>] [--menu-tape <out>] [--shot-frames <frame>[,..]] \
-[--live-loads] [--audio-tape <file>] [--waves endless|100 [--character <key>] [--waves-bot <level>]] [--wheel]\n[--relay <addr> (--host | --join <lobby>) [--key <file>] [--feed <trace match>]]\n\
+[--live-loads] [--audio-tape <file>] [--waves endless|100 [--character <key>] [--waves-bot <level>]] [--wheel [--wheel-seconds <n>]]\n[--relay <addr> (--host | --join <lobby>) [--key <file>] [--feed <trace match>]]\n\
 [--online-config <file> [--direct-loopback] [--online-open host|join:<code>|queue:<mode>[,..]] [--online-lag <ms>] \
 [--online-desync-at <tick>] [--feed <trace match>]]
 \n[--queue-fake [--queue-bots <s>] [--queue-start <s>] [--queue-vote-no] [--queue-path <pm.path json>]]\n\
@@ -126,6 +126,9 @@ struct Args {
     waves_bot: Option<u8>,
     /// (the port's own, dev) `--wheel`: the Chaos Wheel rule in the matches of `mvs_app::wheel::switched`.
     wheel: bool,
+    /// (dev) `--wheel-seconds <n>`: `--wheel` with a window of that many seconds (a picture of a change needs no
+    /// 20 seconds' wait).
+    wheel_seconds: Option<f64>,
 }
 
 /// The flags of a test or scripted run: one of them mutes the device unless `--sound` is given, so a run the agents
@@ -237,6 +240,7 @@ fn parse(mut it: impl Iterator<Item = String>) -> Result<Args, String> {
         character: None,
         waves_bot: None,
         wheel: false,
+        wheel_seconds: None,
     };
     let (mut mute, mut sound, mut test, mut back, mut front) = (false, false, false, false, false);
     let (mut audio_tape, mut results_press) = (None, None);
@@ -304,6 +308,10 @@ fn parse(mut it: impl Iterator<Item = String>) -> Result<Args, String> {
                 a.waves_bot = Some(v.parse().map_err(|_| format!("--waves-bot: {v} is not a bot level"))?);
             }
             "--wheel" => a.wheel = true,
+            "--wheel-seconds" => {
+                a.wheel = true;
+                a.wheel_seconds = Some(secs(it.next(), "--wheel-seconds")?);
+            }
             "--shot" => {
                 for t in it.next().ok_or("--shot: no value")?.split(',') {
                     o.shots.push(num(Some(t.to_string()), "--shot")?);
@@ -515,7 +523,7 @@ fn run(a: Args) -> mvs_app::Result<()> {
         None => None,
     };
     let mut shell = Shell::new(&a.shell)?;
-    shell.wheel = a.wheel;
+    shell.wheel = a.wheel.then(|| mvs_app::wheel::switch_rule(a.wheel_seconds));
     if a.load_bench {
         return mvs_app::load_bench::run(&mut shell);
     }

@@ -23,6 +23,17 @@ pub fn whole_pool() -> Wheel {
     Wheel::of(WHEEL_MUTATORS.iter().map(|&k| k.to_owned()).collect())
 }
 
+/// `--wheel`'s rule: the whole pool, with `--wheel-seconds`' window when it names one (the warning a third of a
+/// window shorter than the rule's own).
+pub fn switch_rule(seconds: Option<f64>) -> Wheel {
+    let mut w = whole_pool();
+    if let Some(s) = seconds {
+        w.seconds = mvs_sim::math::narrow(s);
+        w.warn = w.warn.min(mvs_sim::math::narrow(s / 3.0));
+    }
+    w
+}
+
 /// The HUD's card of the rule's status: the pool's mutators by their place in the menus' names.
 pub fn hud_of(setup: &MatchSetup, s: &WheelStatus) -> WheelHud {
     let named = |i: Option<usize>| {

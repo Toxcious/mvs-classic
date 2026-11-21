@@ -601,8 +601,11 @@ impl MatchLoop {
             start;
         // (the port's own, dev) `--wheel`: the rule added to the set-up the menus made; parts prepared off the frame
         // were built for the set-up without it.
-        if sh.wheel && crate::wheel::switched(&kind) && setup.wheel.is_none() {
-            setup.wheel = Some(crate::wheel::whole_pool());
+        if let Some(rule) = &sh.wheel
+            && crate::wheel::switched(&kind)
+            && setup.wheel.is_none()
+        {
+            setup.wheel = Some(rule.clone());
             prepared = None;
         }
         // (a match prepared off the frame began its load at its job: `PrepareJob::of`)
