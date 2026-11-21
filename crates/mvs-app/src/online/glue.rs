@@ -167,6 +167,7 @@ pub fn start(
     if dev {
         // (a dev config's run: no gate, its backends at once)
         handle.backends(b, d);
+        hub.dev_on = std::env::var("MVS_DEV_SESSION_ON").ok().and_then(|t| dev_session_on(&t));
     } else {
         // (a player's run: the backends held back until the gate's checks let them, apply_gate)
         let release = mvs_settings::online::read_online_config(file, &mut |_| {});
@@ -175,6 +176,21 @@ pub fn start(
         super::gate::arm(&mut hub, mvs_release::FEED, mvs_release::VERSION);
     }
     (handle, Rc::new(RefCell::new(hub)))
+}
+
+/// (dev) MVS_DEV_SESSION_ON of a dev config's run: the way the menus are told an open session is on, whatever the
+/// service says (the lobby's connection line and the ping line of each way, for their pictures): `relay`, `epic`,
+/// `lan:<address:port>`, `local:version` (the relay of another version) or `local:off` (the menus' line's reason).
+fn dev_session_on(text: &str) -> Option<mvs_net::service::api::SessionOn> {
+    use mvs_net::service::api::{LocalWhy, SessionOn, StatusWhy};
+    let on = match text {
+        "relay" => SessionOn::Relay,
+        "epic" => SessionOn::Epic,
+        "local:version" => SessionOn::Local { why: LocalWhy::RelayVersion },
+        "local:off" => SessionOn::Local { why: LocalWhy::Status { why: StatusWhy::Off { backends: Vec::new() } } },
+        t => SessionOn::Lan { at: t.strip_prefix("lan:")?.to_owned() },
+    };
+    Some(on)
 }
 
 /// A player's run's backends (glue::start), sent to the service while no gate is set.

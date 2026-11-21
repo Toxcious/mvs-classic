@@ -32,6 +32,7 @@ use super::nav::{GlobalNav, live};
 use super::social::{SocialInviteModal, SocialPanel};
 use crate::bundle::Rgba;
 use crate::bundle::{MapInfo, RosterEntry, SkinInfo};
+use crate::menu::connection_line::{self, LineState};
 use crate::menu::controller::{Controller, Cx, Event, Handler};
 use crate::menu::custom_text;
 use crate::menu::hydra::picture_name;
@@ -39,7 +40,7 @@ use crate::menu::lobby::loadout::{BotPool, picked_skin, skin_by_name};
 use crate::menu::lobby::net::{NetLobby, Say, note_text};
 use crate::menu::lobby::{self, Lobby, LobbyEvent, LocalLobby, SetupSource};
 use crate::menu::manager::{DialogParams, Manager, Modal, NotificationParams, TransitionParams};
-use crate::menu::online::{OnlineCmd, OnlineView, PartyCmd};
+use crate::menu::online::{OfflineWhy, OnlineCmd, OnlineLine, OnlineView, PartyCmd, SessionLink};
 use crate::menu::own_profile::{my_profile_icon_asset, profile_icon_by_asset, watch_profile_icon};
 use crate::menu::screens::pre_match::setup::PreMatchStart;
 use crate::menu::view::MenuView;
@@ -78,6 +79,44 @@ const READY_GREY: Rgba = [0.262251, 0.366253, 0.396755, 1.0];
 /// centred on the title's line and ending where the bottom row's buttons do (VerticalBox_101's right offset, 200),
 /// TOP_GAP apart.
 pub const TOP_BUTTONS_PAD: Margin = Margin { l: 0.0, t: 58.0, r: 200.0, b: 0.0 };
+/// (the port's own) The connection line, a subtitle under the page's title in the header band: its left edge on the
+/// title text's (WBP_MenuHeader: CollectionHomeHeader's Left 100, the 64 icon and its Right 4), its top under the
+/// title's row (Top 40). The face and weight of the build's subtitles under a page title (UI_LocalPlay settingsLabel,
+/// NormsCond-ExtraBoldItalic), a size that keeps the longest line above the band's slanted edge. The state word in
+/// the state's colour: a good round trip's green (hud::ping) online and on a local network,
+/// the build's orange text (UI_Homescreen_v2 TextBlock_66) offline. The rest in the title's cream, LINK_GAP after
+/// the state word.
+const LINK_FACE: &str = "NormsCond-ExtraBoldItalic";
+const LINK_SIZE: f64 = 20.0;
+const LINK_LEFT: f64 = 168.0;
+const LINK_TOP: f64 = 132.0;
+const LINK_GAP: f64 = 6.0;
+const LINK_ONLINE: Rgba = crate::hud::ping::GREEN;
+const LINK_LOCAL: Rgba = [0.982251, 0.558341, 0.056128, 1.0];
+const LINK_TEXT: Rgba = EDIT_FOCUSED;
+
+/// (the port's own) What the lobby's connection line says: its session's link once the session opened; a lobby with no
+/// net service in this run (a UI-only local lobby) is local for the menus' reason.
+pub fn lobby_link(lobby: &Lobby, online: &OnlineView) -> Option<SessionLink> {
+    match lobby {
+        Lobby::Local(_) => Some(SessionLink::Local(crate::menu::online::LocalReason::Offline(match &online.line {
+            OnlineLine::Offline(why) => why.clone(),
+            OnlineLine::Online | OnlineLine::Slower => OfflineWhy::Other,
+        }))),
+        Lobby::Net(n) if n.is_open() => online.session.as_ref().and_then(|s| s.link.clone()),
+        Lobby::Net(_) => None,
+    }
+}
+
+/// The connection line's widgets and what they show.
+#[derive(Debug)]
+struct LinkLine {
+    root: WidgetId,
+    head: WidgetId,
+    detail: WidgetId,
+    tip: WidgetId,
+    shown: Option<SessionLink>,
+}
 pub const TOP_GAP: f64 = 24.0;
 
 /// What a row reads of the lobby.
@@ -931,6 +970,10 @@ pub struct CustomGame {
     /// (the port's own) The code is shown, not masked: off each time the lobby opens.
     code_shown: bool,
     settings_button: Option<WidgetId>,
+    /// (the port's own) The connection line left of the room code's buttons.
+    link_line: Option<LinkLine>,
+    /// (the port's own) The lobby is local as the controls last showed it (None: not shown yet).
+    local_shown: Option<bool>,
     /// An online lobby's chat.
     chat: Option<LobbyChat>,
     /// online.connected as the last frame saw it (acted on at a change).
@@ -955,6 +998,8 @@ impl CustomGame {
             code_view: None,
             code_shown: false,
             settings_button: None,
+            link_line: None,
+            local_shown: None,
             chat: None,
             was_connected: false,
             loaded: false,
@@ -1109,6 +1154,99 @@ impl CustomGame {
         ));
     }
 
+    /// (the port's own) The connection line under the page's title: one row of runs (the state, what the lobby is
+    /// connected through or why a local lobby is local), and over it a tooltip
+    /// target whose tip says what to do for a local lobby to be online.
+    /// Deviation: the build's lobby shows no connection (WBP_CustomGame has the room code alone); the port says it,
+    /// as a lobby may be local, on a player's game or on the relay.
+    fn add_link_line(&mut self, cx: &mut Cx<'_>) {
+        let header = find(cx, "WBP_MenuHeader");
+        let banner = cx.view.tree().find_in(header, "HeaderBanner");
+        let root = lobby_chat::plain(
+            cx,
+            "Overlay",
+            "LobbyConnection",
+            json!({}),
+            json!({
+                "HorizontalAlignment": "HAlign_Left",
+                "VerticalAlignment": "VAlign_Top",
+                "Padding": { "Left": LINK_LEFT, "Top": LINK_TOP, "Right": 0, "Bottom": 0 },
+            }),
+            "OverlaySlot",
+        );
+        MenuView::add_child(cx, banner, root, None);
+        let bundle = cx.view.bundle.clone();
+        let t = cx.view.tree_mut();
+        let row = t.create_plain(&bundle, "HorizontalBox", "LobbyConnectionRow");
+        let runs = ["LobbyConnectionHead", "LobbyConnectionDetail"].map(|n| t.create_plain(&bundle, "TextBlock", n));
+        for (i, &w) in runs.iter().enumerate() {
+            let x = t.widget_mut(w);
+            x.typeface = Some(LINK_FACE.to_owned());
+            x.font_size = LINK_SIZE;
+            x.color = LINK_TEXT;
+            x.v_align = VAlign::Bottom;
+            x.pad = Margin { l: if i == 0 { 0.0 } else { LINK_GAP }, t: 0.0, r: 0.0, b: 0.0 };
+            x.vis = Vis::HitTestInvisible;
+            t.add(row, w);
+        }
+        t.widget_mut(row).vis = Vis::HitTestInvisible;
+        t.add(root, row);
+        t.widget_mut(root).vis = Vis::Collapsed;
+        let tip = MenuView::create(cx, "UI_TooltipTarget");
+        {
+            let x = wd(cx, tip);
+            x.name = "LobbyConnectionTip".to_owned();
+            x.h_align = HAlign::Fill;
+            x.v_align = VAlign::Fill;
+        }
+        MenuView::add_child(cx, root, tip, None);
+        let [head, detail] = runs;
+        self.link_line = Some(LinkLine { root, head, detail, tip, shown: None });
+    }
+
+    /// (the port's own) The connection line as the session has it now, and a local lobby's controls greyed (the room
+    /// code's buttons, the room settings with the public listing, the invites) when the lobby turns local or back.
+    fn show_link(&mut self, cx: &mut Cx<'_>) {
+        if self.lobby.is_none() {
+            return;
+        }
+        let o = &cx.view.session.online;
+        let link = lobby_link(self.lobby(), o);
+        let local = matches!(link, Some(SessionLink::Local(_)));
+        if self.local_shown != Some(local) {
+            self.local_shown = Some(local);
+            self.show_code(cx);
+        }
+        let Some(l) = self.link_line.as_mut() else { return };
+        if l.shown == link {
+            return;
+        }
+        l.shown.clone_from(&link);
+        let (root, head, detail, tip) = (l.root, l.head, l.detail, l.tip);
+        let Some(link) = link else {
+            wd(cx, root).vis = Vis::Collapsed;
+            return;
+        };
+        wd(cx, root).vis = Vis::SelfHitTestInvisible;
+        let line = connection_line::line(&link);
+        let h = wd(cx, head);
+        h.text = line.head.to_owned();
+        h.color = match line.state {
+            LineState::Online | LineState::LocalNetwork => LINK_ONLINE,
+            LineState::Offline => LINK_LOCAL,
+        };
+        wd(cx, detail).text = line.detail;
+        // the tip: what to do, for a local lobby alone (an online lobby's target takes no hover)
+        let how = line.how.unwrap_or_default();
+        wd(cx, tip).vis = if how.is_empty() { Vis::Collapsed } else { Vis::Visible };
+        cx.visit::<TooltipTarget, _>(tip, |t, _| t.params = tooltip_params(&how, !how.is_empty(), 0.0, 8.0, 0));
+    }
+
+    /// (the port's own) The lobby is local: its code, settings and invites are off.
+    fn local(&self) -> bool {
+        self.local_shown == Some(true)
+    }
+
     /// The lobby-code hook for the menu tapes: the code button shown with `text` as its label.
     #[doc(hidden)]
     pub fn force_code(&mut self, cx: &mut Cx<'_>, text: &str) {
@@ -1119,11 +1257,27 @@ impl CustomGame {
 
     fn show_code(&mut self, cx: &mut Cx<'_>) {
         let Some(code) = self.code_button else { return };
-        let has = self.lobby().net().is_some_and(|n| !n.code().is_empty());
+        // (the port's own) a local lobby's code and settings buttons stay in view, greyed, with the connection line's
+        // reason beside them; it has no code to show
+        let local = self.local();
+        let has = local || self.lobby().net().is_some_and(|n| !n.code().is_empty());
         let vis = if has { Vis::Visible } else { Vis::Collapsed };
-        wd(cx, code).vis = vis;
-        for b in [self.code_view, self.settings_button].into_iter().flatten() {
+        for b in [Some(code), self.settings_button].into_iter().flatten() {
             wd(cx, b).vis = vis;
+            let i = cx.view.tree().find_in(b, "UI_Interactor");
+            interactor::set_interactable(cx, i, !local);
+        }
+        if let Some(b) = self.code_view {
+            wd(cx, b).vis = if has && !local { Vis::Visible } else { Vis::Collapsed };
+        }
+        for i in 0..LOBBY_TEAMS.len() {
+            let team = Self::team(cx, i);
+            for n in 1..=4 {
+                let slot = cx.view.tree().find_in(team, &format!("EmptySlot{n}"));
+                let b = cx.view.tree().find_in(slot, "btn_InvitePlayer");
+                let b = cx.view.tree().find_in(b, "UI_Interactor");
+                interactor::set_interactable(cx, b, !local);
+            }
         }
         self.show_code_text(cx);
     }
@@ -1860,7 +2014,7 @@ impl CustomGame {
                     self.lobby_mut().add_bot(team.min(1), character, skin, 4);
                 }
             }
-            K_INVITE => self.show_invite_dialog(cx),
+            K_INVITE if !self.local() => self.show_invite_dialog(cx),
             _ => {}
         }
     }
@@ -1924,6 +2078,8 @@ impl Modal for CustomGame {
         self.add_code_button(cx);
         self.add_code_view(cx);
         self.add_settings_button(cx);
+        self.add_link_line(cx);
+        self.show_link(cx);
         if self.lobby().online() {
             self.add_chat(cx);
         }
@@ -2000,9 +2156,10 @@ impl Controller for CustomGame {
                         cx.online(c);
                     }
                 }
-                // (a code's join needs only the net process: a direct host's code is joined whatever the sign-in)
-                let net = if join.is_some() { can_join } else { connected && !my_id.is_empty() };
-                if net {
+                // (a code's join needs only the net process: a direct host's code is joined whatever the sign-in;
+                // the port's own: so does a lobby of this player's, which the service hosts locally with no
+                // connection up)
+                if can_join {
                     Lobby::Net(Box::new(NetLobby::new(&my_id, join, &compat, &name)))
                 } else {
                     // Unverified: the lobby's local name is the player's profile name in the build; the port has
@@ -2056,6 +2213,7 @@ impl Controller for CustomGame {
             self.on_event(cx, e);
         }
         self.flush(cx);
+        self.show_link(cx);
         if let Some(mut c) = self.chat.take() {
             c.tick(cx, dt);
             self.chat = Some(c);
@@ -2154,7 +2312,7 @@ impl Controller for CustomGame {
                     self.lobby_mut().set_maps(&names);
                 }
             }
-            G_COPY_CODE => {
+            G_COPY_CODE if !self.local() => {
                 let code = self.lobby().net().map_or("", NetLobby::code).to_string();
                 if !code.is_empty() {
                     // (the port's own) in capitals, as shown: the join path reads a code in any case
@@ -2167,7 +2325,7 @@ impl Controller for CustomGame {
                 self.code_shown = !self.code_shown;
                 cx.view.delay(0.0, Handler { owner: cx.w, id: R_SHOW_CODE });
             }
-            G_ROOM_SETTINGS => self.show_settings(cx, SETTINGS_MODAL, room_page()),
+            G_ROOM_SETTINGS if !self.local() => self.show_settings(cx, SETTINGS_MODAL, room_page()),
             G_INVITED => {
                 if let Some(players) = arg.downcast_ref::<Vec<super::social::SocialPlayerData>>() {
                     for p in players {

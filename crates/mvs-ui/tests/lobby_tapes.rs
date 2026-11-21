@@ -15,7 +15,7 @@ use mvs_ui::bindings::Bindings;
 use mvs_ui::element::ElementList;
 use mvs_ui::menu::controller::MenuRun;
 use mvs_ui::menu::input::Pointer;
-use mvs_ui::menu::online::{BrowseAnswer, BrowseNote, OnlineEvent, OnlineView, SessionView};
+use mvs_ui::menu::online::{BrowseAnswer, BrowseNote, OnlineEvent, OnlineView, SessionLink, SessionView};
 use mvs_ui::menu::tape::{MenuHeader, MenuTape};
 use mvs_ui::menu::widgets::custom_game::CustomGame;
 use mvs_ui::menu::{Manager, MenuInput, MenuScreen, MenuView, NoSound};
@@ -111,7 +111,15 @@ fn state(ev: &str, data: LobbyData) -> OnlineEvent {
 }
 
 fn session() -> SessionView {
-    SessionView { code: String::new(), me: "local".into(), host: false, chosen: true, lobby: None, queued: false }
+    SessionView {
+        code: String::new(),
+        me: "local".into(),
+        host: false,
+        chosen: true,
+        lobby: None,
+        queued: false,
+        link: Some(SessionLink::Relay),
+    }
 }
 
 /// A frame of the script: `online` the view the page's client gives this frame.
@@ -175,6 +183,7 @@ impl Play {
 fn view(events: Vec<OnlineEvent>, open: bool) -> OnlineView {
     OnlineView {
         connected: true,
+        can_join: true,
         me: "local".into(),
         name: "Tester".into(),
         session: open.then(session),

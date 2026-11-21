@@ -244,8 +244,7 @@ pub fn closed_why_text(why: &ClosedWhy) -> String {
         ClosedWhy::NoSession => t::CLOSED_NO_SESSION.to_string(),
         ClosedWhy::Offline { why } => lead(t::ONLINE_OFF, &status_why_text(why)),
         ClosedWhy::NoQueue => lead(t::ONLINE_OFF, t::NO_QUEUE),
-        // (N1's app track words it)
-        ClosedWhy::RelayVersion => t::PROTOCOL_DIFFERS.to_string(),
+        ClosedWhy::RelayVersion => t::QUEUE_RELAY_VERSION.to_string(),
         ClosedWhy::NotRelayed { text } => lead(t::CLOSED_NOT_RELAYED, text),
         ClosedWhy::BackendOff { kind, why } => {
             t::CLOSED_BACKEND_OFF.replace("{backend}", backend_name(*kind)).replace("{why}", &off_why_text(*kind, why))
@@ -305,6 +304,7 @@ pub fn notice_text(n: &OnlineNotice) -> String {
     match n {
         OnlineNotice::Host(text) => text.clone(),
         OnlineNotice::ProtocolDiffers => t::PROTOCOL_DIFFERS.to_string(),
+        OnlineNotice::HostProtocolDiffers => t::HOST_PROTOCOL_DIFFERS.to_string(),
         OnlineNotice::InviteNotSent { .. } => t::INVITE_REFUSED.to_string(),
         OnlineNotice::Desync { .. } => t::DESYNC_NOTE.to_string(),
         // (the main menu shows it with the build's own title, main_menu.rs party_disbanded)

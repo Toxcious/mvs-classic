@@ -45,3 +45,9 @@ pub const AWAY: &str = "Away";
 pub fn reconnecting(seconds: u32) -> String {
     if seconds == 0 { "Reconnecting...".to_owned() } else { format!("Reconnecting... {seconds}") }
 }
+
+/// (online) The ping line top right, beside the frame rate's: ms to the match's referee or the session's host core
+/// and back.
+pub fn ping_line(ms: u32) -> String {
+    format!("{ms} ms")
+}

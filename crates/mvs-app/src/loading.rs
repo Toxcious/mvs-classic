@@ -105,11 +105,11 @@ impl Loading {
                 });
                 s.paint(shell.swap.size, image, time, &mut u.list);
             }
-            // `stat fps`'s line (Show Framerate), as on every screen
-            let line = crate::fps::line(shell.settings.graphics.show_fps, shell.perf.readout.as_ref());
-            if let Some(line) = line {
-                crate::fps::draw(&mut u.list, &mut u.menu_fonts, shell.swap.size, crate::fps::LAYER, &line);
-            }
+            // `stat fps`'s line (Show Framerate) and the ping line of an online session, as on every screen
+            let fps = crate::fps::line(shell.settings.graphics.show_fps, shell.perf.readout.as_ref());
+            let ping = crate::fps::ping_line(shell.online.as_ref().and_then(|h| h.borrow().ping_ms()));
+            let size = shell.swap.size;
+            crate::fps::draw(&mut u.list, &mut u.menu_fonts, size, crate::fps::LAYER, fps.as_ref(), ping.as_ref());
             if !u.list.elements.is_empty() {
                 u.ui.draw(renderer.gpu(), renderer.assets(), &mut u.menu_fonts, &u.list, back)?;
             }

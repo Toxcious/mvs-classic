@@ -107,6 +107,14 @@ impl Online {
         }
     }
 
+    /// (the port's own) The ping line's number, ms (None: none measured yet).
+    pub fn ping(&self) -> Option<f64> {
+        match self {
+            Online::Dev(o) => o.ping(),
+            Online::Net(o) => o.ping(),
+        }
+    }
+
     /// The match is over for this player.
     pub fn finish(self) {
         match self {

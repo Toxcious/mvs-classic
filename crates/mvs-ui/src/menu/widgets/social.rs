@@ -103,9 +103,11 @@ pub fn is_player_invitable(cx: &Cx<'_>, d: &SocialPlayerData) -> bool {
         && !o.party.as_ref().is_some_and(|p| p.members.iter().any(|m| m.id == d.id))
 }
 
-/// A custom lobby of the online session is up and `id` is not one of its members.
+/// A custom lobby of the online session is up and `id` is not one of its members; (the port's own) never a local
+/// lobby, which only this PC's players can be in.
 pub(crate) fn lobby_invite_open(cx: &Cx<'_>, id: &str) -> bool {
-    let lobby = cx.view.session.online.session.as_ref().and_then(|s| s.lobby.as_ref());
+    let s = cx.view.session.online.session.as_ref().filter(|s| !s.local());
+    let lobby = s.and_then(|s| s.lobby.as_ref());
     lobby.is_some_and(|l| !l.teams.iter().flatten().any(|p| p.account_id == id))
 }
 

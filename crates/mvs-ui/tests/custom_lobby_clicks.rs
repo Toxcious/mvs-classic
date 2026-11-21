@@ -13,7 +13,9 @@ use mvs_ui::bindings::Bindings;
 use mvs_ui::element::ElementList;
 use mvs_ui::menu::controller::MenuRun;
 use mvs_ui::menu::input::Pointer;
-use mvs_ui::menu::online::{OnlineCmd, OnlineEvent, OnlineView, SessionView};
+use mvs_ui::menu::online::{
+    LocalReason, OfflineWhy, OnlineCmd, OnlineEvent, OnlineLine, OnlineView, SessionLink, SessionView,
+};
 use mvs_ui::menu::{Manager, MenuInput, MenuScreen, MenuView, NoSound};
 use mvs_ui::slate::{Vis, WidgetId};
 use mvs_ui::text::{Fonts, GameText};
@@ -92,10 +94,18 @@ fn started() -> OnlineEvent {
 }
 
 fn online(events: Vec<OnlineEvent>) -> OnlineView {
-    let session =
-        SessionView { code: "L1".into(), me: "local".into(), host: false, chosen: true, lobby: None, queued: false };
+    let session = SessionView {
+        code: "L1".into(),
+        me: "local".into(),
+        host: false,
+        chosen: true,
+        lobby: None,
+        queued: false,
+        link: Some(SessionLink::Relay),
+    };
     OnlineView {
         connected: true,
+        can_join: true,
         me: "local".into(),
         name: "Tester".into(),
         session: Some(session),
@@ -655,4 +665,126 @@ fn the_wheel_row_asks_for_the_option() {
         })
         .collect();
     assert_eq!(sent, [("wheel".to_string(), true)]);
+}
+
+impl Lobby {
+    /// The page's widget `name`; the connection line's are in the page's header (WBP_MenuHeader).
+    fn page_w(&self, name: &str) -> WidgetId {
+        if name.starts_with("LobbyConnection") {
+            let header = self.find("customGame", "WBP_MenuHeader");
+            return self.screen.view.tree().find_in(header, name);
+        }
+        self.find("customGame", name)
+    }
+
+    fn text(&self, name: &str) -> String {
+        self.screen.view.tree().widget(self.page_w(name)).text.clone()
+    }
+
+    fn color(&self, name: &str) -> [f64; 4] {
+        self.screen.view.tree().widget(self.page_w(name)).color
+    }
+
+    fn shown(&self, name: &str) -> bool {
+        self.screen.view.tree().widget(self.page_w(name)).vis != Vis::Collapsed
+    }
+
+    /// The button `w`'s interactor takes clicks.
+    fn takes_clicks(&self, w: WidgetId) -> bool {
+        let i = self.screen.view.tree().find_in(w, "UI_Interactor");
+        self.screen.view.manager.interactor(i).expect("an interactor").enabled
+    }
+
+    /// Every empty slot's invite button takes clicks.
+    fn invites_take_clicks(&self) -> Vec<bool> {
+        let t = self.screen.view.tree();
+        let mut out = Vec::new();
+        for team in ["WBP_CustomGameTeam", "WBP_CustomGameTeam_1", "WBP_CustomGameTeam_ffa"] {
+            let team = self.find("customGame", team);
+            for n in 1..=4 {
+                let slot = t.find_in(team, &format!("EmptySlot{n}"));
+                out.push(self.takes_clicks(t.find_in(slot, "btn_InvitePlayer")));
+            }
+        }
+        out
+    }
+
+    /// The session's link becomes `link` (the next frames' view).
+    fn link(&mut self, link: SessionLink) {
+        if let Some(s) = self.screen.view.session.online.session.as_mut() {
+            s.link = Some(link);
+        }
+        self.frames(2, &[]);
+    }
+}
+
+/// (the port's own) The connection line under the page's title says how the lobby is connected, its state word in the
+/// state's colour and no round trip (the top-right ping line's); a local lobby says why with what to do as its tip,
+/// and keeps its code's and settings' buttons in view, greyed, with its invites off; online again gives them back.
+#[test]
+fn the_connection_line_says_the_link_and_greys_a_local_lobby() {
+    use mvs_ui::hud::ping::GREEN;
+    use mvs_ui::menu::custom_text as t;
+    // the title's cream (WBP_MenuHeader txt_PageTitle)
+    const CREAM: [f64; 4] = [0.89627, 0.973446, 0.871367, 1.0];
+    let Some(mut l) = Lobby::new(env()) else { return };
+    assert!(l.shown("LobbyConnection"));
+    assert_eq!(l.text("LobbyConnectionHead"), "ONLINE");
+    assert_eq!(l.color("LobbyConnectionHead"), GREEN);
+    assert_eq!(l.text("LobbyConnectionDetail"), "via Relay");
+    assert_eq!(l.color("LobbyConnectionDetail"), CREAM);
+    assert!(!l.shown("LobbyConnectionTip"));
+    let header = l.find("customGame", "WBP_MenuHeader");
+    assert_eq!(l.screen.view.tree().find_opt(header, "LobbyConnectionPing"), None, "the line has no round trip");
+    let (code, settings) = (l.find("customGame", "LobbyCodeButton"), l.find("customGame", "LobbySettingsButton"));
+    assert!(l.takes_clicks(code) && l.takes_clicks(settings));
+    assert!(l.invites_take_clicks().iter().all(|&b| b));
+    assert!(l.shown("LobbyCodeView"));
+
+    l.link(SessionLink::Epic);
+    assert_eq!(l.text("LobbyConnectionHead"), "ONLINE");
+    assert_eq!(l.text("LobbyConnectionDetail"), "via Epic");
+    l.link(SessionLink::Lan { at: "192.168.1.5:7777".into() });
+    assert_eq!(l.text("LobbyConnectionHead"), "LAN");
+    assert_eq!(l.text("LobbyConnectionDetail"), "192.168.1.5:7777");
+
+    l.link(SessionLink::Local(LocalReason::Offline(OfflineWhy::NotReached)));
+    assert_eq!(l.text("LobbyConnectionHead"), "OFFLINE");
+    assert_ne!(l.color("LobbyConnectionHead"), GREEN);
+    assert_eq!(l.text("LobbyConnectionDetail"), t::LOBBY_LOCAL_NOT_REACHED);
+    assert!(l.shown("LobbyConnectionTip"), "what to do is the line's tip");
+    assert!(l.shown("LobbyCodeButton") && l.shown("LobbySettingsButton"), "greyed, not hidden");
+    assert!(!l.takes_clicks(code) && !l.takes_clicks(settings));
+    assert!(l.invites_take_clicks().iter().all(|&b| !b));
+    assert!(!l.shown("LobbyCodeView"), "a local lobby has no code to show");
+    l.link(SessionLink::Local(LocalReason::MadeOffline));
+    assert_eq!(l.text("LobbyConnectionDetail"), t::LOBBY_LOCAL_MADE_OFFLINE);
+    l.link(SessionLink::Local(LocalReason::CannotHost));
+    assert_eq!(l.text("LobbyConnectionDetail"), t::LOBBY_LOCAL_CANNOT_HOST);
+
+    l.link(SessionLink::Relay);
+    assert!(l.takes_clicks(code) && l.takes_clicks(settings));
+    assert!(l.invites_take_clicks().iter().all(|&b| b));
+    assert!(!l.shown("LobbyConnectionTip"));
+    for name in ["LobbyConnectionHead", "LobbyConnectionDetail"] {
+        assert!(!l.text(name).contains('\u{b7}'), "no separator dot: {name}");
+    }
+}
+
+/// (the port's own) A run with no net service at all makes a UI-only local lobby: its line is local for the menus'
+/// reason.
+#[test]
+fn a_lobby_with_no_net_service_says_why_it_is_local() {
+    let Some(mut env) = env() else { return };
+    let view = MenuView::new(env.bundle.clone(), env.text.clone(), SIZE);
+    let mut screen = MenuScreen::new(view, &mut env.run());
+    screen.view.session.online =
+        OnlineView { line: OnlineLine::Offline(OfflineWhy::TurnedOff), ..OnlineView::default() };
+    screen.with_cx(&mut env.run(), |cx| Manager::show_modal(cx, "WBP_CustomGame", "customGame", "", ""));
+    let mut l = Lobby { env, screen, out: ElementList::default(), n: 0, online_ms: 0.0 };
+    l.frames(30, &[]);
+    assert_eq!(l.text("LobbyConnectionHead"), "OFFLINE");
+    assert_eq!(l.text("LobbyConnectionDetail"), mvs_ui::menu::custom_text::LOBBY_LOCAL_TURNED_OFF);
+    let code = l.find("customGame", "LobbyCodeButton");
+    assert!(l.shown("LobbyCodeButton") && !l.takes_clicks(code));
 }

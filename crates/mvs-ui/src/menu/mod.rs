@@ -7,6 +7,7 @@
 
 pub mod arcade;
 pub mod blur;
+pub mod connection_line;
 pub mod controller;
 pub mod cursor;
 pub mod custom_text;

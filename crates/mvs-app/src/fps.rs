@@ -3,8 +3,15 @@
 //! over 0.5 s of frames (perf.rs). The launcher has its own screens and draws none.
 // Deviation: the engine's stat text (its font, colour and lines) is not drawn; one line, "<n> fps", coloured by the rate
 // (green at 90 fps or more, yellow down to the sim's 60 Hz, red below).
+//
+// (the port's own) The ping line, "<n> ms", left of it (in its place while Show Framerate is off), whenever a session
+// is online: a custom lobby on the relay, Epic or LAN, a queue's pre-match, an online match and the screens between
+// them. Never in a local lobby or offline play. Its number: `OnlineHub::ping_ms` in the menus, `Online::ping` in a
+// match.
+// Deviation: the build draws no ping; its stat lines are the engine's, off by default.
 
 use mvs_ui::element::{DrawEffects, Element, ElementList, PaintGeometry, TextEl};
+use mvs_ui::hud::ping::{self, GREEN, RED, YELLOW};
 use mvs_ui::text::{FontInfo, Fonts};
 
 use crate::perf::Readout;
@@ -20,9 +27,8 @@ pub const LAYER: i32 = i32::MAX;
 /// shows as "60 fps", a 59.94 Hz display included); below the second, ticks go undrawn and it is red.
 const GOOD_FPS: f64 = 90.0;
 const LOW_FPS: f64 = 59.5;
-const GREEN: [f64; 4] = [0.2, 1.0, 0.2, 1.0];
-const YELLOW: [f64; 4] = [1.0, 1.0, 0.0, 1.0];
-const RED: [f64; 4] = [1.0, 0.25, 0.2, 1.0];
+/// The room between the ping line and the frame rate's, px.
+const GAP: f64 = 12.0;
 
 /// The line: its text and colour.
 #[derive(Clone, Debug, PartialEq)]
@@ -48,17 +54,40 @@ pub fn line(show: bool, readout: Option<&Readout>) -> Option<Line> {
     Some(Line { text: r.fps_line(), color: color_of(1000.0 / r.mean_ms) })
 }
 
-/// The line pushed into `list` on `layer`, top right of a frame of `size`.
-pub fn draw(list: &mut ElementList, fonts: &mut Fonts, size: [u32; 2], layer: i32, line: &Line) {
+/// The ping line of a round trip of `ms` (None: no online session, or none measured yet).
+pub fn ping_line(ms: Option<f64>) -> Option<Line> {
+    let ms = ms.filter(|m| *m >= 0.0)?;
+    // (a round trip in whole ms: small, never negative)
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let whole = ms.round() as u32;
+    Some(Line { text: mvs_ui::hud::ping_line(whole), color: ping::color(ms) })
+}
+
+/// The lines pushed into `list` on `layer`, top right of a frame of `size`: the frame rate's at the corner, the
+/// ping's left of it, or at the corner while the frame rate's is off.
+pub fn draw(
+    list: &mut ElementList,
+    fonts: &mut Fonts,
+    size: [u32; 2],
+    layer: i32,
+    fps: Option<&Line>,
+    ping: Option<&Line>,
+) {
+    let mut right = f64::from(size[0]) - MARGIN[0];
+    for line in [fps, ping].into_iter().flatten() {
+        right -= draw_one(list, fonts, right, layer, line) + GAP;
+    }
+}
+
+/// One line with its right edge at `right`; its width.
+fn draw_one(list: &mut ElementList, fonts: &mut Fonts, right: f64, layer: i32, line: &Line) -> f64 {
     let info = FontInfo { size: SIZE, ..FontInfo::default() };
     let width = fonts.measure(&info, &line.text, 1.0).width;
     let run = fonts.shape(&info, &line.text, 1.0);
-    let geometry = PaintGeometry {
-        size: [width, 16.0],
-        transform: [1.0, 0.0, 0.0, 1.0, f64::from(size[0]) - width - MARGIN[0], MARGIN[1]],
-    };
+    let geometry = PaintGeometry { size: [width, 16.0], transform: [1.0, 0.0, 0.0, 1.0, right - width, MARGIN[1]] };
     let el = TextEl { geometry, run, color: line.color, outline_color: [0.0, 0.0, 0.0, 0.0], material: None };
     list.push(layer, None, DrawEffects::NONE, Element::Text(el));
+    width
 }
 
 #[cfg(test)]
@@ -72,6 +101,20 @@ mod tests {
         assert_eq!(line(false, Some(&r)), None);
         assert_eq!(line(true, None), None);
         assert_eq!(line(true, Some(&Readout::default())), None);
+    }
+
+    #[test]
+    fn the_ping_line_shows_a_measured_round_trip() {
+        assert_eq!(ping_line(Some(42.4)), Some(Line { text: "42 ms".into(), color: GREEN }));
+        assert_eq!(ping_line(None), None);
+        assert_eq!(ping_line(Some(-1.0)), None, "none measured yet");
+    }
+
+    #[test]
+    fn the_ping_colour_follows_its_bounds() {
+        assert_eq!(ping_line(Some(80.0)).unwrap().color, GREEN);
+        assert_eq!(ping_line(Some(120.0)).unwrap().color, YELLOW);
+        assert_eq!(ping_line(Some(150.5)).unwrap().color, RED);
     }
 
     #[test]

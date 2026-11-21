@@ -557,9 +557,9 @@ impl ResultsHost {
                     None => self.no_podium = true,
                 }
             }
-            if let Some(line) = crate::fps::line(settings.graphics.show_fps, perf.readout.as_ref()) {
-                crate::fps::draw(&mut list, &mut ui.menu_fonts, swap.size, crate::fps::LAYER, &line);
-            }
+            let fps = crate::fps::line(settings.graphics.show_fps, perf.readout.as_ref());
+            let ping = crate::fps::ping_line(online.as_ref().and_then(|h| h.borrow().ping_ms()));
+            crate::fps::draw(&mut list, &mut ui.menu_fonts, swap.size, crate::fps::LAYER, fps.as_ref(), ping.as_ref());
             ui.ui.time = Some(self.clock);
             // (a shot's or a scripted run's picture waits for its pictures)
             ui.ui.stream_pictures = self.shot.is_none() && script.is_none();

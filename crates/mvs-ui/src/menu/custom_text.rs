@@ -256,6 +256,12 @@ pub const ASK_NO: &str = "Cancel";
 /// The notes of the game: another protocol on the server, and an invite that was not sent.
 pub const PROTOCOL_DIFFERS: &str =
     "This server runs another version of the game's online protocol. Update the game, or pick another server";
+/// A join of a lobby a player's game hosts (Epic, a direct code) that plays another version of the game.
+pub const HOST_PROTOCOL_DIFFERS: &str =
+    "The host plays another version of the game. Update your game, or ask the host to update theirs";
+/// The queue's close when matchmaking's server runs another version and Epic is not signed in.
+pub const QUEUE_RELAY_VERSION: &str =
+    "Matchmaking's server runs another version of the game. Update the game, or wait for the server's update";
 
 // ---------- the pre-match screen's notes (app/custom-pre-match.ts, protocol/online.ts COMPAT_MISSING_NOTE) ----------
 
@@ -364,6 +370,39 @@ pub const LINE_NOT_REACHED: &str = "Server not reached";
 pub const LINE_NOT_REACHED_DO: &str = "Check your internet connection. The game keeps trying on its own.";
 pub const LINE_OTHER: &str = "Online play could not start";
 pub const LINE_OTHER_DO: &str = "Test the connection in the launcher's Settings, under Online.";
+
+// The custom lobby's connection line (menu/connection_line.rs), a status label under the page's title: the state in
+// capitals and what the lobby is connected through; for a local lobby why, in one to three words, and what to do as
+// the line's tip.
+pub const LOBBY_HEAD_ONLINE: &str = "ONLINE";
+pub const LOBBY_HEAD_LAN: &str = "LAN";
+pub const LOBBY_HEAD_OFFLINE: &str = "OFFLINE";
+pub const LOBBY_ON_RELAY: &str = "via Relay";
+pub const LOBBY_ON_EPIC: &str = "via Epic";
+/// Why a lobby is local, after the state; what to do, the line's tip (`_DO`).
+pub const LOBBY_LOCAL_RELAY_VERSION: &str = "Version mismatch";
+pub const LOBBY_LOCAL_RELAY_VERSION_DO: &str = "Update the game, or wait for the server's update";
+pub const LOBBY_LOCAL_CANNOT_HOST: &str = "Server can't host";
+pub const LOBBY_LOCAL_CANNOT_HOST_DO: &str = "Turn on Epic or LAN in the launcher's Settings";
+pub const LOBBY_LOCAL_TURNED_OFF: &str = "No connection";
+pub const LOBBY_LOCAL_TURNED_OFF_DO: &str = "Turn one on in the launcher's Settings";
+pub const LOBBY_LOCAL_SIGNING_IN: &str = "Signing in";
+pub const LOBBY_LOCAL_SIGNING_IN_DO: &str = "Make a new lobby once online";
+pub const LOBBY_LOCAL_NOT_REACHED: &str = "Server unreachable";
+pub const LOBBY_LOCAL_NOT_REACHED_DO: &str = "Check your internet connection";
+pub const LOBBY_LOCAL_MADE_OFFLINE: &str = "Made offline";
+pub const LOBBY_LOCAL_MADE_OFFLINE_DO: &str = "Make a new lobby to play online";
+pub const LOBBY_LOCAL_CHECKING: &str = "Checking game";
+pub const LOBBY_LOCAL_CHECKING_DO: &str = "Make a new lobby in a moment";
+pub const LOBBY_LOCAL_UPDATE: &str = "Update needed";
+/// {version}: the newer release's.
+pub const LOBBY_LOCAL_UPDATE_DO: &str = "Update to {version} in the launcher";
+pub const LOBBY_LOCAL_IMPORT: &str = "Files outdated";
+pub const LOBBY_LOCAL_IMPORT_DO: &str = "Rebuild them in the launcher";
+pub const LOBBY_LOCAL_SELF_CHECK: &str = "Copy differs";
+pub const LOBBY_LOCAL_SELF_CHECK_DO: &str = "Rebuild the game files in the launcher";
+pub const LOBBY_LOCAL_OTHER: &str = "Online failed";
+pub const LOBBY_LOCAL_OTHER_DO: &str = "Test the connection in the launcher";
 
 /// A match that went out of sync: its report kept for a bug report (nothing is uploaded).
 pub const DESYNC_NOTE: &str =

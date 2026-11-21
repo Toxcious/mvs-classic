@@ -8,9 +8,7 @@
 
 use std::collections::{BTreeMap, VecDeque};
 
-#[cfg(test)]
-use mvs_net::service::api::SessionOn;
-use mvs_net::service::api::{AskWhat, ClosedWhy, NetEvent, NetRequest};
+use mvs_net::service::api::{AskWhat, ClosedWhy, NetEvent, NetRequest, SessionOn};
 use mvs_protocol::match_wire::PingWindow;
 use mvs_protocol::messages::{ClientMessage, ServerMessage};
 use mvs_protocol::names::clean_name;
@@ -85,6 +83,10 @@ pub struct NetClient {
     pub me: String,
     /// The session is on a chosen backend (false: a direct code's join).
     pub chosen: bool,
+    /// (the port's own) What the session is connected through (its `Opened`; None before it).
+    pub on: Option<SessionOn>,
+    /// (the port's own) Online play was on when the session opened (the port's status at its `Opened`).
+    pub opened_online: bool,
     /// The session's links to other players that stand, by id: relayed or not (Epic's alone).
     pub links: BTreeMap<String, bool>,
     /// The host core's name (its first message).
@@ -125,6 +127,8 @@ impl NetClient {
             code: String::new(),
             me: String::new(),
             chosen: true,
+            on: None,
+            opened_online: false,
             links: BTreeMap::new(),
             server_name: String::new(),
             ping: -1.0,
@@ -149,10 +153,12 @@ impl NetClient {
             return out;
         }
         match e {
-            NetEvent::Opened { code, me, chosen, .. } => {
+            NetEvent::Opened { code, me, chosen, on } => {
                 self.code.clone_from(code);
                 self.me.clone_from(me);
                 self.chosen = *chosen;
+                self.on = Some(on.clone());
+                self.opened_online = port.status.online;
             }
             NetEvent::Closed(why) => self.ended(why.clone(), &mut out),
             NetEvent::Ask { id, what } => self.ask(port, NetAsk { id: *id, what: what.clone() }, &mut out),

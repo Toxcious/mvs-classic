@@ -928,10 +928,12 @@ impl MenuHost {
         }
         perf.section("scene", ms_since(t_scene));
         let (gpu, assets) = (renderer.gpu(), renderer.assets());
-        // `stat fps`'s line (Show Framerate); not on a scripted run's pictures.
-        if let Some(line) = crate::fps::line(settings.graphics.show_fps && !scripted, perf.readout.as_ref()) {
-            crate::fps::draw(&mut list, &mut ui.menu_fonts, swap.size, crate::fps::LAYER, &line);
-        }
+        // `stat fps`'s line (Show Framerate) and the ping line of an online session; not on a scripted run's
+        // pictures unless it is paced (they are not compared then)
+        let lines = !scripted || *real_pace;
+        let fps = crate::fps::line(settings.graphics.show_fps && lines, perf.readout.as_ref());
+        let ping = crate::fps::ping_line(online.as_ref().filter(|_| lines).and_then(|h| h.borrow().ping_ms()));
+        crate::fps::draw(&mut list, &mut ui.menu_fonts, swap.size, crate::fps::LAYER, fps.as_ref(), ping.as_ref());
         ui.ui.time = Some(self.clock);
         // (a scripted run's pictures are compared: they wait for their pictures, unless the run is paced)
         ui.ui.stream_pictures = !scripted || *real_pace;

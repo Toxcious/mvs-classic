@@ -2238,11 +2238,16 @@ impl MatchLoop {
             let el = BoxEl { geometry, tint: [0.0, 0.0, 0.0, a], uv: [0.0, 0.0, 1.0, 1.0], ..BoxEl::default() };
             s.list.push(TOP_LAYER, None, DrawEffects::NONE, Element::Box(el));
         }
-        // `stat fps`'s line (Show Framerate); not on a held clock's pictures.
-        let held = !self.shots.is_empty() || (matches!(self.ticks, Ticks::Replay(_)) && !self.real_pace);
-        if let Some(line) = crate::fps::line(settings.graphics.show_fps && !held, perf.readout.as_ref()) {
-            crate::fps::draw(&mut s.list, fonts, size, TOP_LAYER + 1, &line);
-        }
+        // `stat fps`'s line (Show Framerate) and an online match's ping line; not on a held clock's pictures (an online
+        // match runs on the wall clock: its pictures are never compared)
+        let online = matches!(self.ticks, Ticks::Online(_));
+        let held = !online && (!self.shots.is_empty() || (matches!(self.ticks, Ticks::Replay(_)) && !self.real_pace));
+        let fps = crate::fps::line(settings.graphics.show_fps && !held, perf.readout.as_ref());
+        let ping = match &self.ticks {
+            Ticks::Online(o) if !held => crate::fps::ping_line(o.ping()),
+            _ => None,
+        };
+        crate::fps::draw(&mut s.list, fonts, size, TOP_LAYER + 1, fps.as_ref(), ping.as_ref());
         let t3 = Instant::now();
         perf.section("hud", ms(t2, t3));
         // The UI materials' View time is the frame's real time.

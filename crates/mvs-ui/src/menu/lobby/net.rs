@@ -75,6 +75,20 @@ struct Taken {
     code: String,
     /// On a backend of the sign-in (false: a direct code's join).
     chosen: bool,
+    /// (the port's own) A local lobby: this game hosts it with no connection under it.
+    local: bool,
+}
+
+impl Taken {
+    fn of(view: &OnlineView) -> Taken {
+        let s = view.session.as_ref();
+        Taken {
+            me: s.map(|s| s.me.clone()).unwrap_or_default(),
+            code: s.map(|s| s.code.clone()).unwrap_or_default(),
+            chosen: s.is_some_and(|s| s.chosen),
+            local: s.is_some_and(|s| s.local()),
+        }
+    }
 }
 
 /// The custom game's online lobby.
@@ -157,7 +171,13 @@ impl NetLobby {
     /// The lobby's session is on the chosen backend, so online going off ends it (a direct code's join is not; before
     /// its session opens, a join is let run).
     pub fn on_chosen(&self) -> bool {
-        self.session.as_ref().map_or(!self.by_code, |s| s.chosen)
+        // (the port's own) a local lobby stands on no backend: online going off or on leaves it be
+        self.session.as_ref().map_or(!self.by_code, |s| s.chosen && !s.local)
+    }
+
+    /// (the port's own) The lobby is local: this game hosts it with no connection, for this PC's players alone.
+    pub fn local(&self) -> bool {
+        self.session.as_ref().is_some_and(|s| s.local)
     }
 
     /// This player's id in the lobby: the session's own once it opened, the sign-in's before.
@@ -264,12 +284,7 @@ impl NetLobby {
             self.out.push(OnlineCmd::Close);
             return;
         }
-        let s = view.session.as_ref();
-        self.session = Some(Taken {
-            me: s.map(|s| s.me.clone()).unwrap_or_default(),
-            code: s.map(|s| s.code.clone()).unwrap_or_default(),
-            chosen: s.is_some_and(|s| s.chosen),
-        });
+        self.session = Some(Taken::of(view));
         // the greeting of the open: lobby.join with the code, or lobby.enter (each carries the compatibility id)
         let m = match self.opening_join.take() {
             Some(lobby) => ClientMessage::LobbyJoin { lobby, compat: self.compat.clone() },

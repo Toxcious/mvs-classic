@@ -73,6 +73,12 @@ pub struct NetMatch {
     chats: Vec<(String, mvs_protocol::messages::ChatTo, String)>,
     /// (the port's own) The slots the host core says are away (match.away), in the order told.
     away: Vec<usize>,
+    /// (the port's own) The match's path as the host core chose it before the go (OnlineHub::match_path): the referee's
+    /// slot (-1 the relay) and each slot's round trip to it, for the ping line of a match this game referees.
+    path: Option<(i32, Vec<Option<u32>>)>,
+    /// (the port's own) The session's host core, and so the match's referee, runs in this game (OnlineHub::own_core):
+    /// the host of a lobby over Epic or a local network.
+    own_core: bool,
     /// What the desync report says of the match.
     base: ReportBase,
     /// By slot, by tick from 0: the inputs the confirmed line ran (Session::on_ruled), for the desync report.
@@ -91,6 +97,26 @@ fn round(v: f64) -> u32 {
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     let r = (v + 0.5).floor().max(0.0) as u32;
     r
+}
+
+/// (the port's own) The match's ping line's number (NetMatch::ping): `path` the pm.path kept for the match, `me` this
+/// game's slot, `own_core` the session's core is this game's, `live` the session's round trip to the referee.
+fn match_ping(
+    path: Option<&(i32, Vec<Option<u32>>)>,
+    me: usize,
+    own_core: bool,
+    live: impl FnOnce() -> Option<f64>,
+) -> Option<f64> {
+    let slot = i32::try_from(me).ok();
+    if let Some((referee, ms)) = path.filter(|p| Some(p.0) == slot) {
+        let others = ms.iter().enumerate().filter(|(i, _)| i32::try_from(*i).ok() != Some(*referee));
+        return others.filter_map(|(_, m)| *m).max().map(f64::from);
+    }
+    if own_core {
+        return None;
+    }
+    let own = || path.and_then(|p| p.1.get(me).copied().flatten()).map(f64::from);
+    live().or_else(own)
 }
 
 /// By slot, by tick from 0: the confirmed line's inputs as the wire encodes them.
@@ -210,6 +236,10 @@ impl NetMatch {
                 }
             })
             .collect();
+        let (path, own_core) = {
+            let h = hub.borrow();
+            (h.match_path().cloned(), h.own_core())
+        };
         {
             let mut h = hub.borrow_mut();
             h.match_inbox(true);
@@ -240,6 +270,8 @@ impl NetMatch {
             peers: Vec::new(),
             chats: Vec::new(),
             away: Vec::new(),
+            path,
+            own_core,
             base: ReportBase::of(&start.start),
             ruled: Rc::new(RefCell::new(Vec::new())),
         }
@@ -557,6 +589,18 @@ impl NetMatch {
         self.hub.borrow_mut().send_match_chat(text, all);
     }
 
+    /// (the port's own) The ping line's number, ms: the live round trip to the match's referee (the relay's, or the
+    /// app of the player that referees it, over Epic or a direct link), the shortest of the session's clock window;
+    /// before the session's first, the path's measure of it. In a match this game referees (its own referee is
+    /// beside it), the longest of the other humans' round trips to it as the path measured them before the go (not
+    /// live: no message gives them during the match). None where the session's host core is this game's (the host of
+    /// a lobby over Epic or a local network): its referee is in this game, and no measure of its guests' round trips
+    /// reaches it.
+    pub fn ping(&self) -> Option<f64> {
+        let live = || self.session.as_ref().and_then(Session::rtt);
+        match_ping(self.path.as_ref(), self.me, self.own_core, live)
+    }
+
     /// The match is over for this peer: its result (a match that reached its end, not stopped) before its
     /// match.leave (the server counts a leave with no result as a quit), the link closed, the menus' ping again.
     pub fn finish(self) {
@@ -611,6 +655,22 @@ mod tests {
             jump: frame.is_multiple_of(45),
             ..InputState::default()
         }
+    }
+
+    /// (the port's own) The match's ping per case: a guest's or a relay match's live round trip (the path's before
+    /// it), the worst of the others' path measures where this game referees a path's match, and none where the
+    /// session's core is this game's with no path (the host of a lobby over Epic or a local network).
+    #[test]
+    fn the_match_ping_per_case() {
+        let path = (1, vec![Some(40), Some(0), Some(90)]);
+        let live = || Some(33.0);
+        let none = || None;
+        assert_eq!(match_ping(None, 0, false, live), Some(33.0), "a guest's live round trip");
+        assert_eq!(match_ping(Some(&path), 0, false, none), Some(40.0), "before the live one, the path's");
+        assert_eq!(match_ping(Some(&path), 1, false, live), Some(90.0), "the referee: the others' worst");
+        assert_eq!(match_ping(Some(&path), 1, true, live), Some(90.0));
+        assert_eq!(match_ping(None, 0, true, live), None, "its own core: nothing to show");
+        assert_eq!(match_ping(None, 0, false, none), None);
     }
 
     /// `--online-desync-at` in-process: two peers over a lagging link, one's hash at tick 120 spoiled; each finds the

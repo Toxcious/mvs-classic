@@ -548,6 +548,11 @@ impl DevOnline {
         }
     }
 
+    /// (the port's own) The ping line's number: the live round trip to the referee (the host's game), ms.
+    pub fn ping(&self) -> Option<f64> {
+        self.session.as_ref().and_then(Session::rtt)
+    }
+
     /// The match is over for this player (its results, an early stop, the player's quit or the window's close). At its
     /// own end the guest tells the host; the host's referee stays for the guest's end (the guest's confirmed line still
     /// needs its rulings), up to DONE_WAIT_MS. An early stop tells the other player and waits for nothing. The waiting,

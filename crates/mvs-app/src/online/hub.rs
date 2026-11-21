@@ -14,7 +14,8 @@ use std::collections::BTreeMap;
 
 use mvs_net::backend::BackendKind;
 use mvs_net::service::api::{
-    BrowseWhy, ClosedWhy, MenuFighter, NetEvent, NetRequest, OffWhy, PartySay, PartyView, SessionTarget, StatusWhy,
+    BrowseWhy, ClosedWhy, LocalWhy, MenuFighter, NetEvent, NetRequest, OffWhy, PartySay, PartyView, SessionOn,
+    SessionTarget, StatusWhy,
 };
 use mvs_protocol::chat::{ChatGate, clean_chat};
 use mvs_protocol::loadout::NetLoadout;
@@ -24,9 +25,9 @@ use mvs_protocol::online::{PmKind, QueueMode, QueueParty};
 use mvs_protocol::relay_wire::{Presence, PresenceStatus};
 use mvs_protocol::version::PROTOCOL;
 use mvs_ui::menu::online::{
-    BrowseAnswer, BrowseNote, BrowsedGame, KickNote, LobbyInvite, OfflineWhy, OnlineCmd, OnlineEvent, OnlineLine,
-    OnlineNotice, OnlinePlayer, OnlineView, PartyCmd, PreMatchCmd, PreMatchEvent, PreMatchView, QueueResume,
-    SessionAsk, SessionView,
+    BrowseAnswer, BrowseNote, BrowsedGame, KickNote, LobbyInvite, LocalReason, OfflineWhy, OnlineCmd, OnlineEvent,
+    OnlineLine, OnlineNotice, OnlinePlayer, OnlineView, PartyCmd, PreMatchCmd, PreMatchEvent, PreMatchView,
+    QueueResume, SessionAsk, SessionLink, SessionView,
 };
 
 use super::client::{NetClient, News, OpenFailed};
@@ -138,6 +139,12 @@ pub struct OnlineHub {
     /// The match's path as the host core last chose it (pm.path), handed again to a pre-match screen that comes up
     /// after it (ScreenUp); dropped at the next pre-match, a found match, a pre-match's end and the match's go.
     path: Option<ServerMessage>,
+    /// (the port's own) The last pm.path's referee slot and round trips by slot, kept past the match's go for its
+    /// ping line (NetMatch::ping); dropped at the next pre-match, a found match and the session's end.
+    match_path: Option<(i32, Vec<Option<u32>>)>,
+    /// (dev) What the session's link is said to be in the menus' view, whatever the service says (glue::start's
+    /// MVS_DEV_SESSION_ON): the lobby's connection line and the ping line of each way, for their pictures.
+    pub dev_on: Option<SessionOn>,
     /// The match to load (taken by the owner).
     pub started: Option<NetMatchStart>,
     /// The match records of the session (match.record), for the stats file (taken by the owner).
@@ -267,6 +274,34 @@ pub fn line_of(status: &NetStatus, gate: Option<&Gate>, slow: bool) -> OnlineLin
         return OnlineLine::Offline(OfflineWhy::NotReached);
     }
     OnlineLine::Offline(OfflineWhy::Other)
+}
+
+/// (the port's own) The lobby's connection line's link from the session's way, the menus' line now and whether
+/// online play was on when the session opened (`opened_online`, NetClient::opened_online).
+/// - A local lobby made while no connection was up says so once online play is on: a new lobby would be online (it
+///   stays local until the player leaves it). Else its reason is the line's, the gate's included.
+/// - A local lobby made while online play was on was made so because the relay, signed in and the only connection
+///   on, cannot host a custom game here (Epic or LAN would have hosted it): a new lobby would be local again, so it
+///   says that and not "made while offline".
+/// - The relay of another version, the same: its reason stays.
+///
+/// Unverified: the app cannot see a new lobby turn online under a relay that is signed in (the status says online
+/// alone, not which connections are; Epic or LAN signing in after it, or the relay's version or hosting cleared, tell
+/// nothing), so those two reasons stay until the player leaves the lobby.
+pub fn link_of(on: &SessionOn, line: &OnlineLine, opened_online: bool) -> SessionLink {
+    match on {
+        SessionOn::Relay => SessionLink::Relay,
+        SessionOn::Epic => SessionLink::Epic,
+        SessionOn::Lan { at } => SessionLink::Lan { at: at.clone() },
+        SessionOn::Local { why: LocalWhy::RelayVersion } => SessionLink::Local(LocalReason::RelayVersion),
+        SessionOn::Local { why: LocalWhy::Status { why } } if opened_online || matches!(why, StatusWhy::Online) => {
+            SessionLink::Local(LocalReason::CannotHost)
+        }
+        SessionOn::Local { why: LocalWhy::Status { .. } } => SessionLink::Local(match line {
+            OnlineLine::Online | OnlineLine::Slower => LocalReason::MadeOffline,
+            OnlineLine::Offline(why) => LocalReason::Offline(why.clone()),
+        }),
+    }
 }
 
 /// Whether the relay is signing in again (its retry after a try that did not reach it).
@@ -403,6 +438,8 @@ impl OnlineHub {
             queue: None,
             attached: false,
             path: None,
+            match_path: None,
+            dev_on: None,
             started: None,
             records: Vec::new(),
             open_queue: None,
@@ -626,7 +663,10 @@ impl OnlineHub {
 
     /// What the menus see (the events since the last call drained).
     pub fn view(&mut self) -> OnlineView {
+        let line = self.line();
+        let on = self.session_on().cloned();
         let session = self.client.as_ref().filter(|c| c.open).map(|c| SessionView {
+            link: on.as_ref().map(|on| link_of(on, &line, c.opened_online)),
             code: c.code.clone(),
             me: c.me.clone(),
             chosen: c.chosen,
@@ -643,7 +683,7 @@ impl OnlineHub {
         OnlineView {
             now: self.clock(),
             connected: self.port.status.online,
-            line: self.line(),
+            line,
             can_join: self.port.has_link(),
             me: self.me(),
             name: self.prefs.name.clone(),
@@ -662,6 +702,37 @@ impl OnlineHub {
             events: std::mem::take(&mut self.events),
             compat: self.compat.clone(),
         }
+    }
+
+    /// (the port's own) What the open session is connected through (None: none open yet); the dev's override first.
+    pub fn session_on(&self) -> Option<&SessionOn> {
+        let c = self.client.as_ref().filter(|c| c.open)?;
+        self.dev_on.as_ref().or(c.on.as_ref())
+    }
+
+    /// (the port's own) The open session's host core runs in this game: a lobby it hosts over Epic, a local network
+    /// or no connection (the relay's core is the relay's).
+    pub fn own_core(&self) -> bool {
+        matches!(self.target, Some(SessionTarget::Host))
+            && matches!(self.session_on(), Some(SessionOn::Epic | SessionOn::Lan { .. } | SessionOn::Local { .. }))
+    }
+
+    /// (the port's own) The ping line's number in the menus: ms to the open session's host core and back, the last
+    /// measured (None: no session, not ready yet, none measured, or a core of this game's own: a local lobby, or the
+    /// host of one over Epic or a local network, whose round trip to its own core says nothing; the app holds no
+    /// measure of its guests' round trips to it, which only the guests take).
+    pub fn ping_ms(&self) -> Option<f64> {
+        let c = self.client.as_ref().filter(|c| c.open && c.ready && c.ping >= 0.0)?;
+        if self.own_core() || matches!(self.session_on(), None | Some(SessionOn::Local { .. })) {
+            return None;
+        }
+        Some(c.ping)
+    }
+
+    /// (the port's own) The last pm.path of the session: the referee's slot (-1 the relay) and each slot's round trip
+    /// to it, kept through the match it chose.
+    pub fn match_path(&self) -> Option<&(i32, Vec<Option<u32>>)> {
+        self.match_path.as_ref()
     }
 
     fn me_or_local(&self) -> String {
@@ -860,7 +931,15 @@ impl OnlineHub {
                     // a session that could not be opened answers with its close
                     let why = match f {
                         OpenFailed::Mismatch => {
-                            self.tell(OnlineNotice::ProtocolDiffers);
+                            // (the port's own) a lobby a player's game hosts names that game, the relay's the server
+                            // (the client closed itself at the mismatch: its way is read off it all the same)
+                            let on = self.dev_on.as_ref().or(self.client.as_ref().and_then(|c| c.on.as_ref()));
+                            let player = matches!(on, Some(SessionOn::Epic | SessionOn::Lan { .. }));
+                            self.tell(if player {
+                                OnlineNotice::HostProtocolDiffers
+                            } else {
+                                OnlineNotice::ProtocolDiffers
+                            });
                             ClosedWhy::Other { text: String::new() }
                         }
                         OpenFailed::NoAnswer => ClosedWhy::HostSilent,
@@ -886,7 +965,13 @@ impl OnlineHub {
         let Some(c) = &self.client else { return };
         self.session_me.clone_from(&c.me);
         self.events.push(OnlineEvent::Opened);
-        let name = self.prefs.name.clone();
+        let local = matches!(c.on, Some(SessionOn::Local { .. }));
+        let mut name = self.prefs.name.clone();
+        // (the port's own) a local lobby is made with no name chosen too (the name is asked for online play): its
+        // core takes no lobby request before a hello, so it greets with the local player's name
+        if name.is_empty() && local {
+            name = mvs_ui::menu::custom_text::LOCAL_PLAYER_NAME.to_owned();
+        }
         if !name.is_empty() {
             self.send_hello(name, false, now);
         }
@@ -942,6 +1027,7 @@ impl OnlineHub {
         self.hello = None;
         self.lobby = None;
         self.path = None;
+        self.match_path = None;
         self.session_lost();
         self.profiles.closed();
         let mut out = Vec::new();
@@ -957,8 +1043,14 @@ impl OnlineHub {
     }
 
     fn message(&mut self, m: ServerMessage, now: f64) {
+        if matches!(m, ServerMessage::PmBegin(_) | ServerMessage::QueueFound(_)) {
+            self.match_path = None;
+        }
         match &m {
-            ServerMessage::PmPath { .. } => self.path = Some(m.clone()),
+            ServerMessage::PmPath { referee, ms, .. } => {
+                self.match_path = Some((*referee, ms.clone()));
+                self.path = Some(m.clone());
+            }
             ServerMessage::PmBegin(_)
             | ServerMessage::QueueFound(_)
             | ServerMessage::PmEnd { .. }
@@ -1829,6 +1921,168 @@ mod tests {
         w.borrow_mut().events = vec![msg(&ServerMessage::NameTaken { name: "Me".into() })];
         let v = h.frame(prefs(true), 20.0);
         assert!(v.name_taken && !v.name_refused && v.events[0] == OnlineEvent::NameTaken { refused: false });
+    }
+
+    /// (the port's own) The lobby's link from each way: the relay, Epic, LAN as they are; a local lobby's reason
+    /// from the relay's version or the menus' line (the gate's reasons included), and "made while offline" once the
+    /// line is online (D1); a lobby made local while online (the relay cannot host it) says that, never "made while
+    /// offline".
+    #[test]
+    fn the_link_of_each_way_and_each_local_reason() {
+        let online = OnlineLine::Online;
+        assert_eq!(link_of(&SessionOn::Relay, &online, true), SessionLink::Relay);
+        assert_eq!(link_of(&SessionOn::Epic, &online, true), SessionLink::Epic);
+        let lan = SessionOn::Lan { at: "192.168.1.5:7777".into() };
+        assert_eq!(link_of(&lan, &online, true), SessionLink::Lan { at: "192.168.1.5:7777".into() });
+        let version = SessionOn::Local { why: LocalWhy::RelayVersion };
+        assert_eq!(link_of(&version, &online, true), SessionLink::Local(LocalReason::RelayVersion));
+        let cannot = SessionOn::Local { why: LocalWhy::Status { why: StatusWhy::SigningIn } };
+        assert_eq!(link_of(&cannot, &online, true), SessionLink::Local(LocalReason::CannotHost));
+        let cannot = SessionOn::Local { why: LocalWhy::Status { why: StatusWhy::Online } };
+        assert_eq!(link_of(&cannot, &online, false), SessionLink::Local(LocalReason::CannotHost));
+        let off = SessionOn::Local { why: LocalWhy::Status { why: StatusWhy::SigningIn } };
+        for why in [
+            OfflineWhy::SigningIn,
+            OfflineWhy::TurnedOff,
+            OfflineWhy::NotReached,
+            OfflineWhy::Other,
+            OfflineWhy::Checking,
+            OfflineWhy::Update { version: "0.2.0".into() },
+            OfflineWhy::Import,
+            OfflineWhy::SelfCheck,
+        ] {
+            let line = OnlineLine::Offline(why.clone());
+            assert_eq!(link_of(&off, &line, false), SessionLink::Local(LocalReason::Offline(why)));
+        }
+        // D1: online play came up under a local lobby: it stays local, its words say to make a new one
+        assert_eq!(link_of(&off, &OnlineLine::Online, false), SessionLink::Local(LocalReason::MadeOffline));
+        assert_eq!(link_of(&off, &OnlineLine::Slower, false), SessionLink::Local(LocalReason::MadeOffline));
+    }
+
+    /// (the port's own) The view's session says its link and the hub its ping; a local lobby has no ping, and the gate's
+    /// reason is its reason while the gate holds.
+    #[test]
+    fn the_view_says_the_link_and_the_ping() {
+        let (mut h, w) = hub();
+        let off = StatusWhy::Off { backends: Vec::new() };
+        w.borrow_mut().events = vec![NetEvent::Status { online: false, me: String::new(), why: off.clone() }];
+        h.frame(prefs(true), 0.0);
+        h.run(OnlineCmd::Open(SessionTarget::Host), &|_| None, 0.0);
+        let on = SessionOn::Local { why: LocalWhy::Status { why: off } };
+        w.borrow_mut().events = vec![
+            NetEvent::Opened { code: String::new(), me: "local".into(), chosen: true, on },
+            msg(&ServerMessage::Server { proto: PROTOCOL, name: "core".into() }),
+        ];
+        let v = h.frame(prefs(true), 10.0);
+        let s = v.session.expect("open");
+        assert_eq!(s.link, Some(SessionLink::Local(LocalReason::Offline(OfflineWhy::TurnedOff))));
+        let pong = msg(&ServerMessage::Pong { n: serde_json::json!(1) });
+        w.borrow_mut().events = vec![pong];
+        h.frame(prefs(true), 30.0);
+        assert_eq!(h.ping_ms(), None, "a local lobby has no ping");
+        h.gate = Some(Gate::Update { version: "0.2.0".into() });
+        let v = h.frame(prefs(true), 40.0);
+        let why = OfflineWhy::Update { version: "0.2.0".into() };
+        assert_eq!(v.session.expect("open").link, Some(SessionLink::Local(LocalReason::Offline(why))));
+        h.gate = None;
+        w.borrow_mut().events = vec![NetEvent::Status { online: true, me: "p1".into(), why: StatusWhy::Online }];
+        let v = h.frame(prefs(true), 50.0);
+        assert_eq!(v.session.expect("open").link, Some(SessionLink::Local(LocalReason::MadeOffline)));
+
+        // the relay's: its ping once measured
+        let (mut h, w) = hub();
+        w.borrow_mut().events = vec![NetEvent::Status { online: true, me: "p1".into(), why: StatusWhy::Online }];
+        h.frame(prefs(true), 0.0);
+        h.run(OnlineCmd::Open(SessionTarget::Host), &|_| None, 0.0);
+        w.borrow_mut().events = vec![
+            NetEvent::Opened { code: "r-1".into(), me: "p1".into(), chosen: true, on: SessionOn::Relay },
+            msg(&ServerMessage::Server { proto: PROTOCOL, name: "core".into() }),
+        ];
+        let v = h.frame(prefs(true), 10.0);
+        let s = v.session.expect("open");
+        assert!(s.link == Some(SessionLink::Relay) && h.ping_ms().is_none());
+        w.borrow_mut().events = vec![msg(&ServerMessage::Pong { n: serde_json::json!(1) })];
+        h.frame(prefs(true), 52.4);
+        assert_eq!(h.ping_ms(), Some(42.4));
+        // the dev's override says another way
+        h.dev_on = Some(SessionOn::Epic);
+        assert_eq!(h.view().session.expect("open").link, Some(SessionLink::Epic));
+        // the host of a lobby over Epic or LAN: its core is this game's, so no ping; a guest's stays
+        assert!(h.own_core() && h.ping_ms().is_none());
+        h.dev_on = Some(SessionOn::Lan { at: "192.168.1.5:7777".into() });
+        assert!(h.own_core() && h.ping_ms().is_none());
+        h.target = Some(SessionTarget::Join("d-1".into()));
+        assert!(!h.own_core() && h.ping_ms() == Some(42.4));
+
+        // opened local while online (a relay that cannot host here): its own reason, not "made while offline"
+        let (mut h, w) = hub();
+        w.borrow_mut().events = vec![NetEvent::Status { online: true, me: "p1".into(), why: StatusWhy::Online }];
+        h.frame(prefs(true), 0.0);
+        h.run(OnlineCmd::Open(SessionTarget::Host), &|_| None, 0.0);
+        let on = SessionOn::Local { why: LocalWhy::Status { why: StatusWhy::SigningIn } };
+        w.borrow_mut().events = vec![NetEvent::Opened { code: String::new(), me: "local".into(), chosen: false, on }];
+        let v = h.frame(prefs(true), 10.0);
+        assert_eq!(v.session.expect("open").link, Some(SessionLink::Local(LocalReason::CannotHost)));
+    }
+
+    /// (the port's own) A local lobby greets its core with the local player's name when no name is chosen (its core
+    /// takes no lobby request before a hello); an online session still waits for a name.
+    #[test]
+    fn a_local_lobby_greets_with_no_name_chosen() {
+        let unnamed = Prefs { name: String::new(), ..prefs(true) };
+        for (on, greets) in [(SessionOn::Local { why: LocalWhy::RelayVersion }, true), (SessionOn::Relay, false)] {
+            let (mut h, w) = hub();
+            h.frame(unnamed.clone(), 0.0);
+            h.run(OnlineCmd::Open(SessionTarget::Host), &|_| None, 0.0);
+            w.borrow_mut().events = vec![
+                NetEvent::Opened { code: String::new(), me: "local".into(), chosen: true, on },
+                msg(&ServerMessage::Server { proto: PROTOCOL, name: "core".into() }),
+            ];
+            h.frame(unnamed.clone(), 10.0);
+            let hello = sent(&w).iter().any(|t| t.contains(r#""t":"hello""#) && t.contains(r#""name":"Player""#));
+            assert_eq!(hello, greets);
+        }
+    }
+
+    /// (the port's own) Another protocol on a lobby a player's game hosts names that game; the relay's, the server.
+    #[test]
+    fn a_mismatch_names_the_host_or_the_server() {
+        for (on, notice) in [
+            (SessionOn::Relay, OnlineNotice::ProtocolDiffers),
+            (SessionOn::Epic, OnlineNotice::HostProtocolDiffers),
+            (SessionOn::Lan { at: "a:1".into() }, OnlineNotice::HostProtocolDiffers),
+        ] {
+            let (mut h, w) = hub();
+            w.borrow_mut().events = vec![NetEvent::Status { online: true, me: "p1".into(), why: StatusWhy::Online }];
+            h.frame(prefs(true), 0.0);
+            h.run(OnlineCmd::Open(SessionTarget::Join("d-1".into())), &|_| None, 0.0);
+            w.borrow_mut().events = vec![
+                NetEvent::Opened { code: "d-1".into(), me: "p1".into(), chosen: false, on },
+                msg(&ServerMessage::Server { proto: PROTOCOL + 1, name: "core".into() }),
+            ];
+            let v = h.frame(prefs(true), 10.0);
+            assert!(v.events.contains(&OnlineEvent::Notice(notice.clone())), "{notice:?}: {:?}", v.events);
+        }
+    }
+
+    /// (the port's own) The match's path is kept past the match's go (the ping line of a match this game referees),
+    /// and dropped at the next pre-match.
+    #[test]
+    fn the_match_path_outlives_the_go() {
+        let (mut h, w) = hub();
+        w.borrow_mut().events = vec![NetEvent::Status { online: true, me: "p1".into(), why: StatusWhy::Online }];
+        h.frame(prefs(true), 0.0);
+        h.run(OnlineCmd::Open(SessionTarget::Host), &|_| None, 0.0);
+        let path = ServerMessage::PmPath { referee: 0, ms: vec![Some(0), Some(64)], far: vec![false, false] };
+        let go = ServerMessage::MatchGo { in_ms: 100, peers: vec!["p1".into(), "p2".into()], referee: "p1".into() };
+        w.borrow_mut().events = vec![
+            NetEvent::Opened { code: "r-1".into(), me: "p1".into(), chosen: true, on: SessionOn::Relay },
+            msg(&ServerMessage::Server { proto: PROTOCOL, name: "core".into() }),
+            msg(&path),
+            msg(&go),
+        ];
+        h.frame(prefs(true), 10.0);
+        assert_eq!(h.match_path(), Some(&(0, vec![Some(0), Some(64)])));
     }
 
     #[test]

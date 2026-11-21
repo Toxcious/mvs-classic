@@ -92,6 +92,43 @@ pub struct SessionView {
     pub lobby: Option<LobbyData>,
     /// The session is the queue's (online.ts queued).
     pub queued: bool,
+    /// (the port's own) What it is connected through, as the lobby's connection line says it (None: not open yet).
+    pub link: Option<SessionLink>,
+}
+
+impl SessionView {
+    /// The session is a local lobby: this game hosts it with no connection under it.
+    pub fn local(&self) -> bool {
+        matches!(self.link, Some(SessionLink::Local(_)))
+    }
+}
+
+/// (the port's own) What a session is connected through, for the lobby's connection line (mvs_net SessionOn worded
+/// for the menus).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SessionLink {
+    /// The relay hosts it.
+    Relay,
+    /// A player's game hosts it, over Epic Online Services.
+    Epic,
+    /// A player's game hosts it on a direct link: `at` the host's `address:port`.
+    Lan { at: String },
+    /// This game hosts it with no connection: this PC's players and bots alone.
+    Local(LocalReason),
+}
+
+/// (the port's own) Why a lobby is local, as its line says it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum LocalReason {
+    /// The relay runs another version of the game's protocol, and no other connection is on.
+    RelayVersion,
+    /// The relay is signed in but cannot host a custom game here, and no other connection is on: a new lobby would be
+    /// local again.
+    CannotHost,
+    /// Online play is off, and why (the menus' line's reasons, the update gate's among them).
+    Offline(OfflineWhy),
+    /// The lobby was made while offline and online play is on now: a new lobby is made online (nothing moves it).
+    MadeOffline,
 }
 
 /// A note the game shows (online.ts tell and hostNotice).
@@ -102,6 +139,9 @@ pub enum OnlineNotice {
     /// PROTOCOL_NOTE: 'This server runs another version of the game's online protocol. Update the game, or pick
     /// another server'.
     ProtocolDiffers,
+    /// (the port's own) A join of a lobby a player's game hosts (Epic, a direct code) met another protocol: the host
+    /// plays another version of the game.
+    HostProtocolDiffers,
     /// An invite not sent (the service's InviteRefused), once per NOTICE_EVERY_MS.
     InviteNotSent { to: String },
     /// (the port's own) A match went out of sync: its report was written to `folder` (DESYNC_NOTE, its OPEN_FOLDER
