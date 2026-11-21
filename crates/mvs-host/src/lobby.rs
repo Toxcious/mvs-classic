@@ -25,6 +25,7 @@ fn option_value(key: Option<&Value>, value: Option<&Value>) -> Option<(OptionKey
         "stocks" => OptionKey::Stocks,
         "invitedOnly" => OptionKey::InvitedOnly,
         "mutators" => OptionKey::Mutators,
+        "wheel" => OptionKey::Wheel,
         _ => return None,
     };
     match key {
@@ -91,6 +92,7 @@ fn setup_wire(r: &LobbyRules) -> (MatchSetupWire, Vec<String>, Vec<String>) {
         allow_hazards: Some(s.allow_hazards),
         local_play: None,
         mutators: (!s.mutators.is_empty()).then_some(s.mutators),
+        wheel: s.wheel,
     };
     (setup, m.usernames, m.ids)
 }

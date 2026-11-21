@@ -7,7 +7,8 @@
 /// and back (24), a queue join carries the round trip to the relay (25), and a match's path (26): the hello's Epic
 /// id, round trip and Direct setting, the path's reports and choice, the in-app referee's messages and the path pings.
 /// 27: a custom lobby's mutators are a set (`lobby_rules::MutatorSet`, the option `mutators`), not one mutator.
-pub const PROTOCOL: u32 = 27;
+/// 28: a custom lobby's Chaos Wheel (the option `wheel`, the set-up's `wheel`).
+pub const PROTOCOL: u32 = 28;
 
 /// The origin of the app's game window (`mvs://game/`): the raw `Origin` header the server lets in by default.
 pub const APP_ORIGIN: &str = "mvs://game";

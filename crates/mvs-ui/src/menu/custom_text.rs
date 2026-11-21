@@ -5,6 +5,7 @@
 pub const EXPERIMENTAL_BUTTON: &str = "EXPERIMENTAL SETTINGS";
 pub const EXPERIMENTAL_TITLE: &str = "Experimental";
 pub const STOCK_MODE: &str = "Stock Mode";
+pub const CHAOS_WHEEL: &str = "Chaos Wheel";
 pub const OFF: &str = "Off";
 pub const ON: &str = "On";
 pub const MUTATOR: &str = "Mutators";

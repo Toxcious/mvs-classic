@@ -106,12 +106,13 @@ pub fn experimental_page() -> SettingsPage {
         rows: vec![
             Row { key: OptionKey::Stocks, label: Words::Own(text::STOCK_MODE.into()), values: on_off(), multi: false },
             mutators_row(),
+            Row { key: OptionKey::Wheel, label: Words::Own(text::CHAOS_WHEEL.into()), values: on_off(), multi: false },
         ],
         art: Some("GameMode_AXHard_BG"),
     }
 }
 
-/// The Lab's experimental rules: the mutators alone (the Lab has no stocks).
+/// The Lab's experimental rules: the mutators alone (the Lab has no stocks and no wheel).
 pub fn lab_experimental_page() -> SettingsPage {
     SettingsPage { rows: vec![mutators_row()], ..experimental_page() }
 }
@@ -453,6 +454,10 @@ mod tests {
     fn the_experimental_page_lists_every_mutator() {
         let p = experimental_page();
         assert_eq!(p.rows[1].values.len(), mvs_protocol::lobby_rules::MUTATOR_CHOICES);
+        assert_eq!(
+            p.rows.iter().map(|r| r.key).collect::<Vec<_>>(),
+            [OptionKey::Stocks, OptionKey::Mutators, OptionKey::Wheel]
+        );
         assert_eq!(p.art, Some("GameMode_AXHard_BG"));
         assert_eq!(room_page().rows.len(), 2);
         let lab = lab_experimental_page();

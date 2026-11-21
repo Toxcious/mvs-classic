@@ -398,6 +398,11 @@ impl LocalLobby {
             flow: setup.flow,
             allow_hazards: setup.allow_hazards,
             mutators: setup.mutators.clone(),
+            wheel: setup.wheel.as_ref().map(|w| mvs_sim::setup::Wheel {
+                pool: w.pool.clone(),
+                seconds: mvs_sim::math::narrow(f64::from(w.seconds)),
+                warn: mvs_sim::math::narrow(f64::from(w.warn)),
+            }),
             ..MatchSetup::default()
         };
         // the perks each player locked on the pre-match screen, and their pick's fighter and skin

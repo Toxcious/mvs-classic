@@ -8,6 +8,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::setup::WheelWire;
+
 /// ETeamStyle of the lobby: the Game Mode drop's IDs by value.
 pub const TEAM_STYLE_IDS: [&str; 3] = ["1v1", "2v2", "ffa"];
 /// The Free For All style's value.
@@ -49,10 +51,14 @@ pub enum OptionKey {
     InvitedOnly,
     /// An experimental rule: the match's mutators, a set of `LOBBY_MUTATORS` (`MutatorSet`), each run at once.
     Mutators,
+    /// An experimental rule: the Chaos Wheel (`wheel_rule`), a mutator of `WHEEL_MUTATORS` rolled for every fighter
+    /// every `WHEEL_SECONDS`.
+    Wheel,
 }
 
 impl OptionKey {
-    pub const ALL: [OptionKey; 4] = [OptionKey::Public, OptionKey::Stocks, OptionKey::InvitedOnly, OptionKey::Mutators];
+    pub const ALL: [OptionKey; 5] =
+        [OptionKey::Public, OptionKey::Stocks, OptionKey::InvitedOnly, OptionKey::Mutators, OptionKey::Wheel];
 }
 
 /// One setting's value: a bool row's true or false, a set row's set.
@@ -121,6 +127,9 @@ pub struct LobbyOptions {
     pub stocks: bool,
     pub invited_only: bool,
     pub mutators: MutatorSet,
+    /// (absent on the wire when off, which a reader takes the same)
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub wheel: bool,
 }
 
 impl LobbyOptions {
@@ -130,6 +139,7 @@ impl LobbyOptions {
             OptionKey::Stocks => OptionValue::Bool(self.stocks),
             OptionKey::InvitedOnly => OptionValue::Bool(self.invited_only),
             OptionKey::Mutators => OptionValue::Set(self.mutators),
+            OptionKey::Wheel => OptionValue::Bool(self.wheel),
         }
     }
 
@@ -141,6 +151,7 @@ impl LobbyOptions {
             (OptionKey::Stocks, OptionValue::Bool(b)) => self.stocks = b,
             (OptionKey::InvitedOnly, OptionValue::Bool(b)) => self.invited_only = b,
             (OptionKey::Mutators, OptionValue::Set(m)) if MutatorSet::of(m.0).is_some() => self.mutators = m,
+            (OptionKey::Wheel, OptionValue::Bool(b)) => self.wheel = b,
             _ => return false,
         }
         true
@@ -188,6 +199,20 @@ pub const WHEEL_MUTATORS: [&str; 13] = [
     "Mutator_GreyHealth",
     "Mutator_RandomItemSpawns",
 ];
+
+/// The Chaos Wheel's window, seconds: the match plays one plain, then each has one mutator.
+pub const WHEEL_SECONDS: u32 = 20;
+/// How many seconds ahead of a change the Chaos Wheel's next mutator is drawn (the card names it).
+pub const WHEEL_WARN: u32 = 3;
+
+/// The Chaos Wheel rule a lobby with the option on starts its match with: the whole pool.
+pub fn wheel_rule() -> WheelWire {
+    WheelWire {
+        pool: WHEEL_MUTATORS.iter().map(|k| (*k).to_owned()).collect(),
+        seconds: WHEEL_SECONDS,
+        warn: WHEEL_WARN,
+    }
+}
 
 /// The blocker texts of the build (exe strings CustomGameLobbyError_*), in the order of the native table.
 pub const BLOCKER_NOT_ENOUGH: &str = "Not enough players for selected game mode";
@@ -242,8 +267,10 @@ pub struct LobbySetup {
     pub rules: SetupRules,
     pub flow: bool,
     pub allow_hazards: bool,
-    /// The one mutator (MatchSetupWire mutators), when the option is on.
+    /// The ticked mutators (MatchSetupWire mutators).
     pub mutators: Vec<String>,
+    /// The Chaos Wheel rule (MatchSetupWire wheel), when the option is on.
+    pub wheel: Option<WheelWire>,
 }
 
 /// The started match config with the account of each player index.
@@ -615,6 +642,7 @@ impl LobbyRules {
                 flow: true,
                 allow_hazards: self.allow_hazards,
                 mutators: self.options.mutators.names(),
+                wheel: self.options.wheel.then(wheel_rule),
             },
             usernames: order.iter().map(|p| p.username.clone()).collect(),
             ids: order.iter().map(|p| p.account_id.clone()).collect(),
@@ -675,6 +703,23 @@ mod tests {
         // 1v1 takes one per team: the bots over go
         assert_eq!(r.player_count(), 2);
         assert_eq!(r.teams[0].len(), 1);
+    }
+
+    #[test]
+    fn the_wheel_option_puts_the_whole_pool_in_the_set_up() {
+        let mut r = lobby();
+        assert_eq!(r.match_setup().setup.wheel, None);
+        assert!(!r.set_option(OptionKey::Wheel, OptionValue::Set(MutatorSet(2))));
+        assert!(r.set_option(OptionKey::Wheel, OptionValue::Bool(true)));
+        assert_eq!(r.options.get(OptionKey::Wheel), OptionValue::Bool(true));
+        let w = r.match_setup().setup.wheel.expect("the rule");
+        assert_eq!((w.pool.len(), w.seconds, w.warn), (13, 20, 3));
+        // every mutator of the pool is one the lobby's own list offers (the menus name it by that list)
+        assert!(w.pool.iter().all(|k| LOBBY_MUTATORS.contains(&k.as_str())));
+        // the lobby's state carries the option to its members
+        let mut other = LobbyRules::new();
+        other.load(&r.data());
+        assert!(other.options.wheel);
     }
 
     #[test]

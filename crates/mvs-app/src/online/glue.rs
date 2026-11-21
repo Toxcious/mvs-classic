@@ -444,6 +444,16 @@ mod tests {
         KnownRelay { address: a.into(), id: id.map(str::to_string) }
     }
 
+    /// A custom lobby's Chaos Wheel reaches the sim as the rule the dev switch gives.
+    #[test]
+    fn a_lobbys_wheel_is_the_sims_rule() {
+        let wire = mvs_protocol::setup::MatchSetupWire {
+            wheel: Some(mvs_protocol::lobby_rules::wheel_rule()),
+            ..Default::default()
+        };
+        assert_eq!(setup_of_wire(&wire).expect("the set-up reads").wheel, Some(crate::wheel::whole_pool()));
+    }
+
     /// The pin: the release's relay with its relayId, another relay with the id kept for it, else none.
     #[test]
     fn the_relay_is_pinned_to_the_id_expected() {

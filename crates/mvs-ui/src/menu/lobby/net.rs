@@ -559,6 +559,7 @@ impl NetLobby {
             OptionKey::Stocks => "stocks",
             OptionKey::InvitedOnly => "invitedOnly",
             OptionKey::Mutators => "mutators",
+            OptionKey::Wheel => "wheel",
         };
         let value = match value {
             OptionValue::Bool(b) => OptionWire::Bool(b),

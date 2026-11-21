@@ -112,9 +112,20 @@ pub struct MatchRulesWire {
     pub stocks: Option<bool>,
 }
 
+/// The port's own Chaos Wheel rule of a match (an experimental rule): `pool` the MutatorData_Map keys it may roll,
+/// `seconds` a window's length (the first one plays plain), `warn` how many seconds ahead of a change the next
+/// mutator is drawn.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WheelWire {
+    pub pool: Vec<String>,
+    pub seconds: u32,
+    pub warn: u32,
+}
+
 /// The match set-up: `players` in player-index order; `rules` absent for the Lab (TrainGameMode); `flow` the world
 /// runs the countdown card itself; `allow_hazards` UMatchConfig AllowHazards (absent true); `local_play` a Local Play
-/// match; `mutators` UMatchConfig GetMutatorData's MutatorBuffName list.
+/// match; `mutators` UMatchConfig GetMutatorData's MutatorBuffName list; `wheel` the experimental Chaos Wheel rule.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MatchSetupWire {
@@ -130,4 +141,6 @@ pub struct MatchSetupWire {
     pub local_play: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mutators: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wheel: Option<WheelWire>,
 }
