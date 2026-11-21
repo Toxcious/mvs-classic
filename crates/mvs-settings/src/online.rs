@@ -261,14 +261,6 @@ pub fn merge_known_relays(mine: &[KnownRelay], base: &[KnownRelay], disk: &[Know
     out
 }
 
-/// `setting`'s known relays merged with those of the settings file in `dir` (`merge_known_relays`), before it is
-/// written; `base` this writer's last read or written list, which becomes the merged one.
-pub fn merge_known_on_disk(setting: &mut OnlineSetting, base: &mut Vec<KnownRelay>, dir: &Path) {
-    let disk = crate::Settings::load(dir).online.known_relays;
-    setting.known_relays = merge_known_relays(&setting.known_relays, base, &disk);
-    base.clone_from(&setting.known_relays);
-}
-
 /// The config the program runs on: online.json's, each field the player set over it. The relay's id is the file's
 /// while the relay in use is the file's (the player's own address for it included), else None: a relay the player
 /// chose is checked against the id kept with it in `known_relays` (glue's pin), not here.
@@ -502,16 +494,19 @@ mod tests {
         );
         // nothing changed here: the disk's whole
         assert_eq!(merge_known_relays(&base, &base, &disk), disk);
-        // through a file
+        // through a file (Settings::save_changes)
         let dir = std::env::temp_dir().join(format!("mvs-known-merge-{}", std::process::id()));
         let mut on_disk = crate::Settings::default();
         on_disk.online.known_relays.clone_from(&disk);
         on_disk.save(&dir).unwrap();
-        let mut s = OnlineSetting { known_relays: mine, ..OnlineSetting::default() };
-        let mut b = base;
-        merge_known_on_disk(&mut s, &mut b, &dir);
-        assert_eq!(s.known_relays, merged);
-        assert_eq!(b, merged);
+        let mut s = crate::Settings::default();
+        s.online.known_relays = mine;
+        let mut b = crate::Settings::default();
+        b.online.known_relays = base;
+        s.save_changes(&mut b, &dir).unwrap();
+        assert_eq!(s.online.known_relays, merged);
+        assert_eq!(b.online.known_relays, merged);
+        assert_eq!(crate::Settings::load(&dir).online.known_relays, merged);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

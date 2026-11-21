@@ -76,18 +76,15 @@ impl SettingsApply {
         self.menu_background = None;
     }
 
-    /// Writes the settings when they differ from the saved ones, the known relays first merged with the file's (the
-    /// launcher may have kept one since: `online::merge_known_on_disk`).
+    /// Writes the settings when they differ from the saved ones: the game's own changes over the file as it is now
+    /// (the launcher may have changed it since, its online switches or a known relay: `Settings::save_changes`).
     pub fn save(&mut self, settings: &mut Settings) {
         self.dirty = None;
         if *settings == self.saved {
             return;
         }
-        let mut base = self.saved.online.known_relays.clone();
-        mvs_settings::online::merge_known_on_disk(&mut settings.online, &mut base, &self.data);
-        match settings.save(&self.data) {
-            Ok(()) => self.saved = settings.clone(),
-            Err(e) => eprintln!("mvs: settings not saved: {e}"),
+        if let Err(e) = settings.save_changes(&mut self.saved, &self.data) {
+            eprintln!("mvs: settings not saved: {e}");
         }
     }
 }

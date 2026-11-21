@@ -1,6 +1,7 @@
 //! The player's settings:
 //! the graphics, audio and interface fields the port keeps in one JSON file,
-//! `settings.json` in the data folder, read once at the start and written whole on each change.
+//! `settings.json` in the data folder, read once at the start and written on each change. The launcher and the game
+//! both write it while both run, each only the fields it changed (`Settings::save_changes`).
 //!
 //! Reading takes each known field of its own type and range; a field that is missing, of another type or out of
 //! range takes its default, and a file that is missing or does not read is the defaults. Writing goes to
@@ -410,6 +411,42 @@ impl Settings {
         std::fs::write(&part, text).map_err(io(&part))?;
         std::fs::rename(&part, &file).map_err(io(&file))
     }
+
+    /// Writes what this writer changed since `base` (the settings as it read or last wrote them) over the file as it
+    /// is now, so that the other writer's changes since stay (the launcher and the game share the file): each field
+    /// changed here is this writer's, every other the file's (`changes_over`); the known relays merge by address
+    /// (`online::merge_known_relays`) and are taken into `self`. `base` becomes `self` when the file is written.
+    pub fn save_changes(&mut self, base: &mut Settings, dir: &Path) -> Result<(), SettingsError> {
+        let disk = Settings::load(dir);
+        self.online.known_relays =
+            online::merge_known_relays(&self.online.known_relays, &base.online.known_relays, &disk.online.known_relays);
+        let value = |s: &Settings| serde_json::to_value(s).expect("the settings serialize");
+        let merged = changes_over(Some(&value(self)), Some(&value(base)), Some(&value(&disk)));
+        Settings::from_value(&merged.unwrap_or(Value::Null)).save(dir)?;
+        base.clone_from(self);
+        Ok(())
+    }
+}
+
+/// `disk` with what `mine` changed since `base`: a value the same in `mine` and `base` is the disk's; one that
+/// differs is `mine`'s, field by field where all three hold an object, else whole (a list, or a section the disk
+/// holds in another shape). None: no value (a field left out).
+fn changes_over(mine: Option<&Value>, base: Option<&Value>, disk: Option<&Value>) -> Option<Value> {
+    if mine == base {
+        return disk.cloned();
+    }
+    let (Some(Value::Object(m)), Some(Value::Object(b)), Some(Value::Object(d))) = (mine, base, disk) else {
+        return mine.cloned();
+    };
+    let mut out = Map::new();
+    for k in d.keys().chain(m.keys()) {
+        if !out.contains_key(k)
+            && let Some(v) = changes_over(m.get(k), b.get(k), d.get(k))
+        {
+            out.insert(k.clone(), v);
+        }
+    }
+    Some(Value::Object(out))
 }
 
 /// The data folder: `arg` (the exe's `--data <dir>`); else for an exe built in a Cargo workspace (its path holds a
@@ -528,6 +565,56 @@ mod tests {
         s.profile.name = "Fred".into();
         s.save(&d).unwrap();
         assert_eq!(Settings::load(&d).profile.name, "Fred");
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    /// The launcher and the game on one file: a change of one made while the other runs stays through the other's
+    /// saves, in both directions; a field both changed is the last writer's.
+    #[test]
+    fn two_writers_keep_each_others_changes() {
+        let d = scratch("two");
+        let mut first = Settings::default();
+        first.audio.music = 0.5;
+        first.online.eos = Some(false);
+        first.save(&d).unwrap();
+        // both start on the file
+        let (mut game, mut launcher) = (Settings::load(&d), Settings::load(&d));
+        let (mut game_base, mut launcher_base) = (game.clone(), launcher.clone());
+        // the launcher: the relay off, Epic back to the file's
+        launcher.online.relay = Some(None);
+        launcher.online.eos = None;
+        launcher.save_changes(&mut launcher_base, &d).unwrap();
+        assert_eq!(launcher_base, launcher);
+        // the game: a volume, a fighter, a binding
+        game.audio.music = 0.25;
+        game.profile.last_character = "c003".into();
+        game.input.bindings = Some(indexmap::IndexMap::from([("Attack-P0".to_string(), vec!["J".to_string()])]));
+        game.save_changes(&mut game_base, &d).unwrap();
+        let on_disk = Settings::load(&d);
+        assert_eq!((on_disk.online.relay.clone(), on_disk.online.eos), (Some(None), None));
+        assert_eq!((on_disk.audio.music, on_disk.profile.last_character.as_str()), (0.25, "c003"));
+        assert_eq!(on_disk.input.bindings, game.input.bindings);
+        // (the game's own copy is not the file's: it read its online switches at its start)
+        assert_eq!(game.online.relay, None);
+        // the launcher again: LAN on; the game's values stay
+        launcher.online.lan = Some(Some(7777));
+        launcher.save_changes(&mut launcher_base, &d).unwrap();
+        let on_disk = Settings::load(&d);
+        assert_eq!(on_disk.online.lan, Some(Some(7777)));
+        assert_eq!((on_disk.audio.music, on_disk.profile.last_character.as_str()), (0.25, "c003"));
+        // one field changed by both: the last writer's
+        launcher.audio.music = 0.75;
+        launcher.save_changes(&mut launcher_base, &d).unwrap();
+        game.audio.music = 1.0;
+        game.save_changes(&mut game_base, &d).unwrap();
+        assert_eq!(Settings::load(&d).audio.music, 1.0);
+        // no file (deleted since): this writer's changes over the defaults
+        std::fs::remove_file(d.join(FILE)).unwrap();
+        game.audio.sfx = 0.5;
+        game.save_changes(&mut game_base, &d).unwrap();
+        let on_disk = Settings::load(&d);
+        assert_eq!(on_disk.audio.sfx, 0.5);
+        assert_eq!(on_disk.profile.last_character, Settings::default().profile.last_character);
         let _ = std::fs::remove_dir_all(&d);
     }
 

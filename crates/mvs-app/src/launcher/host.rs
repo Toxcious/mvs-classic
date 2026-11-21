@@ -50,8 +50,8 @@ pub struct Host {
     pub swap: SwapChain,
     pub devices: Devices,
     pub settings: Settings,
-    /// The known relays as last read or written (`save_settings`: what the game kept since is merged in).
-    pub known_base: Vec<mvs_protocol::relay_wire::KnownRelay>,
+    /// The settings as last read or written (`save_settings` writes what changed since over the file).
+    pub saved: Settings,
     /// The data folder.
     pub data: PathBuf,
     /// The release's online defaults.
@@ -85,7 +85,7 @@ impl Host {
             gpu,
             swap,
             devices: Devices::default(),
-            known_base: settings.online.known_relays.clone(),
+            saved: settings.clone(),
             settings,
             data: o.data.clone(),
             online_defaults: o.online_defaults.clone(),
@@ -103,11 +103,10 @@ impl Host {
 }
 
 impl Host {
-    /// Writes the settings, the known relays first merged with the file's (the game may have kept one since:
-    /// `online::merge_known_on_disk`).
+    /// Writes the launcher's own changes over the settings file as it is now (the game may have changed it since,
+    /// a volume, a fighter, a known relay: `Settings::save_changes`).
     pub fn save_settings(&mut self) -> std::result::Result<(), mvs_settings::SettingsError> {
-        mvs_settings::online::merge_known_on_disk(&mut self.settings.online, &mut self.known_base, &self.data);
-        self.settings.save(&self.data)
+        self.settings.save_changes(&mut self.saved, &self.data)
     }
 }
 
