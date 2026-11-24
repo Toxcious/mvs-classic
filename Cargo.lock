@@ -657,6 +657,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "mvs-d3d"
+version = "0.1.8"
+dependencies = [
+ "pkg-config",
+ "windows",
+ "windows-core",
+]
+
+[[package]]
 name = "mvs-data"
 version = "0.1.8"
 dependencies = [
@@ -1412,15 +1421,6 @@ dependencies = [
  "signal-hook-registry",
  "socket2",
  "windows-sys",
-]
-
-[[package]]
-name = "trial-light"
-version = "0.1.8"
-dependencies = [
- "png",
- "serde_json",
- "windows",
 ]
 
 [[package]]

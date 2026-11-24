@@ -35,6 +35,7 @@ mvs-net = { path = "crates/mvs-net" }
 mvs-host = { path = "crates/mvs-host" }
 mvs-relay = { path = "crates/mvs-relay" }
 mvs-release = { path = "crates/mvs-release" }
+mvs-d3d = { path = "crates/mvs-d3d" }
 # the EOS SDK's DLL, loaded at run time (mvs-net backend/eos)
 libloading = "=0.9.0"
 # a chat message's graphemes (mvs-protocol chat)
