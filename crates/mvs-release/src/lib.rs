@@ -164,6 +164,12 @@ pub fn game_zip_name(version: &str) -> String {
     format!("MVS-Classic-{version}.zip")
 }
 
+/// The Linux game's zip of release `version`, beside [`game_zip_name`]'s. The updater takes its asset by that exact
+/// name, so a Windows client never takes this one.
+pub fn game_zip_name_linux(version: &str) -> String {
+    format!("MVS-Classic-{version}-linux.zip")
+}
+
 /// The release the feed offers: its game zip.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Release {

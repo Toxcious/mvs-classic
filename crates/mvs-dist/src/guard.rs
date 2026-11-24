@@ -39,19 +39,51 @@ const GAME_EXT: &[&str] = &[
 /// The notices under `licenses/`.
 pub const NOTICE_IMPORTER: &str = "NOTICE-importer.txt";
 pub const LICENSE_CUE4PARSE: &str = "LICENSE-CUE4Parse.txt";
+/// The libraries beside the Linux game's program (`tools/linux-build.sh release`): DXVK's two and SDL3.
+pub const LINUX_LIBS: [&str; 3] = ["libdxvk_d3d11.so.0", "libdxvk_dxgi.so.0", "libSDL3.so.0"];
+/// Their license texts under `licenses/` in the Linux game's folder.
+pub const LICENSE_DXVK: &str = "LICENSE-DXVK.txt";
+pub const LICENSE_SDL3: &str = "LICENSE-SDL3.txt";
 
 /// Which zip a guard reads: each has its own list of files.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Zip {
     /// The game's: `MVS-Classic-<version>.zip`.
     Game,
+    /// The Linux game's: `MVS-Classic-<version>-linux.zip`.
+    GameLinux,
     /// The relay's: `MVS-Classic-Relay-<version>.zip`.
     Relay,
+}
+
+impl Zip {
+    /// A game's zip, which may hold the EOS credentials in their own file.
+    fn is_game(self) -> bool {
+        matches!(self, Zip::Game | Zip::GameLinux)
+    }
 }
 
 /// The files a zip of this kind may hold.
 fn own_files(kind: Zip) -> Vec<String> {
     match kind {
+        Zip::GameLinux => {
+            let mut own = vec![
+                mvs_release::LINUX_LAUNCHER_EXE.to_owned(),
+                LICENSE.to_owned(),
+                in_game(mvs_release::LINUX_GAME_EXE),
+                in_game(ONLINE_JSON),
+                in_game(SELF_CHECK_JSON),
+                in_game(RELEASE_FILES),
+                in_game(&format!("{LICENSES_DIR}/{NOTICE_IMPORTER}")),
+                in_game(&format!("{LICENSES_DIR}/{LICENSE_CUE4PARSE}")),
+                in_game(&format!("{LICENSES_DIR}/{LICENSE_DXVK}")),
+                in_game(&format!("{LICENSES_DIR}/{LICENSE_SDL3}")),
+                in_game(mvs_release::EOS_SO),
+                in_game(EOS_CREDENTIALS),
+            ];
+            own.extend(LINUX_LIBS.map(in_game));
+            own
+        }
         Zip::Game => vec![
             mvs_release::LAUNCHER_EXE.to_owned(),
             LICENSE.to_owned(),
@@ -181,7 +213,7 @@ pub fn check_files(where_: &str, entries: &[Entry], kind: Zip, key: Option<&[u8;
     let mut findings = Vec::new();
     let mut seen = std::collections::BTreeSet::new();
     let mut secrets = secrets.to_vec();
-    if kind == Zip::Game
+    if kind.is_game()
         && let Some(e) = entries.iter().find(|e| e.name == in_game(EOS_CREDENTIALS))
     {
         match eos_secrets(&e.data) {
@@ -226,7 +258,7 @@ pub fn check_files(where_: &str, entries: &[Entry], kind: Zip, key: Option<&[u8;
                 ));
             }
         }
-        let theirs = kind == Zip::Game && *name == in_game(EOS_CREDENTIALS);
+        let theirs = kind.is_game() && *name == in_game(EOS_CREDENTIALS);
         if !theirs && secrets.iter().any(|s| contains(&e.data, s)) {
             findings
                 .push(format!("{where_}: {name}: the EOS client credentials, outside {}", in_game(EOS_CREDENTIALS)));
@@ -472,5 +504,55 @@ mod tests {
         let found = findings(&e);
         assert_eq!(found.len(), 1);
         assert!(found[0].contains("MVS Classic.exe: needs VCRUNTIME140.dll"));
+    }
+
+    /// The Linux release: the Windows one's files with the Linux programs, libraries and their licenses.
+    fn clean_linux() -> Vec<Entry> {
+        let mut e: Vec<Entry> =
+            clean().into_iter().filter(|e| !e.name.ends_with(".exe") && !e.name.ends_with(".dll")).collect();
+        e.push(entry(&in_game(mvs_release::LINUX_GAME_EXE), b"\x7fELF the program"));
+        e.push(entry(mvs_release::LINUX_LAUNCHER_EXE, b"\x7fELF the launcher"));
+        e.extend(LINUX_LIBS.map(|l| entry(&in_game(l), b"\x7fELF a library")));
+        e.push(entry(&in_game(&format!("{LICENSES_DIR}/{LICENSE_DXVK}")), b"zlib"));
+        e.push(entry(&in_game(&format!("{LICENSES_DIR}/{LICENSE_SDL3}")), b"zlib"));
+        e.push(entry(&in_game(mvs_release::EOS_SO), b"\x7fELF fake so"));
+        e
+    }
+
+    fn linux_findings(entries: &[Entry]) -> Vec<String> {
+        check_files("l.zip", entries, Zip::GameLinux, Some(&KEY), &[]).findings
+    }
+
+    #[test]
+    fn the_linux_zip_refuses_the_windows_programs_and_dll() {
+        assert_eq!(linux_findings(&clean_linux()), Vec::<String>::new());
+        for windows in [in_game(EOS_DLL), in_game(GAME_EXE), mvs_release::LAUNCHER_EXE.to_owned()] {
+            let mut e = clean_linux();
+            e.push(entry(&windows, b"MZ"));
+            let found = linux_findings(&e);
+            assert_eq!(found, vec![format!("l.zip: {windows}: not one of the release's own files")]);
+        }
+    }
+
+    #[test]
+    fn the_windows_zip_refuses_the_linux_library() {
+        let mut e = clean();
+        e.push(entry(&in_game(mvs_release::EOS_SO), b"\x7fELF fake so"));
+        assert_eq!(findings(&e), vec!["t.zip: game/libEOSSDK-Linux-Shipping.so: not one of the release's own files"]);
+    }
+
+    #[test]
+    fn the_eos_secret_is_found_outside_its_file_in_the_linux_zip() {
+        let mut e = clean_linux();
+        e.iter_mut().find(|f| f.name == in_game(mvs_release::LINUX_GAME_EXE)).expect("the program").data =
+            format!("..{SECRET}..").into_bytes();
+        let found = linux_findings(&e);
+        assert_eq!(found.len(), 1);
+        assert!(found[0].contains("game/MVS Classic: the EOS client credentials, outside game/resources/eos.json"));
+        assert!(!found[0].contains(SECRET));
+        // the zip's own credentials file is theirs, and its secrets go on to the next zip's search
+        let r = check_files("l.zip", &clean_linux(), Zip::GameLinux, None, &[]);
+        assert!(r.findings.is_empty());
+        assert!(r.secrets.contains(&SECRET.as_bytes().to_vec()));
     }
 }
