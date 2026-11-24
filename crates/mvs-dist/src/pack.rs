@@ -788,7 +788,7 @@ pub fn run(o: &Options) -> Result<(), String> {
     let relay_zip = zip::write(&relay)?;
     let relay_path = o.out.join(&relay_name);
     std::fs::write(&relay_path, &relay_zip).map_err(|e| format!("dist: {}: {e}", relay_path.display()))?;
-    println!("dist: {relay_name} ({} bytes)", relay_zip.len());
+    println!("dist: {relay_name} ({} bytes, SHA-256 {})", relay_zip.len(), sha256_hex(&relay_zip));
 
     // the guard over what is handed out
     match &key {
