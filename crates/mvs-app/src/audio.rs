@@ -520,6 +520,10 @@ impl MatchAudio {
         let tutorial = self.tutorial_lines(world);
         let steps = self.tutorial_sounds(world);
         c.scope("tutorial", steps, tutorial);
+        // (the port's own) The Chaos Wheel card's sounds that no shared scope holds.
+        let wheel = world.setup.wheel.is_some().then_some(mvs_ui::hud::WHEEL_SOUNDS);
+        let wheel = wheel.into_iter().flatten().filter(|e| self.known.has(e)).map(String::from).collect();
+        c.scope("wheel", wheel, Vec::new());
         if self.kept {
             let items = self.item_events(world);
             c.scope("items", items, Vec::new());

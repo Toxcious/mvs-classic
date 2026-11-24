@@ -62,6 +62,7 @@ pub use input_label::{LABEL_ACTIONS, LabelInput, Slots};
 use pop::{Place, PopId, PopParams, PopTexts};
 use skill_shot::SkillshotTargets;
 use victory::VictoryText;
+pub use wheel::SCOPE_SOUNDS as WHEEL_SOUNDS;
 use wheel::WheelCard;
 
 /// The Lab's combo texts (TrainGameMode OnPlayerJuggled -> TrainingGameState DisplayComboCounts): the Lab menu's
@@ -1227,15 +1228,18 @@ impl Hud {
     }
 
     /// (the port's own) The Chaos Wheel after a step's events, off the status the app set for it: the roll's sound
-    /// when the next mutator is drawn and the change's at the change. The card shows the change itself (its landing
-    /// and its punch): no text over the screen repeats the name.
+    /// when the next mutator is drawn, the landing's when the spin lands and the change's at the change. The card
+    /// shows the change itself (its landing and its punch): no text over the screen repeats the name.
     fn observe_wheel(&mut self) {
         let Some(c) = &mut self.wheel_card else { return };
-        let (rolled, changed) = c.observe(self.wheel.as_ref());
-        if rolled {
+        let seen = c.observe(self.wheel.as_ref());
+        if seen.rolled {
             self.sounds.push(wheel::ROLL_SOUND.to_owned());
         }
-        if changed.is_some() {
+        if seen.landed {
+            self.sounds.extend(wheel::LAND_SOUNDS.map(String::from));
+        }
+        if seen.changed.is_some() {
             self.sounds.push(wheel::CHANGE_SOUND.to_owned());
         }
     }
@@ -2281,6 +2285,10 @@ mod tests {
         step(&mut hud, Some(status(None, Some(6), Some(180))), 4.0);
         step(&mut hud, Some(status(None, Some(6), Some(179))), 4.1);
         assert_eq!(hud.take_sounds(), vec![wheel::ROLL_SOUND.to_owned()]);
+        // the landing: its sounds once
+        step(&mut hud, Some(status(None, Some(6), Some(90))), 4.5);
+        step(&mut hud, Some(status(None, Some(6), Some(89))), 4.6);
+        assert_eq!(hud.take_sounds(), wheel::LAND_SOUNDS.map(String::from).to_vec());
         // the change: its sound, the card's name and no text over the screen
         let before = hud.pops.pops().len();
         step(&mut hud, Some(status(Some(6), None, Some(1200))), 5.0);

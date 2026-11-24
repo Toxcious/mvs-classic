@@ -29,11 +29,16 @@ const BAR: [f64; 2] = [242.0, 6.6];
 const BAR_GAP: f64 = 2.2;
 /// The bar's ground under its fill.
 const BAR_GROUND: Rgba = [0.0, 0.0, 0.0, 0.45];
-/// The build's events the card posts (UI_Game's PF_Post_Global_Event): at the roll (the spin's start) and at the
-/// change, both of the match's base scope (the banks a match keeps loaded).
-// Unverified: the beta has no such rule and so no sound for it; the two are picked by their names, not by ear.
-pub const ROLL_SOUND: &str = "ui_countdown_card_intro";
+/// The build's events the card posts (UI_Game's PF_Post_Global_Event): at the roll (the spin's start, the Iron
+/// Giant's crank), at the landing (the crank's end and a blast box's burst over it) and at the change (of the
+/// match's base scope). The roll's and the landing's are no shared sounds: a match with the wheel loads them in a
+/// scope of their own (`SCOPE_SOUNDS`).
+// Unverified: the beta has no such rule and so no sound for it; the user picked the crank's two by ear.
+pub const ROLL_SOUND: &str = "sfx_cha_c017_spin_crank";
+pub const LAND_SOUNDS: [&str; 2] = ["sfx_cha_c017_spin_crank_end", "sfx_blastbox_risingstars_ally"];
 pub const CHANGE_SOUND: &str = "ui_tutorial_task_complete";
+/// The events a match with the wheel loads for the card (the change's is in the base scope).
+pub const SCOPE_SOUNDS: [&str; 3] = [ROLL_SOUND, LAND_SOUNDS[0], LAND_SOUNDS[1]];
 /// The share of the warning the spin takes: it lands at half, so the name stands a moment before the change.
 const SPIN_SHARE: u32 = 2;
 /// The reel: the ticks a name takes to drop into place, and how far above its place it starts, in name sizes.
@@ -203,8 +208,19 @@ pub struct WheelCard {
     pool: Vec<usize>,
     /// The upper-case names by `LOBBY_MUTATORS` index.
     names: Vec<String>,
-    /// The status of the last observe: its mutator on and its next.
-    seen: Option<(Option<usize>, Option<usize>)>,
+    /// The status of the last observe: its mutator on, its next and whether the next had landed.
+    seen: Option<(Option<usize>, Option<usize>, bool)>,
+}
+
+/// What an observe saw change since the last one.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Seen {
+    /// The next mutator was drawn: the spin started.
+    pub rolled: bool,
+    /// The spin landed on the next mutator.
+    pub landed: bool,
+    /// The mutator that came on.
+    pub changed: Option<usize>,
 }
 
 /// A text block of the card in the style of `like` (the scoreboard's own), at `size`.
@@ -277,16 +293,22 @@ impl WheelCard {
         }
     }
 
-    /// After each observe: what changed since the last one, as (the spin started, the mutator that came on). A
-    /// status that shows no card (before the start, the match over) changes nothing and is not kept: online the
-    /// status is the predicted match's, and a match end a rollback takes back must not play the change again.
-    pub fn observe(&mut self, h: Option<&WheelHud>) -> (bool, Option<usize>) {
-        let Some(h) = h.filter(|h| h.ticks_left.is_some()) else { return (false, None) };
+    /// After each observe: what changed since the last one. A status that shows no card (before the start, the
+    /// match over) changes nothing and is not kept: online the status is the predicted match's, and a match end a
+    /// rollback takes back must not play the change again. A next that landed stays landed until it is gone, so a
+    /// rollback into the spin does not land it twice.
+    pub fn observe(&mut self, h: Option<&WheelHud>) -> Seen {
+        let Some((h, left)) = h.and_then(|h| Some((h, h.ticks_left?))) else { return Seen::default() };
         let (current, next) = (h.current, h.next);
-        let (was_current, was_next) = self.seen.replace((current, next)).unwrap_or((None, None));
-        let rolled = next.is_some() && was_next.is_none();
-        let changed = current.filter(|_| current != was_current);
-        (rolled, changed)
+        let (was_current, was_next, was_landed) = self.seen.unwrap_or((None, None, false));
+        let was_landed = was_landed && next == was_next;
+        let landed = next.is_some_and(|n| reel(n, left, h.warn_ticks, &self.pool).landed.is_some());
+        self.seen = Some((current, next, was_landed || landed));
+        Seen {
+            rolled: next.is_some() && was_next.is_none(),
+            landed: landed && !was_landed,
+            changed: current.filter(|_| current != was_current),
+        }
     }
 
     /// The frame's card under the clock (`clock`: its rectangle in device pixels, the scoreboard's opacity and the
@@ -421,19 +443,32 @@ mod tests {
         let b = Bundle::default();
         let w = Widget::default();
         let mut c = WheelCard::new(&b, POOL.to_vec(), &w, &w, &["a"; 18]);
-        assert_eq!(c.observe(Some(&hud(None, None, Some(500)))), (false, None));
-        assert_eq!(c.observe(Some(&hud(None, Some(9), Some(180)))), (true, None));
-        assert_eq!(c.observe(Some(&hud(None, Some(9), Some(179)))), (false, None));
-        assert_eq!(c.observe(Some(&hud(Some(9), None, Some(1200)))), (false, Some(9)));
-        assert_eq!(c.observe(Some(&hud(Some(9), None, Some(1199)))), (false, None));
+        let none = Seen::default();
+        let rolled = Seen { rolled: true, ..none };
+        let landed = Seen { landed: true, ..none };
+        let changed = |m| Seen { changed: Some(m), ..none };
+        assert_eq!(c.observe(Some(&hud(None, None, Some(500)))), none);
+        assert_eq!(c.observe(Some(&hud(None, Some(9), Some(180)))), rolled);
+        assert_eq!(c.observe(Some(&hud(None, Some(9), Some(179)))), none);
+        // the landing at half the warning, once, and not again when a rollback goes back into the spin
+        assert_eq!(c.observe(Some(&hud(None, Some(9), Some(91)))), none);
+        assert_eq!(c.observe(Some(&hud(None, Some(9), Some(90)))), landed);
+        assert_eq!(c.observe(Some(&hud(None, Some(9), Some(89)))), none);
+        assert_eq!(c.observe(Some(&hud(None, Some(9), Some(95)))), none);
+        assert_eq!(c.observe(Some(&hud(None, Some(9), Some(88)))), none);
+        assert_eq!(c.observe(Some(&hud(Some(9), None, Some(1200)))), changed(9));
+        assert_eq!(c.observe(Some(&hud(Some(9), None, Some(1199)))), none);
         // a predicted end a rollback takes back (no card, or no status at all, between two frames of one window):
-        // neither the change nor, inside the warning, the roll plays again
-        assert_eq!(c.observe(Some(&hud(Some(9), None, None))), (false, None));
-        assert_eq!(c.observe(None), (false, None));
-        assert_eq!(c.observe(Some(&hud(Some(9), None, Some(1198)))), (false, None));
-        assert_eq!(c.observe(Some(&hud(Some(9), Some(4), Some(100)))), (true, None));
-        assert_eq!(c.observe(Some(&hud(Some(9), Some(4), None))), (false, None));
-        assert_eq!(c.observe(Some(&hud(Some(9), Some(4), Some(99)))), (false, None));
-        assert_eq!(c.observe(Some(&hud(Some(4), None, Some(1200)))), (false, Some(4)));
+        // neither the change nor, inside the warning, the roll or the landing plays again
+        assert_eq!(c.observe(Some(&hud(Some(9), None, None))), none);
+        assert_eq!(c.observe(None), none);
+        assert_eq!(c.observe(Some(&hud(Some(9), None, Some(1198)))), none);
+        assert_eq!(c.observe(Some(&hud(Some(9), Some(4), Some(100)))), rolled);
+        assert_eq!(c.observe(Some(&hud(Some(9), Some(4), None))), none);
+        assert_eq!(c.observe(Some(&hud(Some(9), Some(4), Some(99)))), none);
+        assert_eq!(c.observe(Some(&hud(Some(9), Some(4), Some(80)))), landed);
+        assert_eq!(c.observe(Some(&hud(Some(9), Some(4), None))), none);
+        assert_eq!(c.observe(Some(&hud(Some(9), Some(4), Some(79)))), none);
+        assert_eq!(c.observe(Some(&hud(Some(4), None, Some(1200)))), changed(4));
     }
 }
