@@ -682,8 +682,10 @@ pub fn item_hits(w: &mut World, it: ItemId) {
         }
         let Some(own) = i.owner else { return };
         let (x, y) = (i.x, i.y);
+        // (the port's own Dodgeball spares an opponent what a fighter's move made, not an item the stage dropped)
+        let no_hit = if i.spawner.is_some() { phases::no_hit_by(w, own, vic) } else { phases::no_hit(w, vic) };
         let v = w.fighter(vic);
-        if vic == own || !phases::alive(w, vic) || phases::no_hit(w, vic) || i.hit_set.contains(&v.id) {
+        if vic == own || !phases::alive(w, vic) || no_hit || i.hit_set.contains(&v.id) {
             continue;
         }
         let Some(vp) = phases::victim_pose(w, vic) else { continue };

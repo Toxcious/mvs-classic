@@ -979,6 +979,7 @@ fn make_solids(w: &mut World, rest: &Obj, l: &mut Lx) {
             half_extent: class.half(),
             rot: triple("rot", l),
             component: class.component(),
+            flags: None,
         };
         if !add_runtime_solid(w, spec_at(k), &d) {
             l.miss("a run-time solid of the record the World refuses");

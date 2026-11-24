@@ -484,6 +484,18 @@ pub(crate) fn no_hit(w: &World, f: FighterId) -> bool {
     w.fighter(f).invuln.damage_disabled || actor_collision_off(w, f)
 }
 
+/// [`no_hit`] for what `owner` deals (its attack, or what a move of its spawned): the port's own Dodgeball rule
+/// spares an opponent too (`world::dodgeball::spares`). Every test that picks a fighter's victim asks this one;
+/// plain `no_hit` is for what no fighter deals (the stage, a stage item).
+pub(crate) fn no_hit_by(w: &World, owner: FighterId, vic: FighterId) -> bool {
+    no_hit(w, vic) || crate::world::dodgeball::spares(w, owner, vic)
+}
+
+/// [`no_hit_by`] for a dealer known by its team (a projectile, whose owner may be gone).
+pub(crate) fn no_hit_by_team(w: &World, team: i32, vic: FighterId) -> bool {
+    no_hit(w, vic) || crate::world::dodgeball::spares_team(w, team, vic)
+}
+
 /// `actorCollisionOff`: the pull's move, or a live buff that switched the collision off.
 pub(crate) fn actor_collision_off(w: &World, f: FighterId) -> bool {
     w.fighter(f).moves.pull.is_some() || buff::buff_collision_off(w, f)
@@ -690,7 +702,7 @@ pub fn overlaps(w: &mut World, f: FighterId, mesh: bool) {
         let mut nf = 0;
         while let Some(o) = hits::fighter_at(w, nf) {
             nf += 1;
-            if !alive(w, o) || no_hit(w, o) {
+            if !alive(w, o) || no_hit_by(w, f, o) {
                 continue;
             }
             if w.fighter(o).team.team == w.fighter(f).team.team {
@@ -1226,7 +1238,7 @@ fn projectile_box_test(
     let (dead, owner) = (p.dead, p.owner);
     let in_set = box_has_hit(w, pr, bx, vid);
     let same = w.fighter(vic).team.team == team;
-    if !hitbox_active(w, pr) || dead || same || !alive(w, vic) || no_hit(w, vic) || in_set {
+    if !hitbox_active(w, pr) || dead || same || !alive(w, vic) || no_hit_by_team(w, team, vic) || in_set {
         if same && owner != Some(vic) {
             projectile_ally_test(w, pr, vic, pending, bx);
         }

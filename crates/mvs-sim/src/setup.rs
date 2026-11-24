@@ -134,6 +134,20 @@ impl Wheel {
     }
 }
 
+/// The port's own Dodgeball rule (`world/dodgeball.rs`): a barrier keeps each team on its half of the stage, a
+/// fighter's own attacks spare an opponent, and the items the rule drops hit when thrown.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Dodgeball {
+    /// The barrier stands and a fighter past its half is put back. False only in a test that stands an opponent
+    /// in a move's reach.
+    pub barrier: bool,
+}
+
+impl Dodgeball {
+    /// A played match's rule.
+    pub const PLAY: Dodgeball = Dodgeball { barrier: true };
+}
+
 /// `MatchSetup`.
 #[derive(Clone, PartialEq, Debug, Default)]
 pub struct MatchSetup {
@@ -149,6 +163,8 @@ pub struct MatchSetup {
     pub mode: Option<MatchMode>,
     /// The port's own Chaos Wheel rule, or None (off).
     pub wheel: Option<Wheel>,
+    /// The port's own Dodgeball rule, or None (off).
+    pub dodgeball: Option<Dodgeball>,
 }
 
 /// `MATCH_START_TICKS`: BPI_SetMatchStarted, counted from the first game tick.
@@ -186,9 +202,11 @@ pub fn resolve_input_prefs(p: &MatchPlayer) -> InputPrefs {
 /// rules) has none. Mutator_RandomItemSpawns and Mutator_RandomMutatorSelector start the spawner too.
 const ITEM_MUTATORS: [&str; 2] = ["Mutator_RandomItemSpawns", "Mutator_RandomMutatorSelector"];
 
-/// `itemsOn`. The port's own Chaos Wheel whose pool may roll Random Items has the items too.
+/// `itemsOn`. The port's own Chaos Wheel whose pool may roll Random Items has the items too, and so has its
+/// Dodgeball.
 pub fn items_on(setup: &MatchSetup) -> bool {
     crate::world::flow::ffa_items_on(setup)
+        || setup.dodgeball.is_some()
         || setup.mutators.iter().any(|m| ITEM_MUTATORS.contains(&m.as_str()))
         || setup.wheel.as_ref().is_some_and(|w| w.pool.iter().any(|m| m == "Mutator_RandomItemSpawns"))
 }

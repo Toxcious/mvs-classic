@@ -172,6 +172,7 @@ fn wall(w: &mut World, spec: i32, l: Real, r: Real, b: Real, t: Real) {
         half_extent: [500.0, (r - l) / 2.0, (t - b) / 2.0],
         rot: None,
         component: mvs_sim::names::Name::NONE,
+        flags: None,
     };
     assert!(add_runtime_solid(w, spec, &d), "the box is made");
 }

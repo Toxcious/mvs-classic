@@ -12,6 +12,7 @@
 pub mod bind;
 pub mod blast;
 pub mod catch_up;
+pub mod dodgeball;
 pub mod flow;
 pub mod items;
 pub mod mutators;
@@ -344,6 +345,8 @@ pub struct World {
     pub waves: Option<Box<crate::modes::waves::WavesRun>>,
     /// The port's own Chaos Wheel rule (`world/wheel.rs`), in a match whose set-up has a wheel.
     pub wheel: Option<wheel::WheelState>,
+    /// The port's own Dodgeball rule (`world/dodgeball.rs`), in a match whose set-up has it.
+    pub dodgeball: Option<dodgeball::DodgeballState>,
     /// `mode`: the set-up mode's hooks. Skipped from the state: they
     /// are `fn` pointers bound from the set-up's mode at `World::new` and never changed, so a save would copy the
     /// same value.
@@ -448,6 +451,7 @@ impl World {
             tutorial: None,
             waves: None,
             wheel: None,
+            dodgeball: None,
             mode: None,
             predicted: false,
             bot_trees: None,
@@ -464,6 +468,7 @@ impl World {
             crate::fighter::set_up(&mut w, f);
         }
         w.wheel = wheel::new_state(setup, seed);
+        w.dodgeball = dodgeball::new_state(setup, seed);
         reset::construct(&mut w);
         Ok(w)
     }

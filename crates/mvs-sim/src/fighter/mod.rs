@@ -759,6 +759,12 @@ pub fn no_hit(w: &World, f: FighterId) -> bool {
     w.fighter(f).invuln.damage_disabled || actor_collision_off(w, f)
 }
 
+/// [`no_hit`] for what `owner` deals: the port's own Dodgeball rule spares an opponent too
+/// (`combat::phases::no_hit_by`).
+pub fn no_hit_by(w: &World, owner: FighterId, vic: FighterId) -> bool {
+    crate::combat::phases::no_hit_by(w, owner, vic)
+}
+
 /// `mostRecentAssistAttacker`.
 pub fn most_recent_assist_attacker(w: &World, f: FighterId) -> Option<FighterId> {
     let a = &w.fighter(f).attackers;

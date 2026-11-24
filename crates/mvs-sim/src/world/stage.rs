@@ -474,6 +474,9 @@ pub struct RuntimeSolidSpec {
     pub rot: Option<[Real; 3]>,
     /// The collision component's name (a trace's hit component).
     pub component: crate::names::Name,
+    /// A Floor box's flags where they are not the class's (`FLOOR_FLAGS`): the port's own Dodgeball barrier, which
+    /// items pass. `None` in every solid of the build.
+    pub flags: Option<i32>,
 }
 
 /// A piece a stage's code moves: a solid of `StageState::solids` or a moving pass-through platform (by its index in
@@ -1365,7 +1368,7 @@ pub fn add_runtime_solid(w: &mut World, spec: i32, d: &RuntimeSolidSpec) -> bool
         }
         RuntimeBox::Platform(k)
     };
-    let flags = if d.floor { FLOOR_FLAGS } else { 0 };
+    let flags = if d.floor { d.flags.unwrap_or(FLOOR_FLAGS) } else { 0 };
     let s = RuntimeSolid {
         spec,
         component: d.component,
