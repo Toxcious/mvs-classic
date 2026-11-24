@@ -27,7 +27,7 @@
 //! the text, with its centre and a TextBlock's text; `joinCode` (args [code]) is the join box's GO with that code;
 //! `lobby` logs the custom game's lobby as its Start button sees it (leader, teams, ready list, blockers). Online, each
 //! exe's `--data` needs a player name (settings.json profile.name: without one the session sends no hello and the host
-//! core takes no lobby request), and the lobby opens as 2v2: a 1v1 picks it in UI_DropGameMode first. A dev config's
+//! core takes no lobby request), and the lobby opens as Versus, which starts two humans as a 1v1. A dev config's
 //! run logs the net service's own lines (`mvs: net:`). A scripted run with
 //! `--online-config` runs in real time, at most 60 frames a second, on the wall clock (app.rs).
 //!

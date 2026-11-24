@@ -3,6 +3,7 @@
 //! any unknown code does.
 
 use mvs_protocol::lobby_listing::{LISTING_V, ListingState, LobbyListing};
+use mvs_protocol::lobby_rules::LobbyStyle;
 use mvs_ui::bundle::Cosmetics;
 use mvs_ui::menu::lobby::loadout::asset_name;
 use mvs_ui::menu::online::BrowsedGame;
@@ -25,18 +26,18 @@ pub fn icons_of(c: &Cosmetics) -> Vec<String> {
     all.iter().step_by(step).map(|s| (*s).to_owned()).collect()
 }
 
-/// One row's shape: team style (0 1v1, 1 2v2, 2 FFA), players in it (bots included), humans, in a match.
-const SHAPES: [(u8, u32, u32, bool); 10] = [
-    (1, 1, 1, false),
-    (0, 1, 1, false),
-    (1, 3, 2, false),
-    (2, 2, 2, false),
-    (1, 4, 4, false),
-    (0, 2, 2, true),
-    (2, 3, 1, false),
-    (1, 2, 1, false),
-    (0, 2, 2, false),
-    (1, 4, 3, true),
+/// One row's shape: the lobby's style, players in it (bots included), humans, in a match.
+const SHAPES: [(LobbyStyle, u32, u32, bool); 10] = [
+    (LobbyStyle::Versus, 1, 1, false),
+    (LobbyStyle::Versus, 2, 1, false),
+    (LobbyStyle::Versus, 3, 2, false),
+    (LobbyStyle::FreeForAll, 2, 2, false),
+    (LobbyStyle::Versus, 4, 4, false),
+    (LobbyStyle::Versus, 2, 2, true),
+    (LobbyStyle::FreeForAll, 3, 1, false),
+    (LobbyStyle::Versus, 3, 1, true),
+    (LobbyStyle::Versus, 2, 2, false),
+    (LobbyStyle::Versus, 4, 3, true),
 ];
 
 /// `f.count` made-up lobbies: "Player 2" up, their maps taken in turn from the build's map pools.
@@ -47,7 +48,7 @@ pub fn listings(f: &FakeLobbies, compat: &str, tables: &Tables) -> Vec<BrowsedGa
     (0..f.count as usize)
         .map(|i| {
             let (style, players, humans, in_match) = SHAPES[i % SHAPES.len()];
-            let slots = if style == 0 { 2 } else { 4 };
+            let slots = 4;
             let map = maps.get((i * 3) % maps.len().max(1)).map(|m| (*m).clone());
             let listing = LobbyListing {
                 v: LISTING_V,

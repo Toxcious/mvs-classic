@@ -13,7 +13,7 @@
 use indexmap::IndexMap;
 use mvs_net::service::api::{ClosedWhy, SessionTarget};
 use mvs_protocol::chat::{CHAT_LIMIT, ChatGate, clean_chat};
-use mvs_protocol::lobby_rules::{LobbyOptions, LobbyPlayer, LobbyRules, OptionKey, OptionValue};
+use mvs_protocol::lobby_rules::{LobbyOptions, LobbyPlayer, LobbyRules, LobbyStyle, OptionKey, OptionValue};
 use mvs_protocol::messages::{ChatTo, ClientMessage, LobbyErrorWhy, OptionWire, ServerMessage};
 use mvs_protocol::online::PmKind;
 use serde_json::Value;
@@ -553,7 +553,7 @@ impl NetLobby {
         self.open(Some(code.to_string()));
     }
 
-    pub fn set_team_style(&mut self, style: u8) {
+    pub fn set_team_style(&mut self, style: LobbyStyle) {
         self.send(ClientMessage::LobbySetTeamStyle { style });
     }
     pub fn set_match_duration(&mut self, sec: u32) {

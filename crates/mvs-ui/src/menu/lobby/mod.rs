@@ -16,7 +16,9 @@ pub use net::{ChatKind, ChatLine, NetLobby};
 use std::cell::RefCell;
 
 use indexmap::IndexMap;
-use mvs_protocol::lobby_rules::{LobbyOptions, LobbyPlayer, LobbyRules, OptionKey, OptionValue, StartedMatch};
+use mvs_protocol::lobby_rules::{
+    LobbyOptions, LobbyPlayer, LobbyRules, LobbyStyle, OptionKey, OptionValue, StartedMatch,
+};
 use mvs_settings::HydraSettings;
 use mvs_sim::MatchSetup;
 use mvs_sim::setup::{MatchPlayer, Rules, TeamStyle};
@@ -55,7 +57,7 @@ pub struct LobbyMatch {
 pub enum LobbyEvent {
     LobbyStarted,
     TeamsUpdated,
-    TeamStyleUpdated(u8),
+    TeamStyleUpdated(LobbyStyle),
     MatchDurationUpdated(u32),
     NumRingoutsForWinUpdated(u32),
     AllowHazardsUpdated(bool),
@@ -215,7 +217,7 @@ impl LocalLobby {
     pub fn my_id(&self) -> &str {
         Self::LOCAL_ID
     }
-    pub fn team_style(&self) -> u8 {
+    pub fn team_style(&self) -> LobbyStyle {
         self.rules.team_style
     }
     pub fn num_ringouts_for_win(&self) -> u32 {
@@ -282,7 +284,7 @@ impl LocalLobby {
         self.defer(Echo::Started);
     }
 
-    pub fn set_team_style(&mut self, style: u8) {
+    pub fn set_team_style(&mut self, style: LobbyStyle) {
         if style == self.rules.team_style {
             return;
         }
@@ -532,15 +534,15 @@ mod tests {
     fn a_request_echoes_on_the_next_drain_with_the_values_of_then() {
         let mut l = LocalLobby::new("Me");
         l.start();
-        l.set_team_style(2);
+        l.set_team_style(LobbyStyle::FreeForAll);
         l.set_match_duration(300);
         l.set_match_duration(180);
         let ev = l.take_events(&mut zero());
         assert_eq!(ev[0], LobbyEvent::LobbyStarted);
         // the creation answer reads the rules as they are by now
-        assert_eq!(ev[1], LobbyEvent::TeamStyleUpdated(2));
+        assert_eq!(ev[1], LobbyEvent::TeamStyleUpdated(LobbyStyle::FreeForAll));
         assert_eq!(ev[2], LobbyEvent::MatchDurationUpdated(180));
-        assert_eq!(ev[7], LobbyEvent::TeamStyleUpdated(2));
+        assert_eq!(ev[7], LobbyEvent::TeamStyleUpdated(LobbyStyle::FreeForAll));
         assert_eq!(ev[9], LobbyEvent::MatchDurationUpdated(180));
         assert!(l.take_events(&mut zero()).is_empty());
         // a detached lobby echoes to nobody
@@ -549,7 +551,7 @@ mod tests {
         assert!(l.take_events(&mut zero()).is_empty());
         l.attach();
         // the same style again is no request
-        l.set_team_style(2);
+        l.set_team_style(LobbyStyle::FreeForAll);
         assert!(l.take_events(&mut zero()).is_empty());
     }
 
@@ -576,5 +578,24 @@ mod tests {
         assert_eq!(kept, vec![None, None, Some("shaggy"), None]);
         assert_eq!(m.setup.players[1].difficulty, Some(2.0));
         assert!(m.setup.flow);
+    }
+
+    #[test]
+    fn a_versus_lobby_starts_any_split_with_a_player_a_side() {
+        let (h, p) = (HydraSettings::default(), BotPool::default());
+        let drawable = |_: &str| true;
+        let mut l = LocalLobby::new("Me");
+        l.add_bot(1, "finn", "", 4);
+        let m = l.match_setup(&src(&drawable, &h, &p), &mut zero());
+        assert_eq!(m.setup.team_style, TeamStyle::OneVsOne);
+        // two against the human: the bots' team is the match's team 0, the human the odd slot
+        l.add_bot(1, "batman", "", 4);
+        l.start_match();
+        assert!(l.take_events(&mut zero()).contains(&LobbyEvent::MatchStarting));
+        let m = l.match_setup(&src(&drawable, &h, &p), &mut zero());
+        assert_eq!(m.setup.team_style, TeamStyle::TwoVsTwo);
+        assert_eq!(m.setup.players.len(), 3);
+        assert_eq!(m.me, 1);
+        assert_eq!(m.usernames, vec!["Finn", "Me", "Batman"]);
     }
 }

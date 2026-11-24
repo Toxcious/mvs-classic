@@ -1,6 +1,6 @@
 //! The two lobbies behind the one interface of the custom game page.
 
-use mvs_protocol::lobby_rules::{LobbyOptions, LobbyPlayer, LobbyRules, OptionKey, OptionValue};
+use mvs_protocol::lobby_rules::{LobbyOptions, LobbyPlayer, LobbyRules, LobbyStyle, OptionKey, OptionValue};
 
 use super::net::NetLobby;
 use super::{LobbyEvent, LocalLobby};
@@ -75,7 +75,7 @@ impl Lobby {
         }
     }
 
-    pub fn team_style(&self) -> u8 {
+    pub fn team_style(&self) -> LobbyStyle {
         self.rules().team_style
     }
     pub fn num_ringouts_for_win(&self) -> u32 {
@@ -135,7 +135,7 @@ impl Lobby {
             Lobby::Net(l) => l.start(),
         }
     }
-    pub fn set_team_style(&mut self, style: u8) {
+    pub fn set_team_style(&mut self, style: LobbyStyle) {
         match self {
             Lobby::Local(l) => l.set_team_style(style),
             Lobby::Net(l) => l.set_team_style(style),

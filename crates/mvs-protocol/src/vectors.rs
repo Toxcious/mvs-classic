@@ -44,7 +44,8 @@ pub const TAPE_PROTOCOL: u32 = 23;
 /// A tape of [`dir`] as [`read`] gives it, with every `"proto"` (a hello's) and `"server"` (a refusal's) of
 /// [`TAPE_PROTOCOL`] moved to this build's [`crate::version::PROTOCOL`] (in the tape's JSON, in the message texts it
 /// holds and in the bytes it holds as `{ "$bytes": hex }`), so a new PROTOCOL needs no new tape. Another number (an
-/// old game's hello) stays. The message texts' lobby mutator is moved to this build's set too ([`move_mutators`]).
+/// old game's hello) stays. The message texts' lobby mutator is moved to this build's set too ([`move_mutators`]), and
+/// their lobby style to this build's ([`move_styles`]).
 pub fn read_tape(name: &str) -> Option<serde_json::Value> {
     let v = read(name)?;
     Some(move_protocol(v))
@@ -73,7 +74,8 @@ fn move_protocol(v: serde_json::Value) -> serde_json::Value {
         Value::Array(a) => Value::Array(a.into_iter().map(move_protocol).collect()),
         Value::String(s) => {
             let s = move_in_text(&s, now);
-            Value::String(move_mutators(&s).unwrap_or(s))
+            let s = move_mutators(&s).unwrap_or(s);
+            Value::String(move_styles(&s).unwrap_or(s))
         }
         x => x,
     }
@@ -126,6 +128,33 @@ fn move_mutators(s: &str) -> Option<String> {
     }
     let mut v: Value = serde_json::from_str(s).ok()?;
     widen(&mut v).then(|| v.to_string())
+}
+
+/// A message text of the tape's lobby, whose style was the build's ETeamStyle (0 1v1, 1 2v2, 2 Free For All: a
+/// `lobby.setTeamStyle`'s `style`, a `lobby.state`'s `data.teamStyle`), with it as this build's
+/// `lobby_rules::LobbyStyle`: 1v1 and 2v2 are Versus, Free For All Free For All. None for a text without one. A
+/// number that is no style stays (its refusal or clamp is the host's). The match's own style (a pm.begin's, a
+/// set-up's) is not the lobby's and stays.
+fn move_styles(s: &str) -> Option<String> {
+    use crate::lobby_rules::LobbyStyle;
+    use serde_json::{Value, json};
+    if !s.contains("lobby.setTeamStyle") && !s.contains("lobby.state") {
+        return None;
+    }
+    let mut v: Value = serde_json::from_str(s).ok()?;
+    let o = v.as_object_mut()?;
+    let at = match o.get("t").and_then(Value::as_str)? {
+        "lobby.setTeamStyle" => o.get_mut("style")?,
+        "lobby.state" => o.get_mut("data")?.as_object_mut()?.get_mut("teamStyle")?,
+        _ => return None,
+    };
+    let style = match at.as_f64()? {
+        0.0 | 1.0 => LobbyStyle::Versus,
+        2.0 => LobbyStyle::FreeForAll,
+        _ => return None,
+    };
+    *at = json!(u8::from(style));
+    Some(v.to_string())
 }
 
 /// The keys of a message that hold the PROTOCOL.

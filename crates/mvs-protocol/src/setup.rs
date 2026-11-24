@@ -7,6 +7,9 @@ use serde_json::Value;
 
 /// GetTeamStyle: 0 "1v1", 1 "2v2", 2 "FreeForAll".
 pub type TeamStyle = u8;
+pub const ONE_VS_ONE: TeamStyle = 0;
+pub const TWO_VS_TWO: TeamStyle = 1;
+pub const FREE_FOR_ALL: TeamStyle = 2;
 
 /// A player of the match. `difficulty`: a bot's lobby choice, 0 VeryEasy .. 3 Hard (MatchPlayerData BotBehavior
 /// 2..5), 4 the port's own Expert; `character` a roster name (absent: the default one); `team`, `start` and `starting_damage` the Lab's slots'

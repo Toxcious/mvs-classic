@@ -27,6 +27,22 @@ fn push(s: &Sink, v: Value) {
     s.lock().expect("the sink").push(v);
 }
 
+/// The tape's hosts whose lobby the port's Versus answers otherwise than the oracle's styles (as mvs-host's
+/// host_tape): the host's index, its first event the port answers otherwise (an input), and why.
+const VERSUS_DEPARTS: [(u64, usize, &str); 1] =
+    [(3, 23, "its 2v2 lobby of 2 + 1 is refused (Teams are unbalanced): Versus starts it as a 2v1")];
+
+/// A host of the tape as replayed: one of VERSUS_DEPARTS up to its departing input, the rest whole.
+fn up_to_departure(h: &Value) -> Value {
+    let mut h = h.clone();
+    if let Some(&(_, at, _)) = VERSUS_DEPARTS.iter().find(|(i, ..)| h["index"].as_u64() == Some(*i))
+        && let Some(e) = h["events"].as_array_mut()
+    {
+        e.truncate(at);
+    }
+    h
+}
+
 /// The tape's hosts the relay cannot be, with the reason.
 fn skipped(h: &Value) -> Option<&'static str> {
     let index = h["index"].as_u64().unwrap_or(0);
@@ -493,13 +509,13 @@ fn a_relays_core_replays_the_ts_tape() {
     let hosts = tape["hosts"].as_array().expect("hosts");
     let (mut run_hosts, mut equal_hosts, mut groups, mut equal_groups) = (0, 0, 0, 0);
     let mut diffs: Vec<String> = Vec::new();
-    for h in hosts {
-        if let Some(why) = skipped(h) {
+    for h in hosts.iter().map(up_to_departure) {
+        if let Some(why) = skipped(&h) {
             eprintln!("hosted_tape: host {} skipped: {why}", h["index"]);
             continue;
         }
         run_hosts += 1;
-        let r = run_host(h);
+        let r = run_host(&h);
         if r.diffs.is_empty() {
             equal_hosts += 1;
         }

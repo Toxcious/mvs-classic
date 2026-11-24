@@ -302,12 +302,13 @@ impl World {
         (lobby, host)
     }
     /// The hosted lobby's match to its go: the leader `ps[0]` starts it, each locks and goes.
-    /// Two players play 1v1; more a free for all, bots making up four.
+    /// Two players play 1v1 (a Versus of one a team); more a free for all, bots making up four.
     pub fn run_to_the_go(&mut self, host: &str, ps: &[&P]) -> HostedMatch {
         if ps.len() == 2 {
             self.say(ps[0], host, "lobby.setTeamStyle", json!({ "style": 0 }));
         } else {
-            self.say(ps[0], host, "lobby.setTeamStyle", json!({ "style": 2 }));
+            // (Free For All: LobbyStyle 1)
+            self.say(ps[0], host, "lobby.setTeamStyle", json!({ "style": 1 }));
             for _ in ps.len()..4 {
                 let bot = json!({ "team": 0, "character": "shaggy", "skin": "", "difficulty": 1 });
                 self.say(ps[0], host, "lobby.addBot", bot);

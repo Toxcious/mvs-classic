@@ -231,7 +231,8 @@ struct LevelBanner {
 #[derive(Debug)]
 pub struct PreMatchLevel {
     pub data: Arc<PreMatchScene>,
-    /// The lobby's team style (0 1v1, 1 2v2, 2 FFA), set by `Renderer::set_menu_team_style`.
+    /// The match's team style (ETeamStyle: 0 1v1, 1 2v2, 2 FFA; a custom lobby's the one its start derives), set by
+    /// `Renderer::set_menu_team_style`.
     pub team_style: u8,
     /// UI_Cursor's MousePosNormalized (0..1), what the banners' parallax reads.
     pub cursor: [f64; 2],

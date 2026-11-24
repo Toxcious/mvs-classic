@@ -210,8 +210,8 @@ pub struct LocalMatch {
 }
 
 /// (the port's own) The status of a match by its shape: a queue's by its mode (Silly is two against two), a custom
-/// lobby's by its ETeamStyle (0 one against one, 1 teams, 2 free-for-all) and its fighters, bots too; another shape
-/// (two against one) is a match with no shape named.
+/// lobby's by its match's ETeamStyle (0 one against one, 1 teams, 2 free-for-all) and its fighters, bots too; another
+/// shape (a Versus lobby's two against one, the 2v2 style with three fighters) is a match with no shape named.
 fn match_status(mode: Option<QueueMode>, team_style: u8, fighters: usize) -> PresenceStatus {
     match (mode, team_style, fighters) {
         (Some(QueueMode::OneVOne), ..) | (None, 0, 2) => PresenceStatus::OneVOne,

@@ -10,13 +10,14 @@ use serde_json::Value;
 
 use crate::chat::js_space;
 use crate::loadout::in_object;
-use crate::lobby_rules::TEAM_STYLE_IDS;
+use crate::lobby_rules::LobbyStyle;
 use crate::names::{BAD_WORDS, NAME_LIMIT, Profanity, name_showable};
 use crate::online::compat_of;
 use crate::setup::int_in;
 
-/// The listing's shape version: a listing of another one is not shown.
-pub const LISTING_V: u32 = 1;
+/// The listing's shape version: a listing of another one is not shown. 2: `style` is the lobby's own
+/// (`LobbyStyle`), no longer the build's ETeamStyle.
+pub const LISTING_V: u32 = 2;
 /// The most bytes of a listing's text (EOS_LOBBYMODIFICATION_MAX_ATTRIBUTE_LENGTH, which the relay keeps too).
 pub const LISTING_MAX_BYTES: usize = 1000;
 /// The most maps a listing names (the rest are counted in `map_count`).
@@ -31,7 +32,7 @@ pub enum ListingState {
 }
 
 /// A listing. `name` / `icon` the hosting player's; `compat` / `app` the host's compatibility id and release;
-/// `style` the ETeamStyle; `maps` its first map names and `map_count` all of them; `players` in it (bots too), of
+/// `style` the lobby's style; `maps` its first map names and `map_count` all of them; `players` in it (bots too), of
 /// which `humans`, of `slots`; `time` seconds, `ringouts` to win, `hazards`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -41,7 +42,7 @@ pub struct LobbyListing {
     pub icon: String,
     pub compat: String,
     pub app: String,
-    pub style: u8,
+    pub style: LobbyStyle,
     pub maps: Vec<String>,
     pub map_count: u32,
     pub players: u32,
@@ -105,7 +106,8 @@ pub fn listing_of(text: &Value) -> Option<LobbyListing> {
         return None;
     }
     let app = o.get("app")?.as_str().filter(|a| units(a) <= 32)?;
-    let style = int(o.get("style"), 0, u32::try_from(TEAM_STYLE_IDS.len() - 1).ok()?)?;
+    let style = int(o.get("style"), 0, u32::from(u8::from(LobbyStyle::FreeForAll)))?;
+    let style = LobbyStyle::try_from(u8::try_from(style).ok()?).ok()?;
     let maps = o.get("maps")?.as_array().filter(|m| m.len() <= LISTING_MAPS)?;
     let maps: Vec<String> = maps.iter().map(|m| asset(Some(m))).collect::<Option<_>>()?;
     let map_count = int(o.get("mapCount"), u32::try_from(maps.len()).ok()?, 999)?;
@@ -126,7 +128,7 @@ pub fn listing_of(text: &Value) -> Option<LobbyListing> {
         icon,
         compat,
         app: app.to_owned(),
-        style: u8::try_from(style).ok()?,
+        style,
         maps,
         map_count,
         players,

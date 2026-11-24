@@ -143,6 +143,7 @@ fn ticked_ids(set: MutatorSet) -> Vec<String> {
 #[derive(Clone, Copy, Debug)]
 pub struct LobbyView {
     pub leader: bool,
+    /// The mode art's ETeamStyle (0 1v1, 1 Teams, 2 Free For All).
     pub team_style: u8,
     pub options: LobbyOptions,
 }

@@ -9,7 +9,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::loadout::NetLoadout;
-use crate::lobby_rules::{LobbyData, LobbyPlayer};
+use crate::lobby_rules::{LobbyData, LobbyPlayer, LobbyStyle};
 use crate::names::clean_name;
 use crate::online::{MatchStartMsg, PlayerCosmetics, PmBegin, PmPick, QueueFoundMsg, QueueMode, QueueParty};
 use crate::profile::{MatchRecord, MatchReportPlayer, ProfileWire, TrackerCounts};
@@ -60,7 +60,7 @@ pub enum ClientMessage {
     #[serde(rename = "lobby.setReady")]
     LobbySetReady { on: bool },
     #[serde(rename = "lobby.setTeamStyle")]
-    LobbySetTeamStyle { style: u8 },
+    LobbySetTeamStyle { style: LobbyStyle },
     #[serde(rename = "lobby.setMatchDuration")]
     LobbySetMatchDuration { sec: u32 },
     #[serde(rename = "lobby.setNumRingoutsForWin")]

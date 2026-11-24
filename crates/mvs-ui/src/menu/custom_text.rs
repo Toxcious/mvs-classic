@@ -68,6 +68,9 @@ pub const EXPERT: &str = "Expert";
 /// Its entry in the custom game's bot difficulty menu (the build's rows read "Very Easy Difficulty" .. "Hard
 /// Difficulty").
 pub const EXPERT_DIFFICULTY: &str = "Expert Difficulty";
+/// The custom lobby's Game Mode item of two teams of up to 2 each (the port's own style: the build's items are
+/// 1 vs 1, Teams and Free For All).
+pub const VERSUS: &str = "Versus";
 /// The pre-match header of an Expert Arcade run (the build's lines read "Arcade - Easy" .. "Arcade - Hard").
 pub const ARCADE_EXPERT: &str = "Arcade - Expert";
 

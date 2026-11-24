@@ -3,7 +3,8 @@
 //! to all members as "lobby.state" { id, ev, data }: the whole lobby and the event it stands for.
 
 use mvs_protocol::lobby_rules::{
-    BOT_DIFFICULTY_EXPERT, BOT_DIFFICULTY_MIN, LobbyPlayer, LobbyRules, MutatorSet, OptionKey, OptionValue, bot_name,
+    BOT_DIFFICULTY_EXPERT, BOT_DIFFICULTY_MIN, LobbyPlayer, LobbyRules, LobbyStyle, MutatorSet, OptionKey, OptionValue,
+    bot_name,
 };
 use mvs_protocol::messages::{HostWhy, LobbyErrorWhy, LobbyRefusedWhy, RefusedWhy, ServerMessage};
 use mvs_protocol::names::clean_name;
@@ -441,8 +442,11 @@ impl Core {
             return;
         }
         let r = &mut self.lobby_mut().rules;
-        let style = int(m.get("style"), 0, 2, i64::from(r.team_style));
-        r.set_team_style(u8::try_from(style).expect("clamped to 0..=2"));
+        let last = i64::from(u8::from(LobbyStyle::FreeForAll));
+        let style = int(m.get("style"), 0, last, i64::from(u8::from(r.team_style)));
+        r.set_team_style(
+            u8::try_from(style).ok().and_then(|n| LobbyStyle::try_from(n).ok()).expect("a style: clamped"),
+        );
         self.lobby_state("teamStyle", None, None);
     }
 

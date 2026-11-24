@@ -15,13 +15,14 @@
 
 use std::any::Any;
 
-use mvs_protocol::lobby_rules::{BOT_DIFFICULTY_EXPERT, LobbyPlayer, STYLE_FFA, TEAM_STYLE_IDS};
-use serde_json::json;
+use mvs_protocol::lobby_rules::{BOT_DIFFICULTY_EXPERT, LobbyPlayer, LobbyStyle};
+use serde_json::{Value, json};
 
 use super::super::screens::lab_selectors::{LabCharacterSelector, LabMapSelector, LabSkinSelector};
 use super::common::{ModalBase, fill_page, palette_entry};
+use super::controls::bar_buttons::P_ID;
 use super::controls::buttons::{ButtonMain, ButtonSecondary, ButtonSecondaryVertical, IconButton, ToggleSwitch};
-use super::controls::drop_menu::DropMenu;
+use super::controls::drop_menu::{DropMenu, own_item};
 use super::controls::interactor::{self, batch_set_context, batch_set_scroll_box};
 use super::controls::tooltip::{TooltipTarget, tooltip_params};
 use super::controls::{bind, find, focus_frame, slot_z_order, wd};
@@ -896,9 +897,16 @@ impl Controller for CustomGameMapThumbnail {
 
 /// The owner of the pictures the lobby holds ahead.
 const PICTURES_LOBBY: &str = "lobby";
-/// EMapRotation of the lobby's team style (0 1v1, 1 2v2, 2 ffa): CustomSolos, CustomDuos, CustomFreeForAll.
-const LOBBY_ROTATIONS: [i32; 3] = [6, 5, 7];
-const LOBBY_SELECTOR_COUNTS: [i32; 3] = [2, 4, 4];
+/// EMapRotation of the lobby's style and the map selector's count: Versus CustomDuos, Free For All
+/// CustomFreeForAll.
+/// Deviation: the build's 1 vs 1 had CustomSolos (6) and a count of 2; Versus, which holds 1 vs 1, takes the
+/// Teams rotation.
+fn lobby_rotation(style: LobbyStyle) -> (i32, i32) {
+    match style {
+        LobbyStyle::Versus => (5, 4),
+        LobbyStyle::FreeForAll => (7, 4),
+    }
+}
 /// EMapRotation names of the three custom rotations: the maps of the lobby's map selector.
 const LOBBY_MAP_ROTATIONS: [&str; 3] = ["CustomSolos", "CustomDuos", "CustomFreeForAll"];
 /// How far a lobby scroll box's clip reaches past its sides: room for a hover outline.
@@ -1393,7 +1401,7 @@ impl CustomGame {
             "me={} leader={} style={} teams=[{}] [{}] ready=[{}] maps={} blockers={:?} can={} start_on={start}",
             l.my_id(),
             l.leader_id(),
-            l.team_style(),
+            l.team_style().id(),
             team(&l.teams()[0]),
             team(&l.teams()[1]),
             l.rules().ready.join(","),
@@ -1429,10 +1437,10 @@ impl CustomGame {
                 self.update_start_match_enabled(cx);
             }
             LobbyEvent::TeamStyleUpdated(style) => {
-                self.update_ringouts(cx, Some(style == STYLE_FFA));
-                let id = TEAM_STYLE_IDS.get(usize::from(style)).copied().unwrap_or("");
+                self.update_ringouts(cx, Some(style == LobbyStyle::FreeForAll));
                 let d = Self::drop_menu(cx, "UI_DropGameMode");
-                cx.visit::<DropMenu, _>(d, |d, cx| d.set_active_by_id(cx, id));
+                cx.visit::<DropMenu, _>(d, |d, cx| d.set_active_by_id(cx, style.id()));
+                Self::apply_team_caps(cx);
                 self.update_teams(cx);
                 self.update_start_match_enabled(cx);
                 let ctx = self.base.context.clone();
@@ -1645,7 +1653,7 @@ impl CustomGame {
             let l = self.lobby();
             (l.team_style(), l.options().stocks, l.num_ringouts_for_win(), l.am_i_leader())
         };
-        let ffa = ffa.unwrap_or(style == STYLE_FFA);
+        let ffa = ffa.unwrap_or(style == LobbyStyle::FreeForAll);
         let heading = find(cx, "CustomGames_2");
         if self.ringouts_label.is_empty() {
             self.ringouts_label = cx.view.tree().widget(heading).text.clone();
@@ -1662,21 +1670,47 @@ impl CustomGame {
     }
 
     fn set_game_mode_from_dropdown(&mut self, cx: &mut Cx<'_>, id: &str) {
-        let style = TEAM_STYLE_IDS.iter().position(|s| *s == id);
-        if let Some(style) = style
-            && style as u8 != self.lobby().team_style()
-        {
-            self.lobby_mut().set_team_style(style as u8);
+        let Some(style) = LobbyStyle::from_id(id) else { return };
+        if style != self.lobby().team_style() {
+            self.lobby_mut().set_team_style(style);
         }
-        self.update_ringouts(cx, Some(id == "ffa"));
+        self.update_ringouts(cx, Some(style == LobbyStyle::FreeForAll));
+        Self::apply_team_caps(cx);
+    }
+
+    /// The two team columns' MaxPlayers, Versus's 2 a team (only Versus shows them; the build's 1 vs 1 had 1), and
+    /// every column's empty slots: on the drop's click and on every style the lobby applies (a member's lobby follows
+    /// the leader's pick).
+    fn apply_team_caps(cx: &mut Cx<'_>) {
+        let cap = LobbyStyle::Versus.cap();
         for i in 0..2 {
             let t = Self::team(cx, i);
-            cx.view.tree_mut().set_prop(t, "MaxPlayers", json!(if id == "1v1" { 1 } else { 2 }));
+            cx.view.tree_mut().set_prop(t, "MaxPlayers", json!(cap));
         }
         for i in 0..3 {
             let t = Self::team(cx, i);
             cx.visit::<CustomGameTeam, _>(t, |t, cx| t.update_empty_slot_visibility(cx, false, None));
         }
+    }
+
+    /// (the port's own) The Game Mode drop's items: Versus, the port's own, and the build's Free For All; the build's
+    /// 1 vs 1 and Teams are left out (Versus holds both).
+    fn offer_styles(cx: &mut Cx<'_>) {
+        let d = Self::drop_menu(cx, "UI_DropGameMode");
+        let items = cx.view.tree().props(d).get("Items").and_then(Value::as_array).cloned().unwrap_or_default();
+        let versus = LobbyStyle::Versus.id();
+        if items.iter().any(|i| i.get(P_ID).and_then(Value::as_str) == Some(versus)) {
+            return;
+        }
+        let ffa = LobbyStyle::FreeForAll.id();
+        let mut list = vec![own_item(custom_text::VERSUS, versus)];
+        list.extend(items.into_iter().filter(|i| i.get(P_ID).and_then(Value::as_str) == Some(ffa)));
+        cx.view.tree_mut().set_prop(d, "Items", Value::Array(list));
+        cx.visit::<DropMenu, _>(d, |m, cx| {
+            let selected = m.current_selected_id.clone();
+            m.initialize(cx);
+            m.set_active_by_id(cx, &selected);
+        });
     }
 
     fn update_is_leader(&mut self, cx: &mut Cx<'_>) {
@@ -1715,7 +1749,7 @@ impl CustomGame {
         let (ffa, leader, slots, leader_id, players, teams) = {
             let l = self.lobby();
             (
-                l.team_style() == STYLE_FFA,
+                l.team_style() == LobbyStyle::FreeForAll,
                 l.am_i_leader(),
                 l.get_available_player_slot_count(),
                 l.leader_id().to_string(),
@@ -1867,14 +1901,13 @@ impl CustomGame {
     /// custom rotations; the rotation of the lobby's style says which are available while connected (the port's
     /// rule is the Lab's: the maps it has a stage for). Accept -> SetMaps; the echo redraws the grid.
     fn select_maps(&mut self, cx: &mut Cx<'_>) {
-        let style = usize::from(self.lobby().team_style());
+        let (rotation, count) = lobby_rotation(self.lobby().team_style());
         let Some(w) = Manager::show_modal(cx, "UI_LAB_MapSelector", "mapSelector", "", "") else { return };
         let all = cx.view.soft_maps(&LOBBY_MAP_ROTATIONS);
         let selected = self.cached_selected_maps.clone();
         let me = cx.w;
         cx.visit::<LabMapSelector, _>(w, |m, cx| {
-            m.selected_rotation = LOBBY_ROTATIONS.get(style).copied().unwrap_or(12);
-            let count = LOBBY_SELECTOR_COUNTS.get(style).copied().unwrap_or(0);
+            m.selected_rotation = rotation;
             m.init(cx, &all, &selected, count, true, false);
             m.multi_selected_event.add(Handler { owner: me, id: G_MAPS_SELECTED });
         });
@@ -1883,7 +1916,15 @@ impl CustomGame {
     /// The settings modals' state.
     fn lobby_view(&self) -> LobbyView {
         let l = self.lobby();
-        LobbyView { leader: l.am_i_leader(), team_style: l.team_style(), options: *l.options() }
+        // The settings modal's art is by ETeamStyle; the lobby's own style picks it, as the match's is only known at
+        // the start.
+        // Deviation: a Versus lobby shows the Teams art (1) whatever its split; the build's 1 vs 1 lobby showed its
+        // own (0).
+        let art = match l.team_style() {
+            LobbyStyle::Versus => 1,
+            LobbyStyle::FreeForAll => 2,
+        };
+        LobbyView { leader: l.am_i_leader(), team_style: art, options: *l.options() }
     }
 
     fn show_settings(&mut self, cx: &mut Cx<'_>, id: &str, page: SettingsPage) {
@@ -2033,6 +2074,7 @@ impl Modal for CustomGame {
 
     fn post_show(&mut self, cx: &mut Cx<'_>, _instructions: &str, _extra_data: &str) {
         let me = cx.w;
+        Self::offer_styles(cx);
         let scroll = find(cx, "scrollContainer");
         let mut list: Vec<WidgetId> = LOBBY_DROPS.iter().map(|n| Self::main_interactor(cx, n)).collect();
         list.push(Self::hazards_interactor(cx));
@@ -2283,7 +2325,7 @@ impl Controller for CustomGame {
             G_DROP_RINGOUTS => {
                 if let Some((_, s)) = arg.downcast_ref::<(i32, String)>() {
                     let (style, stocks) = (self.lobby().team_style(), self.lobby().options().stocks);
-                    if style != STYLE_FFA || stocks {
+                    if style != LobbyStyle::FreeForAll || stocks {
                         let n = s.parse::<u32>().unwrap_or(0);
                         self.lobby_mut().set_num_ringouts_for_win(n);
                     }

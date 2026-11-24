@@ -3,7 +3,15 @@
 //! A test that finds no vectors says so and passes.
 //!
 //! The vectors tag what JSON loses (`$f64` for NaN / infinity / -0, `$undef`, `$utf16` for a string with a lone
-//! surrogate). A Rust string holds no lone surrogate (nor does a message that reaches it: serde_json refuses one), so
+//! surrogate).
+//!
+//! The lobby's style is the port's own (`LobbyStyle`: Versus and Free For All, LISTING_V 2), where the oracle's lobby
+//! has ETeamStyle's 1v1, 2v2 and Free For All (LISTING_V 1): its 2v2 is compared as Versus (the same team rules: two a
+//! team) and its Free For All as Free For All, each by its new number; a lobby script's stretch in the oracle's 1v1
+//! (one a team, which Versus has not) is run but not compared, and the compare resumes at the oracle's next 2v2 or
+//! Free For All from the oracle's state there (`LobbyRules::load`); a listing is read as its v 2 form.
+//!
+//! A Rust string holds no lone surrogate (nor does a message that reaches it: serde_json refuses one), so
 //! a lone surrogate reads as U+E000 (a private use character: no mark, space or
 //! format character, and no grapheme break before a mark, as the lone half is not); a NaN or infinity reads as null (a
 //! number that is no integer reads as one that is not a number, in every function here).
@@ -11,7 +19,7 @@
 use mvs_protocol::chat::{self, ChatGate};
 use mvs_protocol::loadout::{self, NetLoadout};
 use mvs_protocol::lobby_listing::{self, LobbyListing};
-use mvs_protocol::lobby_rules::{LobbyRules, MutatorSet, OptionKey, OptionValue};
+use mvs_protocol::lobby_rules::{LobbyRules, LobbyStyle, MutatorSet, OptionKey, OptionValue};
 use mvs_protocol::online::{QueueMode, QueuePlayer};
 use mvs_protocol::queue_rules as qr;
 use mvs_protocol::setup::{self, InputPrefsWire, MatchPlayerWire};
@@ -312,22 +320,83 @@ fn chat_rules() {
     }
 }
 
+/// The oracle's lobby style (ETeamStyle) as the port's: its 2v2 is Versus, its Free For All Free For All; None for
+/// its 1v1 (no style of the port's) or a number that is no style.
+fn style_of(n: f64) -> Option<LobbyStyle> {
+    match n {
+        1.0 => Some(LobbyStyle::Versus),
+        2.0 => Some(LobbyStyle::FreeForAll),
+        _ => None,
+    }
+}
+
+/// A listing's text with the number after its own key `key` (after `{` or `,`, not in a string) as `f` gives it;
+/// the text as it was when `f` gives None or the key or its number is not there.
+fn move_number(t: &str, key: &str, f: impl Fn(f64) -> Option<String>) -> String {
+    let pat = format!("\"{key}\":");
+    let mut from = 0;
+    while let Some(at) = t[from..].find(&pat).map(|i| i + from) {
+        let start = at + pat.len();
+        if matches!(t[..at].chars().last(), Some('{' | ',')) {
+            let end = t[start..].find([',', '}']).map_or(t.len(), |i| i + start);
+            return match t[start..end].trim().parse::<f64>().ok().and_then(f) {
+                Some(n) => format!("{}{n}{}", &t[..start], &t[end..]),
+                None => t.to_owned(),
+            };
+        }
+        from = start;
+    }
+    t.to_owned()
+}
+
+/// The oracle's listing text in the port's form: its v 1 as 2 (and a 2 as 1, still another shape), its style by
+/// `style_of` (the oracle's 1v1 as Versus: a listing's reader takes either the same).
+fn listing_v2(t: &str) -> String {
+    let t = move_number(t, "v", |v| match v {
+        1.0 => Some("2".into()),
+        2.0 => Some("1".into()),
+        _ => None,
+    });
+    move_number(&t, "style", |n| {
+        let style = if n == 0.0 { Some(LobbyStyle::Versus) } else { style_of(n) };
+        style.map(|s| u8::from(s).to_string())
+    })
+}
+
+/// The oracle's read listing (an object or null) in the port's form.
+fn listing_out_v2(v: &Value) -> Value {
+    let mut v = untag(v);
+    if let Some(o) = v.as_object_mut() {
+        o.insert("v".into(), json!(lobby_listing::LISTING_V));
+        let n = o["style"].as_f64().expect("a read listing's style");
+        let style = if n == 0.0 { LobbyStyle::Versus } else { style_of(n).expect("a style") };
+        o.insert("style".into(), json!(u8::from(style)));
+    }
+    v
+}
+
 #[test]
 fn lobby_listing() {
     let Some(v) = vectors::read("protocol.json") else { return };
     let l = field(&v, "lobbyListing");
-    assert_eq!(l["consts"]["LISTING_V"].as_u64(), Some(u64::from(lobby_listing::LISTING_V)));
+    // (the oracle's listing is v 1: `listing_v2`)
+    assert_eq!(l["consts"]["LISTING_V"].as_u64(), Some(1));
+    assert_eq!(lobby_listing::LISTING_V, 2);
     assert_eq!(l["consts"]["LISTING_MAX_BYTES"].as_u64(), Some(lobby_listing::LISTING_MAX_BYTES as u64));
     assert_eq!(l["consts"]["LISTING_MAPS"].as_u64(), Some(lobby_listing::LISTING_MAPS as u64));
     for (i, c) in l["listingText"].as_array().unwrap().iter().enumerate() {
-        let input: LobbyListing = serde_json::from_value(untag(&c["in"])).expect("a listing");
-        assert_eq!(json!(lobby_listing::listing_text(&input)), untag(&c["out"]), "listingText {i}");
+        let input = untag(&c["in"]).to_string();
+        let input: LobbyListing = serde_json::from_str(&listing_v2(&input)).expect("a listing");
+        let want = untag(&c["out"]).as_str().map(listing_v2).expect("a text");
+        assert_eq!(lobby_listing::listing_text(&input), want, "listingText {i}");
     }
     let mut some = 0;
     for (i, c) in l["listingOf"].as_array().unwrap().iter().enumerate() {
-        let got = lobby_listing::listing_of(&untag(&c["in"]));
+        let input = untag(&c["in"]);
+        let input = input.as_str().map_or(input.clone(), |t| Value::String(listing_v2(t)));
+        let got = lobby_listing::listing_of(&input);
         some += usize::from(got.is_some());
-        same(&got, &c["out"], "listingOf", i);
+        same(&got, &listing_out_v2(&c["out"]), "listingOf", i);
     }
     eprintln!("listingOf: {some} read");
 }
@@ -335,9 +404,12 @@ fn lobby_listing() {
 #[test]
 fn lobby_data() {
     let Some(v) = vectors::read("protocol.json") else { return };
-    let mut steps = 0;
+    let (mut steps, mut skipped, mut resumed) = (0, 0, 0);
     for (s, script) in field(&v, "lobbyRules")["scripts"].as_array().unwrap().iter().enumerate() {
         let mut lobby = LobbyRules::new();
+        // (in an oracle 1v1 stretch: the ops still run, nothing is compared; the stretch ends at the oracle's next
+        // setTeamStyle to 2v2 or Free For All, where the oracle's state is loaded and the compare resumes)
+        let mut in_one_v_one = false;
         for (i, step) in script["steps"].as_array().unwrap().iter().enumerate() {
             let op = step["op"].as_array().unwrap();
             let text = |n: usize| op[n].as_str().unwrap_or_default();
@@ -349,7 +421,14 @@ fn lobby_data() {
                 "addBot" => {
                     lobby.add_bot(usize::try_from(num(1)).unwrap(), text(2), text(3), i32::try_from(num(4)).unwrap())
                 }
-                "setTeamStyle" => lobby.set_team_style(u8::try_from(num(1)).unwrap()),
+                "setTeamStyle" => {
+                    let n = op[1].as_f64().unwrap();
+                    if n == 0.0 {
+                        in_one_v_one = true;
+                    } else {
+                        lobby.set_team_style(style_of(n).expect("a style"));
+                    }
+                }
                 "removePlayer" => {
                     lobby.remove_player(text(1));
                 }
@@ -390,25 +469,44 @@ fn lobby_data() {
                 },
                 other => panic!("an op the vectors hold: {other}"),
             }
-            // (an icon the oracle cleared by setIcon stays as icon:'' there; here every empty icon is left out)
-            let mut want = untag(&step["data"]);
-            for team in want["teams"].as_array_mut().unwrap() {
-                for p in team.as_array_mut().unwrap() {
-                    if p["icon"] == json!("") {
-                        p.as_object_mut().unwrap().remove("icon");
-                    }
+            let want = lobby_data_of(&step["data"]);
+            if in_one_v_one {
+                if text(0) == "setTeamStyle" && style_of(op[1].as_f64().unwrap()).is_some() {
+                    in_one_v_one = false;
+                    lobby.load(&serde_json::from_value(want).expect("the oracle's lobby data"));
+                    resumed += 1;
                 }
-            }
-            // (the oracle's one mutator, 0 none, is the set of it here)
-            if let Some(o) = want["options"].as_object_mut()
-                && let Some(n) = o.remove("mutator")
-            {
-                let n = usize::try_from(n.as_u64().unwrap()).unwrap();
-                o.insert("mutators".into(), json!(MutatorSet::default().with(n, true).0));
+                skipped += 1;
+                continue;
             }
             same(&lobby.data(), &want, "lobby data", s * 100 + i);
             steps += 1;
         }
     }
-    eprintln!("lobby data: {steps} steps compared");
+    eprintln!(
+        "lobby data: {steps} steps compared, {skipped} in an oracle 1v1 skipped, {resumed} resumed from the oracle's state"
+    );
+}
+
+/// An oracle lobby state in the port's form: an icon the oracle cleared by setIcon (it stays as icon:'' there; here
+/// every empty icon is left out), the one mutator as its set, the style as the port's (its 1v1 as Versus).
+fn lobby_data_of(data: &Value) -> Value {
+    let mut want = untag(data);
+    for team in want["teams"].as_array_mut().unwrap() {
+        for p in team.as_array_mut().unwrap() {
+            if p["icon"] == json!("") {
+                p.as_object_mut().unwrap().remove("icon");
+            }
+        }
+    }
+    // (the oracle's one mutator, 0 none, is the set of it here)
+    if let Some(o) = want["options"].as_object_mut()
+        && let Some(n) = o.remove("mutator")
+    {
+        let n = usize::try_from(n.as_u64().unwrap()).unwrap();
+        o.insert("mutators".into(), json!(MutatorSet::default().with(n, true).0));
+    }
+    let n = want["teamStyle"].as_f64().unwrap();
+    want["teamStyle"] = json!(u8::from(style_of(n).unwrap_or(LobbyStyle::Versus)));
+    want
 }
