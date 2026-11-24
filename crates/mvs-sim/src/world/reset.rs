@@ -687,5 +687,4 @@ pub fn reset(w: &mut World) {
     // AllPlayersSpawned.
     mutators::begin_world_mutators(w);
     crate::world::wheel::wheel_reset(w); // the port's own Chaos Wheel: its item window on the new area
-    crate::world::dodgeball::dodgeball_reset(w); // the port's own Dodgeball: the barrier and the respawn spots
 }

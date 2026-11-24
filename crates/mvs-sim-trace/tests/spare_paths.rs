@@ -1,14 +1,14 @@
-//! The port's own Dodgeball rule (`mvs_sim::world::dodgeball`) spares an opponent everything a fighter deals: every
+//! The port's own spare switch (`MatchSetup::spare_opponents`) spares an opponent everything a fighter deals: every
 //! roster fighter's every move, on the ground and in the air, with the opponent near, at mid range and far in front,
 //! leaves the opponent as he would be had the attacker stood still, and the attacker is back to an actionable state
 //! within a bound. A control run of the same set with the rule off must change the opponent for most moves. Then the
 //! paths a move of the set cannot show: a thrown item the stage dropped still hits (and gives its buffs), one a
-//! fighter's move made does not, and a team mate is treated as today. On fresh Worlds with the barrier off; without a
+//! fighter's move made does not, and a team mate is treated as today. On fresh Worlds; without a
 //! store they check nothing.
 
 use mvs_sim::fighter::FighterId;
 use mvs_sim::input::NO_INPUT;
-use mvs_sim::setup::{Dodgeball, MatchPlayer, MatchSetup};
+use mvs_sim::setup::{MatchPlayer, MatchSetup};
 use mvs_sim::{InputState, Real, World};
 use mvs_sim_trace::harness::{self, Harness};
 
@@ -52,14 +52,26 @@ fn player(c: &str, team: u8) -> MatchPlayer {
 fn setup(players: &[(&str, u8)], rule: bool) -> MatchSetup {
     MatchSetup {
         players: players.iter().map(|&(c, t)| player(c, t)).collect(),
-        dodgeball: rule.then_some(Dodgeball { barrier: false }),
+        spare_opponents: rule,
         ..MatchSetup::default()
     }
 }
 
 /// A fresh World of these players, landed.
 fn fresh(players: &[(&str, u8)], rule: bool) -> Option<Harness> {
-    let mut h = harness::fresh(&setup(players, rule), 1)?;
+    landed(&setup(players, rule))
+}
+
+/// [`fresh`] with the items on (the Random Items mutator: the World has the items' data; no flow, so no drop).
+fn fresh_items(players: &[(&str, u8)], rule: bool) -> Option<Harness> {
+    let mut s = setup(players, rule);
+    s.mutators.push("Mutator_RandomItemSpawns".to_owned());
+    landed(&s)
+}
+
+fn landed(s: &MatchSetup) -> Option<Harness> {
+    let players = &s.players;
+    let mut h = harness::fresh(s, 1)?;
     let none = vec![NO_INPUT; players.len()];
     for _ in 0..90 {
         h.step(&none);
@@ -209,7 +221,7 @@ fn sweep(who: &str, rule: bool) -> Option<Outcome> {
 }
 
 fn only() -> Vec<&'static str> {
-    match std::env::var("MVS_DODGEBALL_ONLY") {
+    match std::env::var("MVS_SPARE_ONLY") {
         Ok(k) => ROSTER.iter().copied().filter(|r| k.split(',').any(|x| x == *r)).collect(),
         Err(_) => ROSTER.to_vec(),
     }
@@ -226,7 +238,7 @@ fn thrown(
     rule: bool,
     after: usize,
 ) -> Option<(Harness, bool)> {
-    let mut h = fresh(&[(who, 0), (dummy, 1)], rule)?;
+    let mut h = fresh_items(&[(who, 0), (dummy, 1)], rule)?;
     let (a, o) = (h.fighter(0), h.fighter(1));
     let side = h.w.fighter(a).body.facing_dir;
     let (ax, ay) = (h.w.fighter(a).body.x, h.w.fighter(a).body.y);

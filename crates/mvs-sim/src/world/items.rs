@@ -1559,7 +1559,7 @@ pub fn area_item_src(w: &World, cls: Name) -> Option<DefSrc> {
 }
 
 /// `spawnPending`'s spawn of the class at (x, y): `spawn_world_item`, then BPI_UpdateHitbox (HitBoxOn? of the class
-/// default). `None` where FindTeleportSpot found no spot. The port's own Dodgeball rule drops its items through it.
+/// default). `None` where FindTeleportSpot found no spot. A rule of the port's own can drop an item through it.
 pub fn spawn_area_item(w: &mut World, cls: Name, src: DefSrc, x: Real, y: Real) -> Option<ItemId> {
     let it = spawn_world_item(w, cls, src, x, y)?;
     let data = Arc::clone(&w.data);

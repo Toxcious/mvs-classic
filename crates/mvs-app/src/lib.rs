@@ -6,7 +6,6 @@ pub mod app;
 pub mod apply;
 pub mod audio;
 pub mod console;
-pub mod dodgeball;
 pub mod fps;
 pub mod import;
 pub mod input;

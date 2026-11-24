@@ -199,8 +199,8 @@ pub(super) fn emitter(
 }
 
 /// `touches`: a sphere of an actor against a fighter in the play plane: his hurt shapes at the current pose and, for a
-/// shape that overlaps the Pawn channel too (capsule), his root capsule. False for an opponent the port's own Dodgeball
-/// rule spares what `by` deals.
+/// shape that overlaps the Pawn channel too (capsule), his root capsule. False for an opponent the port's own spare
+/// switch spares what `by` deals.
 // Deviation: the build's shapes are a sphere and, for an actor with Supports2DHitboxes, a capsule along the depth
 // axis; a hurt shape off the play plane and the capsule's exact section are taken as the circle test.
 pub(crate) fn touches(w: &mut World, by: FighterId, o: FighterId, x: Real, y: Real, r: Real, capsule: bool) -> bool {

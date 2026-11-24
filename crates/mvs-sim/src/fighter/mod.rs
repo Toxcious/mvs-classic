@@ -759,7 +759,7 @@ pub fn no_hit(w: &World, f: FighterId) -> bool {
     w.fighter(f).invuln.damage_disabled || actor_collision_off(w, f)
 }
 
-/// [`no_hit`] for what `owner` deals: the port's own Dodgeball rule spares an opponent too
+/// [`no_hit`] for what `owner` deals: the port's own spare switch spares an opponent too
 /// (`combat::phases::no_hit_by`).
 pub fn no_hit_by(w: &World, owner: FighterId, vic: FighterId) -> bool {
     crate::combat::phases::no_hit_by(w, owner, vic)
@@ -770,9 +770,9 @@ pub fn no_hit_from(w: &World, a: crate::actors::ActorRef, vic: FighterId) -> boo
     crate::combat::phases::no_hit_from(w, a, vic)
 }
 
-/// The port's own Dodgeball rule spares `vic` what `owner` deals: the rule is on and the two are opponents.
+/// The port's own spare switch spares `vic` what `owner` deals: the rule is on and the two are opponents.
 pub fn spared_by(w: &World, owner: FighterId, vic: FighterId) -> bool {
-    crate::world::dodgeball::spares(w, owner, vic)
+    crate::combat::phases::spares(w, owner, vic)
 }
 
 /// `mostRecentAssistAttacker`.

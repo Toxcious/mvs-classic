@@ -1097,12 +1097,10 @@ fn stage_item(w: &World, pr: &Dealer) -> bool {
     }
 }
 
-/// The port's own Dodgeball rule spares `vic` what the dealer deals: its owner's opponent, unless the dealer is an item
+/// The port's own spare switch spares `vic` what the dealer deals: its owner's opponent, unless the dealer is an item
 /// the stage dropped.
 fn dealer_spares(w: &World, pr: &Dealer, vic: FighterId) -> bool {
-    w.setup.dodgeball.is_some()
-        && !stage_item(w, pr)
-        && pr.owner.is_some_and(|o| crate::world::dodgeball::spares(w, o, vic))
+    w.setup.spare_opponents && !stage_item(w, pr) && pr.owner.is_some_and(|o| crate::combat::phases::spares(w, o, vic))
 }
 
 /// The body of `applyProjectileHit`, for a dealer of a list (`lit` none) or one no list holds.
@@ -1119,7 +1117,7 @@ fn spawned_hit(
     elementals: &[Name],
     charge_percent: Real,
 ) -> bool {
-    // The port's own Dodgeball rule, behind the tests that pick the victim: no hit, so a projectile is not spent.
+    // The port's own spare switch, behind the tests that pick the victim: no hit, so a projectile is not spent.
     if dealer_spares(w, pr, vic) {
         return false;
     }
@@ -2101,7 +2099,7 @@ pub fn hit_buffs_ally(w: &mut World, src: FighterId, vic: FighterId, rows: &[OnH
 /// `hitBuffsHit`: after DamageAndLaunch returned Hit and the hit pause, the teams
 /// differing: every row with ApplyBuffHit? and ApplyBuffEnemy? goes to the hit actor (@18293-19121); then every row
 /// with ApplyBuffHit?, ApplyBuffSelf? and RequireHitToApplyBuffToSelf goes to the Instigator (@23297-24169).
-/// `stage_item`: the dealer is an item the stage dropped, whose rows the port's own Dodgeball rule does not spare.
+/// `stage_item`: the dealer is an item the stage dropped, whose rows the port's own spare switch does not spare.
 fn hit_buffs_hit(w: &mut World, src: FighterId, vic: FighterId, rows: &[OnHitBuffRow], mult: Real, stage_item: bool) {
     if w.fighter(vic).team.team == w.fighter(src).team.team {
         return;
@@ -2558,8 +2556,8 @@ pub fn apply_hit(
     hit_box: bool,
     open: Option<&OpenPose>,
 ) {
-    // The port's own Dodgeball rule, behind the tests that pick the victim: a fighter's hit on an opponent is no hit.
-    if crate::world::dodgeball::spares(w, att, vic) {
+    // The port's own spare switch, behind the tests that pick the victim: a fighter's hit on an opponent is no hit.
+    if crate::combat::phases::spares(w, att, vic) {
         return;
     }
     if !p.on_hit_buffs.is_empty() {
@@ -2584,8 +2582,8 @@ pub fn apply_hit_behind_entry(
     hit_box: bool,
     open: Option<&OpenPose>,
 ) {
-    if crate::world::dodgeball::spares(w, att, vic) {
-        return; // the port's own Dodgeball rule (as apply_hit)
+    if crate::combat::phases::spares(w, att, vic) {
+        return; // the port's own spare switch (as apply_hit)
     }
     // pfgDoDamage @5617-5904: the dealer's State Manager rewrites the hit (ApplyBuffDamageMods, DamageTaken false).
     let mut p = buff::apply_dealt_damage_mods(w, att, ActorRef::Fighter(vic), p, hit_box);

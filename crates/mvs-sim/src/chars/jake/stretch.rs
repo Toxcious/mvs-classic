@@ -955,7 +955,7 @@ fn actor_begin(w: &mut World, id: ActorId, v: FighterId) {
     if invulnerable(w, v) || v == own || a.knock_in.contains(&vid) || a.bounced.contains(&vid) {
         return;
     }
-    // Deviation: the port's Dodgeball rule spares an opponent the bounce (its launch, stun and hit pause).
+    // Deviation: the port's spare switch spares an opponent the bounce (its launch, stun and hit pause).
     if crate::fighter::spared_by(w, own, v) {
         return;
     }

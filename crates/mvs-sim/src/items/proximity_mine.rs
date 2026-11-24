@@ -340,7 +340,7 @@ fn overlaps(w: &mut World, it: ItemId, only: Option<FighterId>) -> bool {
             continue;
         }
         state(w, it).inside.push(fid);
-        // Deviation: under the port's Dodgeball rule a fighter's mine does not go off for the opponent it spares.
+        // Deviation: under the port's spare switch a fighter's mine does not go off for the opponent it spares.
         let spared = crate::combat::phases::spared_from(w, ActorRef::Item(it), f);
         if state(w, it).armed && w.fighter(f).team.team != item_destructible_team(w, it) && !spared && detonate(w, it) {
             return true;

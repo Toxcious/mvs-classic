@@ -474,7 +474,7 @@ pub struct RuntimeSolidSpec {
     pub rot: Option<[Real; 3]>,
     /// The collision component's name (a trace's hit component).
     pub component: crate::names::Name,
-    /// A Floor box's flags where they are not the class's (`FLOOR_FLAGS`): the port's own Dodgeball barrier, which
+    /// A Floor box's flags where they are not the class's (`FLOOR_FLAGS`): a solid of the port's own that
     /// items pass. `None` in every solid of the build.
     pub flags: Option<i32>,
 }

@@ -303,14 +303,13 @@ plain_struct!(mvs_sim::world::items::ItemArea {
 plain_struct!(mvs_sim::world::mutators::WorldMutator { "bound" = bound, "chosen" = chosen, "cls" = cls, "delayAt" = delay_at });
 plain_struct!(mvs_sim::world::flow::WorldMutatorHandler { "buffs" = buffs });
 
-const REST_KEYS: [&str; 27] = [
+const REST_KEYS: [&str; 26] = [
     "blast",
     "blastOuter",
     "blastShrinkBy",
     "blastShrinkTick",
     "blastShrinkTime",
     "comboReset",
-    "dodgeball",
     "ground",
     "itemArea",
     "koBox",
@@ -373,7 +372,6 @@ fn rest_put(w: &World, x: &Wx) -> Value {
     crate::tutorial::rest_put(w, x, &mut o);
     crate::waves::rest_put(w, x, &mut o);
     crate::wheel::rest_put(w, x, &mut o);
-    crate::dodgeball::rest_put(w, x, &mut o);
     // (`pawns`, a mode's list of every pawn, is the frame's fighters: `frame_of`.)
     if let Some(r) = &w.stage_run {
         o.push(("stageRun", crate::stages::run_put(r, x)));
@@ -454,5 +452,4 @@ fn rest_load(w: &mut World, v: &Value, l: &mut Lx) {
     crate::tutorial::rest_load(w, ob, l);
     crate::waves::rest_load(w, ob, l);
     crate::wheel::rest_load(w, ob, l);
-    crate::dodgeball::rest_load(w, ob, l);
 }

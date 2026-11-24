@@ -457,9 +457,6 @@ pub fn latent(w: &mut World) {
     if w.wheel.is_some() {
         crate::world::wheel::wheel_latent(w); // the port's own Chaos Wheel rule
     }
-    if w.dodgeball.is_some() {
-        crate::world::dodgeball::dodgeball_latent(w); // the port's own Dodgeball rule: its drops
-    }
     if w.item_area.is_some() {
         crate::world::items::item_area_latent(w);
     }

@@ -205,7 +205,7 @@ fn grapple_server(w: &mut World, id: ProjectileId) {
 /// SphereOverlapActors(the lasso's location, r, [Pawn], BP_FighterCharacter): the fighters whose root capsule the
 /// sphere overlaps.
 // Deviation: the capsule is tested in the plane, the results come in the sim's fighter order, and a fighter waiting
-// for its respawn or out of the hits (noHit) is left out, and so is an opponent the port's own Dodgeball rule spares
+// for its respawn or out of the hits (noHit) is left out, and so is an opponent the port's own spare switch spares
 // what `by` deals.
 fn sphere_fighters(w: &World, by: FighterId, x: Real, y: Real, r: Real) -> Vec<FighterId> {
     let mut out = Vec::new();

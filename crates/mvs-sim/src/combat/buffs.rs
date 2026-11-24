@@ -959,7 +959,7 @@ fn new_buff_entry(w: &mut World, f: FighterId, cls: Name, frames: Real, stacks: 
 /// `caller`: the fighter whose Comp_State_Manager makes the call and broadcasts NewBuffSpawned (@1427) and
 /// BuffStacksAdded (SweepBuffState @1671); none: the buff owner's own.
 /// Unverified: a call site that names no caller is taken as the owner's own manager.
-/// The port's own Dodgeball rule: no buff on an opponent of its Instigator (else of its caller); the hit of an item
+/// The port's own spare switch: no buff on an opponent of its Instigator (else of its caller); the hit of an item
 /// the stage dropped gives its rows through [`spawn_buff_unspared`].
 #[allow(clippy::too_many_arguments, reason = "the call's inputs")]
 pub fn spawn_buff(
@@ -972,13 +972,13 @@ pub fn spawn_buff(
     break_if_blocked: bool,
     caller: Option<FighterId>,
 ) -> Option<BuffRef> {
-    if instigator.or(caller).is_some_and(|by| crate::world::dodgeball::spares(w, by, f)) {
+    if instigator.or(caller).is_some_and(|by| crate::combat::phases::spares(w, by, f)) {
         return None;
     }
     spawn_buff_unspared(w, f, cls, duration, stack_count, instigator, break_if_blocked, caller)
 }
 
-/// [`spawn_buff`] with no test of the port's own Dodgeball rule: the rows of a hit by an item the stage dropped.
+/// [`spawn_buff`] with no test of the port's own spare switch: the rows of a hit by an item the stage dropped.
 #[allow(clippy::too_many_arguments, reason = "the call's inputs")]
 #[allow(clippy::too_many_lines, reason = "SpawnBuffActor and the BeginPlay, in their own order")]
 pub(crate) fn spawn_buff_unspared(

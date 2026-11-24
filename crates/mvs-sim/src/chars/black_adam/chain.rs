@@ -386,7 +386,7 @@ fn throw_actor(w: &mut World, id: ProjectileId) {
     match a {
         ActorRef::Fighter(vic) => {
             if crate::fighter::spared_by(w, o, vic) {
-                return; // the port's own Dodgeball rule: no hit and no Buff_Damage_Electric_C on an opponent
+                return; // the port's own spare switch: no hit and no Buff_Damage_Electric_C on an opponent
             }
             if w.fighter(vic).life.dead <= 0.0 && !no_hit(w, vic) {
                 if invulnerable(w, vic) {

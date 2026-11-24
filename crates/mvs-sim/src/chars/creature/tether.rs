@@ -464,7 +464,7 @@ fn cylinder_tick(w: &mut World, id: ProjectileId, dt: Real) {
         if invulnerable(w, v) || w.fighter(v).invuln.damage_disabled || team(w, v) == team(w, f) {
             continue;
         }
-        // Deviation: the port's Dodgeball rule spares an opponent the cylinder's damage.
+        // Deviation: the port's spare switch spares an opponent the cylinder's damage.
         if crate::fighter::spared_by(w, f, v) {
             continue;
         }
