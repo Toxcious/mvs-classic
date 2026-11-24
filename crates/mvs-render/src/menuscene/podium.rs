@@ -205,11 +205,17 @@ struct Started {
     winners: Vec<PodiumRecord>,
     losers: Vec<PodiumRecord>,
     events: Vec<SceneEvent>,
+    /// `PodiumStart::big`.
+    big: bool,
 }
 
 impl Started {
-    /// The preview actor of the `index`th winner or loser (`actor_in` by the list's length).
+    /// The preview actor of the `index`th winner or loser (`actor_in` by the list's length; a big match's second
+    /// list takes the team style's losers' places as they are).
     fn actor(&self, index: usize, winner: bool) -> Option<usize> {
+        if self.big && !winner {
+            return actor_of(self.team_style, index, false);
+        }
         let count = if winner { self.winners.len() } else { self.losers.len() };
         actor_in(self.team_style, count, index, winner)
     }
@@ -321,7 +327,7 @@ impl PodiumLevel {
             warn_once("podium: a pre-match command".into());
             return Ok(());
         };
-        let PodiumStart { team_style, winners, losers, you_won } = *start;
+        let PodiumStart { team_style, winners, losers, you_won, big } = *start;
         let events = self
             .data
             .sequence
@@ -330,7 +336,7 @@ impl PodiumLevel {
             .cloned()
             .ok_or_else(|| format_error("podium", "no event sequence for the team style".into()))?;
         self.you_won = you_won;
-        self.started = Some(Started { team_style, winners, losers, events });
+        self.started = Some(Started { team_style, winners, losers, events, big });
         self.time = -1.0;
         self.next_event = 0;
         self.next_sound = 0;
@@ -563,7 +569,7 @@ impl PodiumLevel {
         let Some(s) = self.started.as_ref() else { return 0 };
         for (winner, list) in [(true, &s.winners), (false, &s.losers)] {
             if (0..list.len()).any(|i| s.actor(i, winner) == Some(pa)) {
-                return side_style(s.team_style, list.len());
+                return if s.big && !winner { s.team_style } else { side_style(s.team_style, list.len()) };
             }
         }
         s.team_style
@@ -672,7 +678,9 @@ impl PodiumLevel {
         if self.fighters.iter().any(|f| f.pa == pa) {
             return;
         }
-        match self.make_fighter(cx, pa, winner) {
+        // (a big match's second list are winners too)
+        let big = self.started.as_ref().is_some_and(|s| s.big);
+        match self.make_fighter(cx, pa, winner || big) {
             Ok(f) => {
                 let at = f.loc;
                 if let Some(v) = cx.vfx.as_deref_mut() {
@@ -704,7 +712,10 @@ impl PodiumLevel {
         let left = self.facing_left(pa);
         let winner_slot = slot.tag == "Player2" || slot.tag == "Player3";
         let ov = if winner_slot { &data.winner } else { &data.loser };
-        let victory = slot.tag == "Player2" || (slot.tag == "Player3" && ts != 2);
+        // Deviation: a big match's winners on the losers' places play the victory montage (the build has no winner
+        // there).
+        let victory =
+            slot.tag == "Player2" || (slot.tag == "Player3" && ts != 2) || self.started.as_ref().is_some_and(|s| s.big);
         let montage = if victory { &data.victory } else { &data.defeat };
         let store = cx.assets.store();
         let view = match PreviewView::new(store, &rec.key, skin) {
@@ -1181,7 +1192,23 @@ mod tests {
             winners: vec![PodiumRecord::default(); winners],
             losers: vec![PodiumRecord::default(); losers],
             events: Vec::new(),
+            big: false,
         }
+    }
+
+    /// A big match's winners: the first two on the 2v2 winners' actors, the rest on its losers' (0, then 3) with
+    /// the 2v2's places, even one alone; free for all's on its losers' 0, 2, 3.
+    #[test]
+    fn a_big_match_stands_its_winners_on_every_place() {
+        let mut s = started(1, 2, 1);
+        s.big = true;
+        assert_eq!([s.actor(0, true), s.actor(1, true), s.actor(0, false)], [Some(1), Some(2), Some(0)]);
+        let mut s = started(1, 2, 2);
+        s.big = true;
+        assert_eq!([s.actor(0, false), s.actor(1, false)], [Some(0), Some(3)]);
+        let mut s = started(2, 1, 3);
+        s.big = true;
+        assert_eq!([s.actor(0, true), s.actor(0, false), s.actor(2, false)], [Some(1), Some(0), Some(3)]);
     }
 
     /// A 2v2 match of three: the pair takes the 2v2's places, the one the 1v1's (its actor and offset), no empty

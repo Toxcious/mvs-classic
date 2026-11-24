@@ -8,6 +8,8 @@ use serde_json::Value;
 use crate::bundle::Rgba;
 use crate::menu::controller::{Controller, Cx};
 use crate::menu::manager::{Manager, Modal, NULL_GUID};
+use mvs_view::skins::{ffa_team_palette, team_index_palette};
+
 use crate::menu::palette::{palette_colour, palette_for_index};
 use crate::slate::{Margin, Mid, Vis, WidgetId};
 
@@ -524,32 +526,52 @@ pub struct TeamColorMatch {
     pub my_team: Option<i32>,
 }
 
-/// UI_Functions "Color for Team"(teamIndex).linearColor (@0-3356).
+/// UI_Functions "Color for Team"(teamIndex).linearColor (@0-3356): `color_for_index` of `team_color_index`, the
+/// select's default (zero) for none.
 pub fn color_for_team(cx: &Cx<'_>, team_index: i32, m: Option<&TeamColorMatch>) -> Rgba {
+    team_color_index(team_index, m).map_or([0.0; 4], |i| color_for_index(cx, i))
+}
+
+/// The ColorForIndex index "Color for Team" takes (None: the select's default).
+/// Deviation: a team past the build's four (the port's big matches) takes the opponent palettes in turn (mvs-view
+/// skins.rs `team_index_palette`, `ffa_team_palette`), as the HUD does; in free for all whenever the team or the
+/// local player's is past 3 (the build's place list [0, 1, 2, 3] would give a team the "Me" index 4 or the own
+/// colour). The build has no such team.
+pub fn team_color_index(team_index: i32, m: Option<&TeamColorMatch>) -> Option<i32> {
     let mine = m.and_then(|m| m.my_team);
-    // @20-677: Local Play, or the local player a spectator (team 4)
-    let Some(m) = m.filter(|m| !m.local_play && mine != Some(4)) else {
-        return color_for_index(cx, team_index);
+    let by_index = match u8::try_from(team_index) {
+        Ok(t) if t > 3 => team_index_palette(t) as i32,
+        _ => team_index,
+    };
+    // @20-677: Local Play, or the local player a spectator (`SPECTATOR_TEAM`)
+    let spectator = Some(crate::menu::profile_rules::SPECTATOR_TEAM);
+    let Some(m) = m.filter(|m| !m.local_play && mine != spectator) else {
+        return Some(by_index);
     };
     // @682-886: Training
     if m.training {
-        return color_for_index(cx, team_index);
+        return Some(by_index);
     }
     // @3229: no player data
-    let Some(mine) = mine else { return color_for_index(cx, team_index) };
+    let Some(mine) = mine else { return Some(by_index) };
     // @891-2152: free for all: the own team 0, the others 1 + their place in [0, 1, 2, 3] without the own team
     // (Array_Find of a team not in it: -1, so 0)
     if m.team_style == 2 {
         if team_index == mine {
-            return color_for_index(cx, 0);
+            return Some(0);
+        }
+        if let (Ok(t), Ok(me)) = (u8::try_from(team_index), u8::try_from(mine))
+            && (t > 3 || me > 3)
+        {
+            return Some(ffa_team_palette(t, me) as i32);
         }
         let place = [0, 1, 2, 3].iter().filter(|&&t| t != mine).position(|&t| t == team_index);
-        return color_for_index(cx, place.map_or(0, |p| p as i32 + 1));
+        return Some(place.map_or(0, |p| p as i32 + 1));
     }
     // @2157-3224: team 0 and team 1, each 0 when it is the own team, else 1; another team the select's default
     match team_index {
-        0 | 1 => color_for_index(cx, if mine == team_index { 0 } else { 1 }),
-        _ => [0.0; 4],
+        0 | 1 => Some(if mine == team_index { 0 } else { 1 }),
+        _ => None,
     }
 }
 
@@ -584,6 +606,28 @@ pub fn apply_founder_name_treatment(cx: &mut Cx<'_>, w: WidgetId) {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    /// Free for all past the build's four teams: the opponent palettes in turn whenever either team is past 3, never
+    /// the "Me" index 4; the build's four teams keep its place list; Teams' other team the default.
+    #[test]
+    fn team_colours_past_four_teams() {
+        let ffa = |mine: i32| TeamColorMatch { local_play: false, training: false, team_style: 2, my_team: Some(mine) };
+        // the local player on team 5, an opponent on team 3: not 4 (the build's list would give 3 + 1)
+        assert_eq!(team_color_index(3, Some(&ffa(5))), Some(ffa_team_palette(3, 5) as i32));
+        assert_ne!(team_color_index(3, Some(&ffa(5))), Some(4));
+        assert_eq!(team_color_index(5, Some(&ffa(5))), Some(0));
+        assert_eq!(team_color_index(6, Some(&ffa(0))), Some(ffa_team_palette(6, 0) as i32));
+        for t in 0..8 {
+            assert_ne!(team_color_index(t, Some(&ffa(7))), Some(4), "team {t}");
+        }
+        // the build's four teams: 1 + the place among the others
+        assert_eq!([1, 2, 3].map(|t| team_color_index(t, Some(&ffa(0)))), [Some(1), Some(2), Some(3)]);
+        // Local Play: the team index, past 3 the opponent palettes
+        assert_eq!(team_color_index(2, None), Some(2));
+        assert_eq!(team_color_index(4, None), Some(team_index_palette(4) as i32));
+        let teams = TeamColorMatch { local_play: false, training: false, team_style: 1, my_team: Some(1) };
+        assert_eq!([0, 1, 2].map(|t| team_color_index(t, Some(&teams))), [Some(1), Some(0), None]);
+    }
 
     #[test]
     fn readers() {

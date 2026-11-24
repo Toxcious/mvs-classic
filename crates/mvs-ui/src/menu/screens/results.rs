@@ -20,6 +20,7 @@ use crate::menu::controller::{Cx, MenuRun};
 use crate::menu::manager::{Manager, TransitionParams};
 use crate::menu::scene::SceneCmd;
 use crate::menu::screen::MenuScreen;
+use crate::menu::screens::results_list::{is_big, podium_lists, show_row};
 use crate::menu::view::MenuView;
 use crate::menu::widgets::controls::wd;
 use crate::menu::widgets::end_of_game::{CanvasProgressionContainer, EOGNametag, EOGStatSheet, QueueEnd, StepList};
@@ -64,9 +65,13 @@ struct Tag {
 pub struct ResultsScreen {
     /// UI_CanvasProgressionContainer.
     pub widget: WidgetId,
-    /// The record indices by list, your own record first (SortPodiumDataResults).
+    /// The record indices by the podium's list, your own record first (SortPodiumDataResults); a big match's are
+    /// both winners (`podium_lists`).
     winners: Vec<usize>,
     losers: Vec<usize>,
+    /// (the port's own big matches) The records the podium has no place for, in its order: the row
+    /// (`results_list`).
+    rest: Vec<usize>,
     tags: Vec<Tag>,
     /// WBP_3dTeam's target widget.
     winner_text: Option<WidgetId>,
@@ -114,8 +119,17 @@ pub fn show(screen: &mut MenuScreen, run: &mut MenuRun<'_>, eog: &EndOfGame, que
         // SortPodiumDataResults: your own record first in its list, the others in MatchData order.
         let order = podium_order(eog);
         let (winners, losers): (Vec<usize>, Vec<usize>) = order.into_iter().partition(|&i| eog.players[i].is_winner);
+        // Deviation: past four players (the port's own big matches) the podium stands the winners alone, the
+        // sequence's losers' places taking those past its winner places; the others go to a row (`results_list`).
+        let big = is_big(eog);
+        let (on_w, on_l, rest) = if big {
+            let (a, b, more) = podium_lists(eog.team_style, &winners);
+            (a, b, more.into_iter().chain(losers.iter().copied()).collect())
+        } else {
+            (winners.clone(), losers, Vec::new())
+        };
         let Some(me) = eog.players.get(eog.me) else {
-            return ResultsScreen::new(root, winners, losers, None);
+            return ResultsScreen::new(root, on_w, on_l, rest, None);
         };
         // A custom game's MatchFlowID is not LocalPlay and the local player is no spectator, so a banner's ColorType
         // is 1 on your team and 2 on another (Animate EOG Banner Entrance @104).
@@ -132,9 +146,10 @@ pub fn show(screen: &mut MenuScreen, run: &mut MenuRun<'_>, eog: &EndOfGame, que
         cx.scene(SceneCmd::Level(MenuLevel::Podium));
         cx.scene(SceneCmd::Sequence(SeqCmd::Podium(Box::new(PodiumStart {
             team_style: eog.team_style,
-            winners: winners.iter().map(|&i| record(i)).collect(),
-            losers: losers.iter().map(|&i| record(i)).collect(),
+            winners: on_w.iter().map(|&i| record(i)).collect(),
+            losers: on_l.iter().map(|&i| record(i)).collect(),
             you_won: me.is_winner,
+            big,
         }))));
         let text = winner_text(cx, eog, &winners);
         // PodiumGameMode BeginPlay: PlayPodiumVictoryMusic = BPI_SetMusicMapState(5), the global switch
@@ -146,13 +161,28 @@ pub fn show(screen: &mut MenuScreen, run: &mut MenuRun<'_>, eog: &EndOfGame, que
             cx,
             TransitionParams { next_level: String::new(), kind: 1, delay: 0.0, force: true, ..Default::default() },
         );
-        ResultsScreen::new(root, winners, losers, Some(text))
+        ResultsScreen::new(root, on_w, on_l, rest, Some(text))
     })
 }
 
 impl ResultsScreen {
-    fn new(widget: WidgetId, winners: Vec<usize>, losers: Vec<usize>, winner_text: Option<WidgetId>) -> ResultsScreen {
-        ResultsScreen { widget, winners, losers, tags: Vec::new(), winner_text, sheets: Vec::new(), stats_shown: false }
+    fn new(
+        widget: WidgetId,
+        winners: Vec<usize>,
+        losers: Vec<usize>,
+        rest: Vec<usize>,
+        winner_text: Option<WidgetId>,
+    ) -> ResultsScreen {
+        ResultsScreen {
+            widget,
+            winners,
+            losers,
+            rest,
+            tags: Vec::new(),
+            winner_text,
+            sheets: Vec::new(),
+            stats_shown: false,
+        }
     }
 }
 
@@ -242,6 +272,12 @@ pub fn podium_event(
             if name == "ShowStats" {
                 for &(sheet, ..) in &state.sheets {
                     cx.visit::<EOGStatSheet, _>(sheet, |s, cx| s.populate_stats(cx));
+                }
+                // (a big match: the row of the others with them)
+                if !state.stats_shown
+                    && let Some(eog) = cx.view.session.eog.data.clone()
+                {
+                    show_row(cx, root, &eog, &state.rest);
                 }
                 state.stats_shown = true;
             }

@@ -4,7 +4,7 @@
 
 use std::sync::Arc;
 
-use mvs_protocol::lobby_rules::{LobbyData, LobbyPlayer, LobbyRules};
+use mvs_protocol::lobby_rules::{LobbyData, LobbyPlayer, LobbyRules, LobbyStyle};
 use mvs_protocol::messages::{ClientMessage, ServerMessage};
 use mvs_protocol::online::{PmBegin, PmKind};
 use mvs_settings::Settings;
@@ -794,27 +794,91 @@ fn a_lobby_with_no_net_service_says_why_it_is_local() {
     assert!(l.shown("LobbyCodeButton") && !l.takes_clicks(code));
 }
 
-/// The Versus lobby shows its four places, and still does after Versus is picked again from the Game Mode drop (a
+/// The Versus lobby shows its eight places, and still does after Versus is picked again from the Game Mode drop (a
 /// pick the lobby does not answer: the empty slots keep the last count of free places).
 #[test]
-fn a_versus_lobby_keeps_its_four_places() {
+fn a_versus_lobby_keeps_its_eight_places() {
     let Some(mut l) = Lobby::new(env()) else { return };
     let open = |l: &Lobby, team: &str| {
         let t = l.find("customGame", team);
-        (1..=4)
-            .filter(|n| {
-                let s = l.screen.view.tree().find_in(t, &format!("EmptySlot{n}"));
-                l.screen.view.tree().widget(s).vis != Vis::Collapsed
-            })
+        (1..=8)
+            .filter_map(|n| l.screen.view.tree().find_opt(t, &format!("EmptySlot{n}")))
+            .filter(|&s| l.screen.view.tree().widget(s).vis != Vis::Collapsed)
             .count()
     };
     let places = |l: &Lobby| (open(l, "WBP_CustomGameTeam"), open(l, "WBP_CustomGameTeam_1"));
-    assert_eq!(places(&l), (1, 2));
+    assert_eq!(places(&l), (3, 4));
     // (the drop's click event as its list's Versus row fires it)
     let drop = l.find("customGame", "UI_DropGameMode");
     l.screen.with_cx(&mut l.env.run(), |cx| {
         cx.visit::<DropMenu, _>(drop, |m, cx| cx.emit(m, |c| &c.on_click, &(0, "versus".to_string())));
     });
     l.frames(10, &[]);
-    assert_eq!(places(&l), (1, 2));
+    assert_eq!(places(&l), (3, 4));
+}
+
+/// A bot of the lobby's answers.
+fn bot(n: usize) -> LobbyPlayer {
+    LobbyPlayer { account_id: format!("bot{n}"), username: format!("Bot {n}"), is_bot: true, difficulty: 4, ..me() }
+}
+
+/// The lobby's answer with `teams` and `style`.
+fn lobby_with(teams: Vec<Vec<LobbyPlayer>>, style: LobbyStyle) -> OnlineEvent {
+    let data = LobbyData { leader_id: "local".into(), teams, team_style: style, ..LobbyRules::new().data() };
+    OnlineEvent::Server(Box::new(ServerMessage::LobbyState { id: "L1".into(), ev: "teams".into(), data, who: None }))
+}
+
+/// The shown cells (player rows and empty slots) of the column `team`, with their painted (top, bottom).
+fn cells(l: &Lobby, team: &str) -> Vec<(f64, f64)> {
+    let t = l.screen.view.tree();
+    let col = l.find("customGame", team);
+    let shown = |w: WidgetId| {
+        let mut x = Some(w);
+        while let Some(y) = x {
+            if t.widget(y).vis == Vis::Collapsed || t.widget(y).vis == Vis::Hidden {
+                return false;
+            }
+            x = t.widget(y).parent;
+        }
+        true
+    };
+    t.post_order(col)
+        .into_iter()
+        .filter(|&w| t.user_class(w) == Some("WBP_CustomGamePlayer") && shown(w))
+        .filter_map(|w| top_bottom(l, w))
+        .collect()
+}
+
+/// The lobby always shows every place it has (two Versus columns of four, eight in Free For All), each above the
+/// chat, at every count of players.
+#[test]
+fn every_place_of_a_big_lobby_shows_above_the_chat() {
+    let Some(mut l) = Lobby::new(env()) else { return };
+    let chat_top = |l: &Lobby| top_bottom(l, l.find("customGame", "LobbyChat")).expect("the chat painted").0;
+    let check = |l: &Lobby, team: &str, want: usize| {
+        let c = cells(l, team);
+        assert_eq!(c.len(), want, "{team} shows {want} places");
+        let top = chat_top(l);
+        let chat = top_bottom(l, l.find("customGame", "LobbyChat")).unwrap();
+        let start = top_bottom(l, l.find("customGame", "Btn_StartMatch")).unwrap();
+        assert!(chat.1 <= start.0 && chat.1 - chat.0 >= 150.0, "the chat at {chat:?} keeps its room above {start:?}");
+        for (a, b) in c {
+            assert!(b <= top, "{team}: a place at {a}..{b} under the chat's top {top}");
+        }
+    };
+    check(&l, "WBP_CustomGameTeam", 4);
+    check(&l, "WBP_CustomGameTeam_1", 4);
+    let versus = vec![vec![me(), bot(1), bot(2), bot(3)], vec![bot(4), bot(5), bot(6), bot(7)]];
+    l.screen.view.session.online.events = vec![lobby_with(versus, LobbyStyle::Versus)];
+    l.frames(30, &[]);
+    check(&l, "WBP_CustomGameTeam", 4);
+    check(&l, "WBP_CustomGameTeam_1", 4);
+    let five = vec![vec![me(), bot(1), bot(2)], vec![bot(3), bot(4)]];
+    l.screen.view.session.online.events = vec![lobby_with(five, LobbyStyle::FreeForAll)];
+    l.frames(30, &[]);
+    check(&l, "WBP_CustomGameTeam_ffa", 8);
+    let ffa = vec![vec![me(), bot(1), bot(2), bot(3)], vec![bot(4), bot(5), bot(6), bot(7)]];
+    l.screen.view.session.online.events = vec![lobby_with(ffa, LobbyStyle::FreeForAll)];
+    l.frames(30, &[]);
+    check(&l, "WBP_CustomGameTeam_ffa", 8);
 }

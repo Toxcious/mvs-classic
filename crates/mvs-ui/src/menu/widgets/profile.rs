@@ -18,10 +18,12 @@
 use std::any::Any;
 
 use mvs_protocol::profile::{HistoryMode, MatchRecordPlayer, ProfileWire};
+use mvs_view::skins::team_index_palette;
 use serde_json::json;
 
 use super::common::{
-    ModalBase, Quadrilateral, apply_founder_name_treatment, color_for_team, fill_page, palette_entry, text,
+    ModalBase, Quadrilateral, apply_founder_name_treatment, color_for_index, color_for_team, fill_page, palette_entry,
+    text,
 };
 use super::controls::buttons::{ButtonSecondary, IconButton};
 use super::controls::interactor::{batch_set_context, set_context, set_focused, set_interactable};
@@ -472,6 +474,13 @@ impl MatchBreakdownPlayer {
             cx.visit::<Quadrilateral, _>(team, |q, cx| q.update_color(cx, c));
         } else if (0..=3).contains(&p.team) {
             let c = palette_entry(cx, [0, 1, 3, 4][p.team as usize]);
+            cx.visit::<Quadrilateral, _>(team, |q, cx| q.update_color(cx, c));
+        } else if p.team != SPECTATOR_TEAM
+            && let Ok(t) = u8::try_from(p.team)
+        {
+            // Deviation: a team past the build's four (the port's big matches) takes the opponent palettes in turn
+            // (mvs-view skins.rs `team_index_palette`); the build leaves the tree's colour.
+            let c = color_for_index(cx, team_index_palette(t) as i32);
             cx.visit::<Quadrilateral, _>(team, |q, cx| q.update_color(cx, c));
         }
         // @1719

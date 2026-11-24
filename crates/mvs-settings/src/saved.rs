@@ -236,9 +236,10 @@ impl LocalPlaySettings {
 
     /// InitLocalPlayPreferences (PreferencesManager @3477): every slot's character cleared; and OnResourcesLoaded
     /// (@10792): every slot's username cleared, so a name lasts one run of the game. Done once when the file is
-    /// read.
+    /// read. (the port's own big matches) The bot seats past the pads keep their fighters: their seat has no step
+    /// that picks one again.
     pub fn start_of_run(&mut self) {
-        for p in &mut self.players {
+        for p in self.players.iter_mut().take(LOCAL_PLAY_PADS) {
             p.character_slug.clear();
             p.username.clear();
         }

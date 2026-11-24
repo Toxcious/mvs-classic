@@ -18,6 +18,7 @@ pub mod home;
 pub mod input_binding_modal;
 pub mod lobby_chat;
 pub mod local_play;
+pub mod local_play_bots;
 pub mod local_play_steps;
 pub mod main_menu;
 pub mod match_options;

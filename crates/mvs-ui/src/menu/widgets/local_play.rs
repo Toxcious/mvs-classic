@@ -15,6 +15,7 @@ use super::controls::buttons::{ButtonMain, IconButton};
 use super::controls::input_label::InputLabel;
 use super::controls::interactor::{batch_set_context, set_focused, set_interactable};
 use super::controls::{find, prop_bool, prop_f64, prop_str, wd};
+use super::local_play_bots::{B_ADD, B_REMOVE, B_SETTINGS, BotSeats, seat_of, set_seat};
 use super::local_play_steps::{
     GlyphEntries, LPPlayerConfirmReady, LPPlayerCosmetics, LPPlayerPerks, LPPlayerReady, perk_slugs_of,
 };
@@ -1191,6 +1192,7 @@ const L_EXIT: u32 = 19;
 const L_POPULATE: u32 = 100;
 const L_BEGIN_FADE: u32 = 101;
 const L_BEGIN_SAVE: u32 = 102;
+const L_BOTS_REFRESH: u32 = 103;
 
 /// What the screen reads of a slot (see the module's note).
 #[derive(Clone, Debug, Default)]
@@ -1219,6 +1221,8 @@ pub struct LocalPlay {
     /// target): a second Begin Match before the 1.25 s one has run adds nothing (begin_pending stands in for the two
     /// nodes).
     begin_pending: bool,
+    /// (the port's own big matches) The bot seats past the pads' four.
+    bots: Option<BotSeats>,
 }
 
 impl LocalPlay {
@@ -1233,6 +1237,7 @@ impl LocalPlay {
             roster: Vec::new(),
             maps: None,
             begin_pending: false,
+            bots: None,
         })
     }
 
@@ -1265,7 +1270,69 @@ impl LocalPlay {
             }
         }
         self.add_bindings(cx);
+        let players = find(cx, "playersGrid");
+        self.bots = Some(BotSeats::new(cx, players));
         self.handle_match_settings(cx);
+    }
+
+    /// (the port's own big matches) The bot seats made again from the preferences, shown in Teams and Free For All
+    /// at the character grid's opacity.
+    fn refresh_bots(&mut self, cx: &mut Cx<'_>) {
+        let Some(mut b) = self.bots.take() else { return };
+        let ctx = self.base.context.clone();
+        b.refresh(cx, &ctx);
+        let g = Self::grid(cx);
+        let opacity = cx.view.tree().widget(g).opacity;
+        b.show(cx, matches!(style_of(cx), 1 | 2), opacity);
+        self.bots = Some(b);
+    }
+
+    /// (the port's own big matches) A bot seat's row asked for a change: a new seat (`B_ADD`: its fighter and
+    /// skin), a seat's fighter, skin or difficulty (`B_SETTINGS`), a seat removed (`B_REMOVE`, the seats after it
+    /// moving up). The preferences hold the seats.
+    fn bot_seat_event(&mut self, cx: &mut Cx<'_>, id: u32, arg: &dyn Any) {
+        let seats = &cx.prefs.local_play.players;
+        match id {
+            B_ADD => {
+                let Some((character, skin)) = arg.downcast_ref::<(String, String)>() else { return };
+                let i = seats.len().max(mvs_settings::LOCAL_PLAY_PADS);
+                if i >= mvs_settings::LOCAL_PLAY_MAX {
+                    return;
+                }
+                let mut seat = mvs_settings::LocalPlayPlayer::seat(i);
+                let d = i32::from(seat.bot_difficulty);
+                set_seat(cx, &mut seat, character, skin, d);
+                let players = &mut cx.prefs.local_play.players;
+                while players.len() < i {
+                    players.push(mvs_settings::LocalPlayPlayer::seat(players.len()));
+                }
+                players.push(seat);
+            }
+            B_SETTINGS => {
+                let Some((account, character, difficulty, skin)) = arg.downcast_ref::<(String, String, i32, String)>()
+                else {
+                    return;
+                };
+                let Some(i) = seat_of(account).filter(|&i| i < seats.len()) else { return };
+                let mut seat = seats[i].clone();
+                set_seat(cx, &mut seat, character, skin, *difficulty);
+                cx.prefs.local_play.players[i] = seat;
+            }
+            B_REMOVE => {
+                let Some(i) = arg.downcast_ref::<String>().and_then(|a| seat_of(a)).filter(|&i| i < seats.len()) else {
+                    return;
+                };
+                let players = &mut cx.prefs.local_play.players;
+                players.remove(i);
+                // (a seat's team follows its place: the seats after it take the alternating team of theirs)
+                for (k, p) in players.iter_mut().enumerate().skip(i) {
+                    p.team_index = mvs_settings::LocalPlayPlayer::seat(k).team_index;
+                }
+            }
+            _ => return,
+        }
+        let me = cx.w;
+        cx.view.delay(0.0, Handler { owner: me, id: L_BOTS_REFRESH });
     }
 
     /// Add Bindings @24570: each slot's StateChangedEvent, its skin step's SkinSelectedEvent, its confirm shortcut,
@@ -1354,6 +1421,7 @@ impl LocalPlay {
         for i in 0..4 {
             self.focus_character_for_player(cx, i);
         }
+        self.refresh_bots(cx);
         let mode = ["1 vs 1", "Teams", "Free for All"].get(usize::from(style)).copied().unwrap_or("");
         // WBP_MenuHeader.UpdateTitleText (@2528): the PageTitle variable and the text (the header's PreConstruct,
         // which runs after this OnInitialized, reads the variable)
@@ -1394,6 +1462,9 @@ impl LocalPlay {
         run_on::<GridItemList>(cx, g, move |g, cx| g.update_context(cx, &c));
         let nav = find(cx, "WBP_GlobalNav_LocalPlay");
         cx.visit::<GlobalNav, _>(nav, |n, cx| n.update_context_global_nav(cx, ctx, true, true));
+        if let Some(b) = &self.bots {
+            b.update_context(cx, ctx);
+        }
     }
 
     /// Grid Populated @28999: Load Initial State, then ToggleMultiInput(true) @29059
@@ -1688,7 +1759,11 @@ impl LocalPlay {
     fn apply_toggle(&mut self, cx: &mut Cx<'_>, t: f64) {
         let a = ease_in_out(0.0, 1.0, t, 3.0);
         let g = Self::grid(cx);
-        wd(cx, g).opacity = if self.character_mode { a } else { 1.0 - a };
+        let opacity = if self.character_mode { a } else { 1.0 - a };
+        wd(cx, g).opacity = opacity;
+        if let Some(b) = &self.bots {
+            b.show(cx, matches!(style_of(cx), 1 | 2), opacity);
+        }
         let h = if self.character_mode { ease_out(70.0, 700.0, t, 3.0) } else { ease_out(700.0, 70.0, t, 3.0) };
         // WBP_MenuHeader.UpdateHeaderHeight (@2367): the HeaderHeight variable (the header's PreConstruct, after the
         // first step of OnInitialized, sizes Spacer_StripVert by it), SpacerFillVert's height HeaderHeight +
@@ -2020,6 +2095,7 @@ impl Modal for LocalPlay {
     fn post_dismiss(&mut self, cx: &mut Cx<'_>) {
         cx.view.release_pictures(PICTURES_LOCAL);
         cx.view.release_pictures(PICTURES_LOCAL_SKINS);
+        BotSeats::release(cx);
         for i in 0..4 {
             let w = Self::slot_w(cx, i);
             cx.visit::<MatchSetupPlayer, _>(w, |p, cx| p.release_pictures(cx));
@@ -2159,6 +2235,7 @@ impl Controller for LocalPlay {
             }
             L_MAP_CANCELED => self.on_map_selection_canceled(cx),
             L_EXIT => self.exit(cx),
+            B_ADD | B_SETTINGS | B_REMOVE => self.bot_seat_event(cx, id, arg),
             _ => {}
         }
     }
@@ -2185,6 +2262,7 @@ impl Controller for LocalPlay {
                     },
                 );
             }
+            L_BOTS_REFRESH => self.refresh_bots(cx),
             L_BEGIN_SAVE => {
                 self.begin_pending = false;
                 self.save_all_settings(cx);

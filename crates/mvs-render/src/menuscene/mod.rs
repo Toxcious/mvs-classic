@@ -103,6 +103,9 @@ pub struct PodiumStart {
     pub losers: Vec<PodiumRecord>,
     /// The local player won: the colour and trophy planes take the Blue material instance, else the Red one.
     pub you_won: bool,
+    /// (the port's own big matches) Both lists are winners: the losers' list holds the winners past the sequence's
+    /// winner places, who stand on its losers' places as winners.
+    pub big: bool,
 }
 
 /// A record of the podium's lists.

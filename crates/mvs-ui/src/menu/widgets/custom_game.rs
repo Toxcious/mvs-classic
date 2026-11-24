@@ -49,6 +49,10 @@ use crate::slate::{HAlign, Margin, VAlign, Vis, WidgetId};
 
 /// (the port's own) the space between the two columns of the free-for-all grid (CustomGameTeam.asGrid).
 const GRID_GAP: f64 = 40.0;
+/// (the port's own) A row's and an empty slot's height and the space under it: four of them fit above the lobby's
+/// chat (the build's rows are 135 pixels high at 1080p with 30 under them, two to a column).
+const ROW_H: f64 = 132.0;
+const ROW_GAP: f64 = 20.0;
 
 /// (the port's own) The lobby's difficulty of the Expert bot, after EBotDifficulty's Hard (5), offline and online:
 /// its match level is the Expert level (lobby_rules' difficulty - 2).
@@ -643,6 +647,20 @@ const T_SWITCH: u32 = 2;
 const T_BOT_SETTINGS: u32 = 3;
 const T_PROMOTE: u32 = 4;
 
+/// Deviation: a row or an empty slot `ROW_H` high with `ROW_GAP` under it, so a column of four sits above the
+/// chat; the build's are 135 pixels high at 1080p with 30 under them (its columns hold two).
+fn fit_cell(cx: &mut Cx<'_>, w: WidgetId) {
+    let sb = cx.view.tree().find_in(w, "SizeBox_0");
+    wd(cx, sb).h_override = ROW_H;
+    wd(cx, w).pad = Margin { l: 0.0, t: 0.0, r: 0.0, b: ROW_GAP };
+}
+
+/// The column `team`'s empty slots EmptySlot1.., in order.
+fn slots_of(cx: &Cx<'_>, team: WidgetId) -> Vec<WidgetId> {
+    let t = cx.view.tree();
+    (1..=LobbyStyle::FreeForAll.cap()).map_while(|n| t.find_opt(team, &format!("EmptySlot{n}"))).collect()
+}
+
 /// A team's column. The colour of TeamIndex -1 (the free-for-all column) comes from a Select without that case: the
 /// tree's colour stays. Unverified.
 #[derive(Debug, Default)]
@@ -670,9 +688,9 @@ impl CustomGameTeam {
         super::controls::prop_f64(cx, "TeamIndex", 0.0) as i32
     }
 
-    /// EmptySlot1..4.
+    /// EmptySlot1..4, and the free-for-all column's EmptySlot5..8 (`as_grid`).
     pub fn empty_slots(cx: &Cx<'_>) -> Vec<WidgetId> {
-        (1..=4).map(|n| find(cx, &format!("EmptySlot{n}"))).collect()
+        slots_of(cx, cx.w)
     }
 
     #[allow(clippy::too_many_arguments)] // populate: one parameter per field of the Lobby call.
@@ -713,7 +731,7 @@ impl CustomGameTeam {
             // is not decoded).
             if cx.view.tree().widget(w).parent != Some(bx) {
                 cx.view.tree_mut().remove(w);
-                wd(cx, w).pad = Margin { l: 0.0, t: 0.0, r: 0.0, b: 40.0 };
+                fit_cell(cx, w);
                 cx.view.tree_mut().add(bx, w);
             }
             let (p2, l2, f2) = (p.clone(), leader_id.to_string(), facts.as_row());
@@ -733,7 +751,7 @@ impl CustomGameTeam {
         self.players.push((p.account_id.clone(), w));
         let ctx = self.context.clone();
         cx.visit::<CustomGamePlayer, _>(w, |c, cx| c.update_context(cx, &ctx));
-        wd(cx, w).pad = Margin { l: 0.0, t: 0.0, r: 0.0, b: 40.0 };
+        fit_cell(cx, w);
         MenuView::add_child(cx, bx, w, None);
         let me = cx.w;
         cx.visit::<CustomGamePlayer, _>(w, |c, _| {
@@ -752,6 +770,7 @@ impl CustomGameTeam {
         let max = super::controls::prop_f64(cx, "MaxPlayers", 2.0) as i64;
         let open = (max - self.cached_num_players as i64).min(available as i64);
         for (i, s) in Self::empty_slots(cx).into_iter().enumerate() {
+            fit_cell(cx, s);
             wd(cx, s).vis = if open > i as i64 { Vis::Visible } else { Vis::Collapsed };
             let b = cx.view.tree().find_in(cx.view.tree().find_in(s, "btn_InviteBot"), "UI_Interactor");
             interactor::set_interactable(cx, b, can_add_bots);
@@ -778,12 +797,26 @@ impl CustomGameTeam {
             g.h_align = ha;
             g.v_align = va;
             g.fill = fill;
-            g.slot_pad = Margin { l: GRID_GAP / 2.0, t: 0.0, r: GRID_GAP / 2.0, b: 40.0 };
+            g.slot_pad = Margin { l: GRID_GAP / 2.0, t: 0.0, r: GRID_GAP / 2.0, b: ROW_GAP };
         }
         MenuView::add_child(cx, parent, grid, at);
         cx.view.tree_mut().remove(old);
         for s in Self::empty_slots(cx) {
             cx.view.tree_mut().add(grid, s);
+        }
+        // Deviation: the port's big matches have eight free-for-all places; the build's column has four slots, the
+        // others are made here like them.
+        let like = cx.view.tree().props(find(cx, "EmptySlot1")).clone();
+        for n in 5..=LobbyStyle::FreeForAll.cap() {
+            let s = MenuView::create(cx, "WBP_CustomGamePlayer");
+            if let Value::Object(m) = &like {
+                for (k, v) in m {
+                    cx.view.tree_mut().set_prop(s, k, v.clone());
+                }
+            }
+            wd(cx, s).name = format!("EmptySlot{n}");
+            cx.visit::<CustomGamePlayer, _>(s, |c, _| c.slot_is_empty = true);
+            MenuView::add_child(cx, grid, s, None);
         }
         self.grid = Some(grid);
     }
@@ -1341,8 +1374,7 @@ impl CustomGame {
         }
         for i in 0..LOBBY_TEAMS.len() {
             let team = Self::team(cx, i);
-            for n in 1..=4 {
-                let slot = cx.view.tree().find_in(team, &format!("EmptySlot{n}"));
+            for slot in slots_of(cx, team) {
                 let b = cx.view.tree().find_in(slot, "btn_InvitePlayer");
                 let b = cx.view.tree().find_in(b, "UI_Interactor");
                 interactor::set_interactable(cx, b, !local);
@@ -1740,13 +1772,13 @@ impl CustomGame {
         Self::apply_team_caps(cx);
     }
 
-    /// The two team columns' MaxPlayers, the build's 2 a team (only Versus shows them; the build's 1 vs 1 had 1), and
-    /// every column's empty slots: on the drop's click and on every style the lobby applies (a member's lobby follows
-    /// the leader's pick). The columns keep the build's two places though the lobby takes four a team: their layout
-    /// has room for two above the chat.
+    /// The columns' MaxPlayers and every column's empty slots: on the drop's click and on every style the lobby
+    /// applies (a member's lobby follows the leader's pick).
+    /// Deviation: the port's big matches; the build's team columns take 2 (its 1 vs 1 had 1) and its free-for-all
+    /// column 4. Each column shows every place the lobby has, empty ones included.
     fn apply_team_caps(cx: &mut Cx<'_>) {
-        let cap = mvs_protocol::lobby_rules::BUILD_MAX_PLAYERS / 2;
-        for i in 0..2 {
+        for i in 0..3 {
+            let cap = if i < 2 { LobbyStyle::Versus.cap() } else { LobbyStyle::FreeForAll.cap() };
             let t = Self::team(cx, i);
             cx.view.tree_mut().set_prop(t, "MaxPlayers", json!(cap));
         }
@@ -2121,7 +2153,7 @@ impl CustomGame {
                 self.lobby_mut().join_team(id, 1 - team);
                 let (this, other) = (Self::team(cx, team), Self::team(cx, 1 - team));
                 cx.view.tree_mut().remove(*row);
-                wd(cx, *row).pad = Margin { l: 0.0, t: 0.0, r: 0.0, b: 40.0 };
+                fit_cell(cx, *row);
                 let bx = cx.view.tree().find_in(other, "CustomGamePlayers");
                 cx.view.tree_mut().add(bx, *row);
                 cx.visit::<CustomGameTeam, _>(this, |t, cx| {
@@ -2195,8 +2227,7 @@ impl Modal for CustomGame {
                 t.on_bot_settings_change_requested.add(Handler { owner: me, id: team_h(i, K_BOT_SETTINGS) });
                 t.on_join_team_clicked.add(Handler { owner: me, id: team_h(i, K_SWITCH) });
             });
-            for n in 1..=4 {
-                let s = cx.view.tree().find_in(t, &format!("EmptySlot{n}"));
+            for s in slots_of(cx, t) {
                 cx.visit::<CustomGamePlayer, _>(s, |p, _| {
                     p.add_bot_dispatch.add(Handler { owner: me, id: team_h(i, K_ADD_BOT) });
                     p.invite_player_clicked.add(Handler { owner: me, id: team_h(i, K_INVITE) });

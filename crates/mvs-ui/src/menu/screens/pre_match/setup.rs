@@ -16,12 +16,26 @@ use crate::menu::arcade::ArcadeRun;
 use crate::menu::lobby::loadout::BotLoadout;
 use crate::menu::lobby::{LocalLobby, PreMatchPick, SetupSource};
 
+/// The team of a spectator (TeamIndex 4 in the build: no widget, not waited for).
+/// Deviation: the port's big matches have a player on team 4, so a spectator takes a team no player has; the port
+/// makes no spectator.
+pub const SPECTATOR_TEAM: u8 = u8::MAX;
+
+/// The scene's fighter points (CheckMark1-4, PerkInfo1-4): the players the build's screen lays out.
+pub const SCENE_PLAYERS: usize = 4;
+
+/// (the port's own big matches) More players than the scene has points: the screen shows its row of cards
+/// (`card_row`) and no line-up.
+pub fn is_big(setup: &PreMatchSetup) -> bool {
+    setup.players.iter().filter(|p| p.team != SPECTATOR_TEAM).count() > SCENE_PLAYERS
+}
+
 /// A player of the pre-match screen.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct PreMatchPlayer {
     pub account_id: String,
     pub username: String,
-    /// TeamIndex (4: a spectator, no widget, not waited for).
+    /// TeamIndex (`SPECTATOR_TEAM`: a spectator).
     pub team: u8,
     pub is_bot: bool,
     /// A bot's lobby row: its roster key (None: a human's, or a bot with none) and SkinData name ("" the default),

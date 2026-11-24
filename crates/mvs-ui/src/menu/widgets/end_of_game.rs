@@ -500,6 +500,13 @@ const GREEN: Rgba = [0.008023, 0.693872, 0.258183, 1.0];
 const REMATCH_LIMIT: f64 = 12.0;
 /// GetVoteResults: the votes needed by the team style (0 -> 2, 1..3 -> 4).
 const VOTES_NEEDED: [usize; 4] = [2, 4, 4, 4];
+
+/// The votes a rematch needs: the team style's (`VOTES_NEEDED`), every player of the match. Deviation (the port's
+/// big matches): a match of more than four needs every one of its players' votes; the build's table stops at four,
+/// every player of its largest match.
+fn votes_needed(team_style: usize, players: usize) -> usize {
+    VOTES_NEEDED.get(team_style).copied().unwrap_or(4).max(players)
+}
 const RS_DECLINED: &str = "DB9EB7BD42CA912FC3669BB4F06053FA";
 const RS_FINAL_ROUND: &str = "B5A1EC854483F6512C6838B06C3E65CE";
 const RS_ROUND: &str = "A304F86046D31CC30EEFBFA80895DF75";
@@ -681,7 +688,8 @@ impl EOGRematchStatus {
             return;
         }
         let ts = cx.view.session.eog.queue.as_ref().map_or(0, |q| q.team_style);
-        let needed = VOTES_NEEDED.get(ts).copied().unwrap_or(4);
+        let players = cx.view.session.eog.data.as_ref().map_or(0, |d| d.players.len());
+        let needed = votes_needed(ts, players);
         if self.votes.len() < needed {
             return;
         }
