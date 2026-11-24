@@ -173,3 +173,29 @@ fn the_shipped_layout_checks() {
     check(&l).expect("rising");
     assert_eq!(l.key, "rising");
 }
+
+/// A new map over a base takes its blast box, starts, waypoints and item area, parks the floor and composes.
+#[test]
+fn a_starter_over_the_base_composes() {
+    let mut b = base();
+    let full = read(layout());
+    b.blast_boxes = full.blast.clone();
+    b.spawns = full.spawns.clone();
+    b.respawns = full.respawns.clone();
+    b.waypoints = full.waypoints.clone();
+    let area = mvs_data::SpawnArea {
+        level: "L".into(),
+        actor: "A".into(),
+        origin: vec![1.0, 2.0, 3.0],
+        extent: vec![4.0, 5.0, 6.0],
+        root: vec![1.0, 2.0, 3.0],
+        big_object_x: vec![0.0],
+    };
+    let l = starter(&b, std::slice::from_ref(&area), "new", "base");
+    assert_eq!((l.key.as_str(), l.base.as_str(), l.floor.parked), ("new", "base", true));
+    assert!(l.pieces.is_empty() && l.platforms.is_empty() && l.hide.is_empty());
+    assert_eq!(l.items[0].origin, [1.0, 2.0, 3.0]);
+    let c = compose_stage(&b, &[area], &l, &bounds).expect("composed");
+    assert!(c.data.platforms.is_none());
+    assert_eq!(c.data.spawns.len(), 4);
+}

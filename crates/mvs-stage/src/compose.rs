@@ -3,7 +3,7 @@
 use mvs_data::stage::{BlastBox, Edge, Floor, Platform, StageData};
 use mvs_data::{GameData, SpawnArea};
 
-use crate::layout::{BoxSpec, Layout, Piece};
+use crate::layout::{BoxSpec, FloorSpec, ItemArea, Layout, Piece};
 use crate::{LayoutError, Light};
 
 /// The team styles' tags on the starts (the sim's `START_TAGS`) and the players each one starts.
@@ -209,6 +209,36 @@ pub fn compose_stage(
         })
         .collect();
     Ok(ComposedStage { data: d, spawn_areas })
+}
+
+/// A new map over the base `base_key`, before anything is built on it: all of the base's scenery drawn (none of its
+/// blocks kept), no main floor (parked), no platform or solid; the base's blast boxes and corners, starts, waypoints
+/// and item areas, which a layout must have to play. The camera's numbers are the base's (left out).
+pub fn starter(base: &StageData, base_areas: &[SpawnArea], key: &str, base_key: &str) -> Layout {
+    let v3 = |v: &[f64]| [0, 1, 2].map(|i| v.get(i).copied().unwrap_or(0.0));
+    Layout {
+        key: key.to_owned(),
+        base: base_key.to_owned(),
+        blocks: Vec::new(),
+        hide: Vec::new(),
+        pieces: Vec::new(),
+        floor: FloorSpec { parked: true, ..FloorSpec::default() },
+        bot_ground: None,
+        solids: Vec::new(),
+        platforms: Vec::new(),
+        blast: base.blast_boxes.clone(),
+        blast_box_corners: base.blast_box_corners.clone(),
+        spawns: base.spawns.clone(),
+        respawns: base.respawns.clone(),
+        camera: None,
+        camera_center: None,
+        center: None,
+        waypoints: base.waypoints.clone(),
+        items: base_areas
+            .iter()
+            .map(|a| ItemArea { origin: v3(&a.origin), extent: v3(&a.extent), big_object_x: a.big_object_x.clone() })
+            .collect(),
+    }
 }
 
 /// A match's data on the layout: the stage data and spawn areas composed over the base's (`data` loaded on the

@@ -8,7 +8,7 @@ mod layout;
 
 pub use compose::{
     BLAST_BOX, ComposedStage, MAX_PLATFORMS, MeshBounds, PARK_DEPTH, PARK_HALF, START_STYLES, WorldBox, apply, box_of,
-    check, compose_stage, piece_box,
+    check, compose_stage, piece_box, starter,
 };
 pub use layout::{BoxSpec, FloorSpec, ItemArea, Layout, Light, Piece, PlatformSpec};
 
