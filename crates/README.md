@@ -26,7 +26,7 @@ that compare against them skip and say so.
 | `mvs-sim-derive` | `derive(State)` for the sim's rollback state: field-by-field `clone_from` and the desync hash |
 | `mvs-data` | the game's bound data as the sim reads it: fighters, stages, perks, items |
 | `mvs-stage` | custom stages, the port's own: a layout over a base stage and the map's stage data composed from it |
-| `mvs-stage-editor` | the stage editor, a dev program: a layout's stage in a window with its play shapes over it, redrawn as the file changes |
+| `mvs-stage-editor` | the stage editor, a dev program: a layout's stage in a window with its play shapes over it, its pieces picked, moved, copied and deleted with the mouse and egui panels, saved and test played |
 | `mvs-math` | the sim's math: the build's own float32 routines, bit for bit |
 | `mvs-math-check` | long checks of `mvs-math` against a reference and the beta exe's routines, run on request |
 | `mvs-anim` | the clip decoder and pose sampler, the sim's skeleton pose and montage player |

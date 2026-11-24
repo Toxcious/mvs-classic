@@ -18,7 +18,8 @@ use windows::Win32::Graphics::Gdi::{
 };
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::HiDpi::{
-    DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, GetDpiForMonitor, MDT_EFFECTIVE_DPI, SetProcessDpiAwarenessContext,
+    DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, GetDpiForMonitor, GetDpiForWindow, MDT_EFFECTIVE_DPI,
+    SetProcessDpiAwarenessContext,
 };
 use windows::Win32::UI::Input::KeyboardAndMouse::{TME_LEAVE, TRACKMOUSEEVENT, TrackMouseEvent};
 use windows::Win32::UI::Input::{
@@ -539,6 +540,13 @@ impl Window {
     /// Whether the window lost the keyboard since the last call.
     pub fn take_blur(&mut self) -> bool {
         std::mem::take(&mut self.blurred)
+    }
+
+    /// The window's scale: its monitor's DPI over 96 (1 when unknown).
+    pub fn scale(&self) -> f32 {
+        // SAFETY: the window's own handle.
+        let dpi = unsafe { GetDpiForWindow(self.hwnd) };
+        if dpi == 0 { 1.0 } else { dpi as f32 / 96.0 }
     }
 
     /// The window's title (the perf line when the UI is off).

@@ -18,13 +18,13 @@ pub struct Layout {
     /// The base stage's key (`m011`): its sky, lights, fog, post, music and scenery are the map's.
     pub base: String,
     /// The base scenery's blocks (its own animated parts) kept on, by their entry key; the others are stripped.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub blocks: Vec<String>,
     /// The base scenery's instances not drawn, by name.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub hide: Vec<String>,
     /// The pieces added, or moved in place.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub pieces: Vec<Piece>,
     pub floor: FloorSpec,
     /// The Expert bot's reference box, read only when present.
@@ -32,9 +32,9 @@ pub struct Layout {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bot_ground: Option<BoxSpec>,
     /// The solids, in the stage data's own shape.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub solids: Vec<StageSolidData>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub platforms: Vec<PlatformSpec>,
     /// The blast boxes by component name; `CollisionComp` is the one the match plays by.
     pub blast: Map<BlastBox>,
@@ -49,10 +49,10 @@ pub struct Layout {
     pub camera_center: Option<Vec<f64>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub center: Option<StageCenter>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub waypoints: Vec<Waypoint>,
     /// The item spawn areas (MapRandomActorSpawnArea); the first is the one the match spawns in.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub items: Vec<ItemArea>,
 }
 
@@ -69,13 +69,13 @@ pub struct Piece {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
     pub loc: [f64; 3],
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "is_zero")]
     pub rot: [f64; 3],
-    #[serde(default = "one")]
+    #[serde(default = "one", skip_serializing_if = "is_one")]
     pub scale: [f64; 3],
     pub light: Light,
     /// Moved by the base's `floating` block (Sky Arena's level Blueprint), when it is kept.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub floating: bool,
     /// The platform (its name) this piece draws: it moves with it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -84,6 +84,15 @@ pub struct Piece {
 
 fn one() -> [f64; 3] {
     [1.0; 3]
+}
+
+// (a field at its default is not written: a file saved by the editor holds what its author gave)
+fn is_zero(v: &[f64; 3]) -> bool {
+    *v == [0.0; 3]
+}
+
+fn is_one(v: &[f64; 3]) -> bool {
+    *v == one()
 }
 
 /// How a piece is lit: with its own baked lightmap (a base piece only: the lightmap rect travels with it), or as a

@@ -414,6 +414,54 @@ impl Renderer {
     pub fn scenery_pops(&mut self) -> Vec<PopSpec> {
         self.scenery.as_mut().map_or_else(Vec::new, |s| std::mem::take(&mut s.state.pops))
     }
+
+    /// The open scenery's static mesh instances as they are drawn now (the stage editor's picking): each one shown,
+    /// with its name, its mesh's object path and its UE transform (a block's or `scenery_place_instance`'s place
+    /// included). Empty without a scenery.
+    pub fn scenery_instances(&self) -> Vec<DrawnInstance> {
+        let Some(s) = &self.scenery else { return Vec::new() };
+        let mut out = Vec::new();
+        for (j, link) in s.links.iter().enumerate() {
+            let SceneryLink::Instance { id, .. } = link else { continue };
+            let Some(st) = self.statics.get(s.base + j) else { continue };
+            if !s.state.shown[*id] {
+                continue;
+            }
+            let i = &s.state.instances[*id];
+            out.push(DrawnInstance {
+                name: i.name.clone(),
+                mesh: st.pose.mesh.to_string(),
+                loc: i.loc,
+                rot: i.rot,
+                scale: i.scale,
+                to_world: s.state.instance_world(*id),
+            });
+        }
+        out
+    }
+
+    /// The open scenery's instance `name` drawn at the UE transform `m` from now on (the stage editor's drag, until
+    /// the stage is built again); None: back to where it stands. False when the scenery has no such instance.
+    pub fn scenery_place_instance(&mut self, name: &str, m: Option<M4>) -> bool {
+        let Some(s) = &mut self.scenery else { return false };
+        let Some(id) = s.state.instances.iter().position(|i| i.name == name) else { return false };
+        s.state.placed[id] = m;
+        true
+    }
+}
+
+/// A static mesh instance of the scenery as drawn (`Renderer::scenery_instances`).
+#[derive(Clone, Debug)]
+pub struct DrawnInstance {
+    pub name: String,
+    /// Its mesh's object path in the mesh kind.
+    pub mesh: String,
+    /// Its place as the entry (and the layout) has it: UE cm, degrees (pitch, yaw, roll), scale.
+    pub loc: [f64; 3],
+    pub rot: [f64; 3],
+    pub scale: [f64; 3],
+    /// Its UE transform (rows as `stage::transform`'s).
+    pub to_world: M4,
 }
 
 /// The strings of each stage block's data in the file's order, then the events the blocks' code posts by name

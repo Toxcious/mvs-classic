@@ -33,7 +33,7 @@ use self::border::{BlastBorderEntry, blast_border};
 pub use self::host::{
     InstanceId, NullSound, PopSpec, SceneryAnim, SceneryHost, SceneryMatch, SkinRef, SkinnedId, SoundSink, stage_actor,
 };
-pub use self::run::{SceneryLink, SceneryRun};
+pub use self::run::{DrawnInstance, SceneryLink, SceneryRun};
 pub use self::widget::{WidgetPaint, WidgetQuad, WorldWidget};
 use crate::Result;
 use crate::draw::LightmapTextures;
