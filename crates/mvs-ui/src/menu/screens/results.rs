@@ -194,23 +194,23 @@ fn winner_text(cx: &mut Cx<'_>, eog: &EndOfGame, winners: &[usize]) -> WidgetId 
     };
     // WBP_3dTeam's arcade arm first (@1716-2365): "Stage {Number} of {NumRounds}", ArcadeRound and GetNumArcadeLevels
     let arcade = eog.arcade.clone().or_else(|| cx.view.session.arcade.round_played().cloned());
+    // Deviation: a Teams match won by a side of one (a custom Versus lobby's 2v1) takes 1 vs 1's name and "Winner";
+    // the build's Teams match always has two winners.
+    let team = eog.team_style == 1 && winners.len() != 1;
     let small = if let Some(a) = arcade {
         t(cx, TEAM_ARCADE_STAGE)
             .replace("{Number}", &a.round.to_string())
             .replace("{NumRounds}", &num_arcade_levels(a.difficulty).to_string())
     } else if queue && n > 0 {
         set_text(cx)
-    } else if eog.team_style == 1 {
+    } else if team {
         " ".to_string()
     } else {
         t(cx, TEAM_WINNER)
     };
     // Unverified: "WINNER" is the port's own literal; the build's team name text is not read.
-    let big = if eog.team_style == 1 {
-        "WINNER".to_string()
-    } else {
-        winners.first().map_or(String::new(), |&i| eog.name(i).to_string())
-    };
+    let big =
+        if team { "WINNER".to_string() } else { winners.first().map_or(String::new(), |&i| eog.name(i).to_string()) };
     let w = MenuView::create(cx, WINNER_TEXT);
     let b = cx.view.tree().find_in(w, "bigText");
     wd(cx, b).text = big;

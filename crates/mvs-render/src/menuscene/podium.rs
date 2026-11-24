@@ -64,6 +64,19 @@ fn actor_of(team_style: u8, index: usize, winner: bool) -> Option<usize> {
     if winner { w[..wn].get(index).copied() } else { l[..ln].get(index).copied() }
 }
 
+/// The team style whose places a result list takes: a 2v2 list of one (the port's Versus lobby plays 2 against 1 as
+/// a 2v2 match) takes the 1v1's.
+/// Deviation: the build never has a 2v2 podium with a side of one; the port stands its one winner or loser where the
+/// 1v1 stands its own (actor and Winner2 / Loser2 offset), with no empty place.
+fn side_style(team_style: u8, count: usize) -> u8 {
+    if team_style == 1 && count == 1 { 0 } else { team_style }
+}
+
+/// The preview actor of the `index`th of `count` winners or losers (`actor_of` by the list's `side_style`).
+fn actor_in(team_style: u8, count: usize, index: usize, winner: bool) -> Option<usize> {
+    actor_of(side_style(team_style, count), index, winner)
+}
+
 /// BeginPlay's world offsets of the target points by game mode (level Blueprint @7502..7991).
 fn offset_of(team_style: u8, point: &str) -> [f64; 3] {
     match (team_style, point) {
@@ -192,6 +205,14 @@ struct Started {
     winners: Vec<PodiumRecord>,
     losers: Vec<PodiumRecord>,
     events: Vec<SceneEvent>,
+}
+
+impl Started {
+    /// The preview actor of the `index`th winner or loser (`actor_in` by the list's length).
+    fn actor(&self, index: usize, winner: bool) -> Option<usize> {
+        let count = if winner { self.winners.len() } else { self.losers.len() };
+        actor_in(self.team_style, count, index, winner)
+    }
 }
 
 /// A world space widget component and the picture it shows (None: hidden).
@@ -326,7 +347,7 @@ impl PodiumLevel {
         let Some(rec) = rec else { return Ok(()) };
         rec.banner = slug.map(str::to_owned);
         let (index, winner) = if slot < n { (slot, true) } else { (slot - n, false) };
-        if let Some(pa) = actor_of(s.team_style, index, winner)
+        if let Some(pa) = s.actor(index, winner)
             && let Some(b) = self.banners.iter_mut().find(|b| b.pa == pa)
         {
             b.slug = slug.unwrap_or("").to_owned();
@@ -522,17 +543,30 @@ impl PodiumLevel {
         if index >= if winner { s.winners.len() } else { s.losers.len() } {
             return None;
         }
-        let pa = actor_of(s.team_style, index, winner)?;
+        let pa = s.actor(index, winner)?;
         (pa < self.data.previews.len()).then_some(pa)
     }
 
     /// The record of a preview actor: its character, skin and banner slug.
     fn record_of(&self, pa: usize) -> Option<&PodiumRecord> {
         let s = self.started.as_ref()?;
-        fn find(list: &[PodiumRecord], team_style: u8, winner: bool, pa: usize) -> Option<&PodiumRecord> {
-            (0..list.len()).find(|&i| actor_of(team_style, i, winner) == Some(pa)).map(|i| &list[i])
+        let find = |winner: bool| {
+            let list = if winner { &s.winners } else { &s.losers };
+            (0..list.len()).find(|&i| s.actor(i, winner) == Some(pa)).map(|i| &list[i])
+        };
+        find(true).or_else(|| find(false))
+    }
+
+    /// The team style whose places preview actor `pa` takes: its result list's (`side_style`), the match's when no
+    /// record stands there (0 before the start).
+    fn style_of(&self, pa: usize) -> u8 {
+        let Some(s) = self.started.as_ref() else { return 0 };
+        for (winner, list) in [(true, &s.winners), (false, &s.losers)] {
+            if (0..list.len()).any(|i| s.actor(i, winner) == Some(pa)) {
+                return side_style(s.team_style, list.len());
+            }
         }
-        find(&s.winners, s.team_style, true, pa).or_else(|| find(&s.losers, s.team_style, false, pa))
+        s.team_style
     }
 
     /// The skin values of the fighter a preview actor takes (ChangeFighter): its record's skin's (the skin's EOG
@@ -556,15 +590,16 @@ impl PodiumLevel {
 
     fn facing_left(&self, pa: usize) -> bool {
         let slot = &self.data.previews[pa];
-        let ts = self.started.as_ref().map_or(0, |s| s.team_style);
+        let ts = self.style_of(pa);
         slot.facing_left && !(ts == 0 && slot.tag == "Player3")
     }
 
-    /// A preview root's location: its target point, the game mode's offset and the skin's EOG entry.
+    /// A preview root's location: its target point, the game mode's offset (a 2v2 list of one: the 1v1's,
+    /// `side_style`) and the skin's EOG entry.
     fn root_loc(&self, pa: usize) -> Result<[f64; 3]> {
         let slot = &self.data.previews[pa];
         let (f, _) = self.fighter_of(pa)?;
-        let ts = self.started.as_ref().map_or(0, |s| s.team_style);
+        let ts = self.style_of(pa);
         let ov = if slot.tag == "Player2" || slot.tag == "Player3" { &f.winner } else { &f.loser };
         let off = offset_of(ts, &slot.point);
         let my = if self.facing_left(pa) { -1.0 } else { 1.0 };
@@ -663,7 +698,7 @@ impl PodiumLevel {
     /// The fighter of a preview actor (preview and ShowFighter).
     fn make_fighter(&self, cx: &LevelCx<'_>, pa: usize, is_winner: bool) -> Result<Fighter> {
         let slot = &self.data.previews[pa];
-        let ts = self.started.as_ref().map_or(0, |s| s.team_style);
+        let ts = self.style_of(pa);
         let rec = self.record_of(pa).ok_or_else(|| format_error("podium", format!("no record for actor {pa}")))?;
         let (data, skin) = self.fighter_of(pa)?;
         let left = self.facing_left(pa);
@@ -1138,6 +1173,38 @@ mod tests {
         assert_eq!(channel_of("Player3", 0), 1);
         assert_eq!(channel_of("Player1", 2), 2);
         assert_eq!(channel_of("Player1", 0), 0);
+    }
+
+    fn started(team_style: u8, winners: usize, losers: usize) -> Started {
+        Started {
+            team_style,
+            winners: vec![PodiumRecord::default(); winners],
+            losers: vec![PodiumRecord::default(); losers],
+            events: Vec::new(),
+        }
+    }
+
+    /// A 2v2 match of three: the pair takes the 2v2's places, the one the 1v1's (its actor and offset), no empty
+    /// place; a full 2v2 and a 1v1 as before.
+    #[test]
+    fn a_side_of_one_takes_the_one_v_one_place() {
+        // a pair wins: winners on actors 1 and 2, the lone loser on the 1v1 loser's actor 3
+        let s = started(1, 2, 1);
+        assert_eq!([s.actor(0, true), s.actor(1, true)], [Some(1), Some(2)]);
+        assert_eq!([s.actor(0, false), s.actor(1, false)], [Some(3), None]);
+        // the lone player wins: the 1v1 winner's actor 2, the pair loses on actors 0 and 3
+        let s = started(1, 1, 2);
+        assert_eq!([s.actor(0, true), s.actor(1, true)], [Some(2), None]);
+        assert_eq!([s.actor(0, false), s.actor(1, false)], [Some(0), Some(3)]);
+        assert_eq!(side_style(1, 1), 0);
+        assert_eq!(offset_of(side_style(1, 1), "Winner2"), [0.0, 325.0, 0.0]);
+        // unchanged: a full 2v2, a 1v1, free for all
+        let s = started(1, 2, 2);
+        assert_eq!([s.actor(0, false), s.actor(1, false)], [Some(0), Some(3)]);
+        assert_eq!(side_style(1, 2), 1);
+        let s = started(0, 1, 1);
+        assert_eq!([s.actor(0, true), s.actor(0, false)], [Some(2), Some(3)]);
+        assert_eq!(side_style(2, 1), 2);
     }
 
     /// The Medium shake lives 0.095 s and returns to rest.

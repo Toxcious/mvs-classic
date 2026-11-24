@@ -191,7 +191,13 @@ impl Controller for EOGMatchResults {
         set_text(cx, "ModeLabel_1", &mode);
         // Deviation: the build's QueueLabel is the queue config's display name (ParseMatchData of "1v1" / "2v2" /
         // "ffa", GameModes spec 06); the port types its own three texts, which no Game.locres key holds as such.
-        let q = ["1 vs 1", "Teams", "Free For All"].get(usize::from(d.team_style)).copied().unwrap_or("");
+        let mut q = ["1 vs 1", "Teams", "Free For All"].get(usize::from(d.team_style)).copied().unwrap_or("");
+        // Deviation: a Teams match whose sides differ in size (a custom Versus lobby's 2v1) is named "Versus", the
+        // lobby's own name for it; the build has no such match.
+        let side = |t: i32| d.players.iter().filter(|p| p.team_index == t).count();
+        if d.team_style == 1 && side(0) != side(1) {
+            q = crate::menu::custom_text::VERSUS;
+        }
         set_text(cx, "QueueLabel", q);
     }
 }

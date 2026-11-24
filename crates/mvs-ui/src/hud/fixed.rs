@@ -683,6 +683,10 @@ impl Scoreboard {
         let many = occupied.len() > 2;
         let by_slot = if many { [fa, fb, fc, fd] } else { [fa, fc, fb, fd] };
         let slot_w = |k: usize| occupied.get(k).and_then(|&s| by_slot.get(s).copied());
+        // Deviation: a 2v2 match of three (the port's Versus lobby plays 2 against 1 as a 2v2) leaves out the slot of
+        // the player index no player has: the side of one shows its one slot, as a 1v1's side. The build's 2v2
+        // always adds all four (below).
+        let held = |i: usize| mode != 2 || i < players.len();
         if mode == 4 {
             put(t_, left, slot_w(0), 1);
             if many {
@@ -691,7 +695,7 @@ impl Scoreboard {
         } else if mode != 5 {
             // (the port's own Waves context: the player's slot alone, FixedA on the left, as the Lab's one player)
             put(t_, left, Some(fa), 1);
-            if four {
+            if four && held(2) {
                 put(t_, left, Some(fb), 1);
             }
         }
@@ -710,7 +714,7 @@ impl Scoreboard {
             }
         } else if mode != 5 && mode != MODE_WAVES {
             put(t_, right, Some(fc), 2);
-            if four {
+            if four && held(3) {
                 put(t_, right, Some(fd), 2);
             }
         }
@@ -732,7 +736,7 @@ impl Scoreboard {
         }
         let mut slots: [Option<Fixed>; 4] = [None, None, None, None];
         for (w, i, o) in place {
-            // A slot without a player (2v2 or Free For All with fewer than four) keeps its place in the row and is
+            // A slot without a player (Free For All with fewer than four) keeps its place in the row and is
             // initialised like any other: LayoutUIForMode adds all four, Init(Broker, Player Index) runs on each
             // (Scoreboard @57-285) and no widget of the slot tests IsActive or the player count.
             let p = players.get(i).cloned().unwrap_or_else(|| no_player(i));

@@ -769,7 +769,14 @@ impl Hud {
         let stage = setup.arcade.map(|a| arcade_stage(text, CD_ARCADE_STAGE, "{Round}", a));
         let countdown = (1..4).contains(&setup.mode).then(|| {
             let style = usize::from(setup.mode - 1);
-            Countdown::new(b, text, style, setup.max_score, setup.stocks, setup.wheel.is_some(), stage.as_deref())
+            let mut c =
+                Countdown::new(b, text, style, setup.max_score, setup.stocks, setup.wheel.is_some(), stage.as_deref());
+            // Deviation: a Teams match with sides of different sizes (2v1) shows each side's own count.
+            let sizes = [0, 1].map(|t| setup.players.iter().filter(|p| p.team == t).count());
+            if style == 1 && sizes[0] != sizes[1] {
+                c.set_sides(text, sizes);
+            }
+            c
         });
         // UI_Game MatchEnded: EnemyWin = not a spectator, not local play, my team is not the winner, and
         // (IsPlayingOnline or Is1v1BotMatch); the port's local custom game takes IsPlayingOnline as true (a match
@@ -2538,6 +2545,42 @@ mod tests {
         assert_eq!((five.text.as_str(), q, five.lifetime), ("High Five!!", false, 0.5));
         let (sale, q) = pop(PopKind::FinnSale, 0.0);
         assert_eq!((sale.text.as_str(), q, sale.lifetime), ("Going Out Of Business!", true, 1.0));
+    }
+
+    /// A custom Versus lobby's 2v1 (Teams, three players, team = slot % 2): the scoreboard has no slot for a fourth
+    /// player, and the countdown says 2 VS 1 (needs the dev store).
+    #[test]
+    fn two_v_one_scoreboard_and_countdown() {
+        use mvs_sim::setup::{MatchPlayer, MatchSetup, TeamStyle};
+        let Ok(store) = mvs_store::Store::open(mvs_store::dev_store_dir()) else { return };
+        let player =
+            |t: u8| MatchPlayer { character: Some("shaggy".to_owned()), team: Some(t), ..MatchPlayer::default() };
+        let ms = MatchSetup {
+            players: vec![player(0), player(1), player(0)],
+            team_style: TeamStyle::TwoVsTwo,
+            ..MatchSetup::default()
+        };
+        let Some(h) = mvs_sim_trace::harness::fresh(&ms, 1) else { return };
+        let bundle = Bundle::load(&store, "hud").expect("the hud bundle");
+        let text = GameText::load(&store).expect("the game text");
+        let hud = Hud::new(&bundle, &text, &h.w, &setup(2, &[0, 1, 0], &[false, true, true])).expect("the HUD");
+        assert!((0..3).all(|i| hud.scoreboard.slot_parts(i).is_some()), "the three players' slots");
+        assert!(hud.scoreboard.slot_parts(3).is_none(), "no fourth slot");
+        let numbers = |hud: &Hud| {
+            let c = hud.countdown.as_ref().expect("the countdown");
+            ["VS_Number_Left", "VS_Number_Right"].map(|n| {
+                let w = c.t.find_in(c.t.find(n), "MainText");
+                c.t.widget(w).text.clone()
+            })
+        };
+        assert_eq!(numbers(&hud), ["2", "1"]);
+        // A full 2v2 keeps all four slots and "2" on both sides.
+        let ms = MatchSetup { players: vec![player(0), player(1), player(0), player(1)], ..ms };
+        let Some(h) = mvs_sim_trace::harness::fresh(&ms, 1) else { return };
+        let s = setup(2, &[0, 1, 0, 1], &[false, true, true, true]);
+        let hud = Hud::new(&bundle, &text, &h.w, &s).expect("the HUD");
+        assert!((0..4).all(|i| hud.scoreboard.slot_parts(i).is_some()), "the four slots");
+        assert_eq!(numbers(&hud), ["2", "2"]);
     }
 
     /// Velma's GlassesOff blur: up only in an online match (IsPlayingOnline) for a live local Velma whose
