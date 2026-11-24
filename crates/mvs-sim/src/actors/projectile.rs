@@ -1747,12 +1747,15 @@ fn follow_id(w: &mut World, id: ProjectileId) {
 /// `attachToSocket`: K2_AttachToComponent(the Mesh of f, socket, SnapToTarget) and K2_SetActorRelativeLocation((0,
 /// relY, relZ)) on an actor that is not attached (C023A_Car_SpawnedActor UpdateDriverInfo @327-888, a new driver):
 /// it rides the socket of f's pose (its own sampler's for a fighter other than the owner), its movement deactivated
-/// with the Velocity it had (the attached actor's `attached_vel`).
+/// with the Velocity it had (the attached actor's `attached_vel`). SnapToTarget snaps the rotation too: the actor
+/// turns with f's mesh, so its yaw is f's facing from then on (`follow`), not the side it spawned with (an item car
+/// the wheel's CompSpawnActor made at an identity rotation).
 pub fn attach_to_socket(w: &mut World, id: ProjectileId, f: FighterId, socket: &str, rel_y: Real, rel_z: Real) {
     let own = pm_ref(w, id).owner == Some(f);
     let bs = sampler(w, if own { data_fighter(pm_ref(w, id)) } else { f });
     let si = sock(socket_index(w, bs, &format!("socket:{socket}")));
     let p = pm(w, id);
+    p.spawn_side = None;
     p.parent_fighter = if own { None } else { Some(f) };
     p.socket = si;
     p.rel = (rel_y, rel_z);
