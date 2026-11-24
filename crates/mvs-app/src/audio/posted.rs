@@ -443,6 +443,7 @@ pub const POSTED: &[(&str, &[&str])] = &[
     ("ui_match_select_gamemode", &["menu"]),
     ("ui_match_select_unclick", &["menu"]),
     ("ui_menu_character_hover", &["menu"]),
+    ("ui_menu_collection_character_hover", &["ui"]),
     ("ui_menu_confirm", &["menu", "sim"]),
     ("ui_menu_global_back_escape", &["menu"]),
     ("ui_menu_global_click_close", &["menu"]),

@@ -1228,13 +1228,17 @@ impl Hud {
     }
 
     /// (the port's own) The Chaos Wheel after a step's events, off the status the app set for it: the roll's sound
-    /// when the next mutator is drawn, the landing's when the spin lands and the change's at the change. The card
-    /// shows the change itself (its landing and its punch): no text over the screen repeats the name.
+    /// when the next mutator is drawn, a click at each name the reel passes, the landing's when the spin lands and
+    /// the change's at the change. The card shows the change itself (its landing and its punch): no text over the
+    /// screen repeats the name.
     fn observe_wheel(&mut self) {
         let Some(c) = &mut self.wheel_card else { return };
         let seen = c.observe(self.wheel.as_ref());
         if seen.rolled {
             self.sounds.push(wheel::ROLL_SOUND.to_owned());
+        }
+        if seen.click {
+            self.sounds.push(wheel::CLICK_SOUND.to_owned());
         }
         if seen.landed {
             self.sounds.extend(wheel::LAND_SOUNDS.map(String::from));
