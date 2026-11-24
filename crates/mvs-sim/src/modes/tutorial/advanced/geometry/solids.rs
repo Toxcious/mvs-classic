@@ -138,6 +138,7 @@ impl Held {
             half_extent: class.half(),
             rot,
             component: class.component(),
+            flags: None,
         };
         add_runtime_solid(w, spec, &d).then_some(Held { class, center, rot, spec, gone: None })
     }

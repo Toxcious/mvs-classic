@@ -474,6 +474,9 @@ pub struct RuntimeSolidSpec {
     pub rot: Option<[Real; 3]>,
     /// The collision component's name (a trace's hit component).
     pub component: crate::names::Name,
+    /// A Floor box's flags where they are not the class's (`FLOOR_FLAGS`): a solid of the port's own that
+    /// items pass. `None` in every solid of the build.
+    pub flags: Option<i32>,
 }
 
 /// A piece a stage's code moves: a solid of `StageState::solids` or a moving pass-through platform (by its index in
@@ -485,7 +488,8 @@ pub enum StagePiece {
 }
 
 fn entry(w: &World) -> Option<StageEntry> {
-    w.registry.stages.get(&w.data.stage.name).copied()
+    let name = &w.data.stage.name;
+    w.registry.stages.get(name).copied().or_else(|| crate::stages::statics::custom_entry(name))
 }
 
 fn run(w: &World) -> &StageState {
@@ -507,7 +511,7 @@ fn v3(v: &[f64]) -> [Real; 3] {
 }
 
 /// A solid's shape as `section` reads it.
-pub(crate) fn shape_of(d: &StageSolidData) -> SolidShape {
+pub fn shape_of(d: &StageSolidData) -> SolidShape {
     let (c, e) = (v3(&d.center), v3(&d.half_extent));
     match d.kind {
         SolidKind::Box => SolidShape::Box { c: c.map(f64::from), e: e.map(f64::from) },
@@ -608,7 +612,7 @@ pub fn make_stage_run(w: &mut World) {
         warn_text(w, &format!("stage not entered: {} (sim/stages: no stage sim)", sd.name));
     }
     let placed_n = sd.placed.as_ref().map_or(0, Vec::len);
-    let moving = sd.platforms.as_ref().is_some_and(|p| p.iter().any(|p| p.moving.is_some()));
+    let moving = sd.platforms.as_ref().is_some_and(|p| p.iter().any(|p| p.moving.is_some() || p.rise.is_some()));
     let hooked = h.is_some_and(|h| {
         h.create.is_some()
             || h.tickers.is_some()
@@ -986,17 +990,23 @@ fn make_solid(d: &StageSolidData) -> StageSolid {
 
 /// `makeMovingPlatforms` (`make_stage_run`, at the load: `IDLE`): their state, and BasePlatformBP BeginPlay @656 ->
 /// @15: with Moving (authority; every peer here), Delay(2.0) @196, whose link @251 is Move Platform(ActorLocation,
-/// CurrentCurve) (`platform_delayed`). No match-start or player gate precedes it.
+/// CurrentCurve) (`platform_delayed`). No match-start or player gate precedes it. A layout's rising platform
+/// (the port's own) takes the same state and no Delay: it rises from the first step (`rise`).
 fn make_moving_platforms(w: &mut World) {
     let data = std::sync::Arc::clone(&w.data);
     for (i, d) in data.stage.platforms.iter().flatten().enumerate() {
-        let Some(mv) = &d.moving else { continue };
-        if mv.curves.is_empty() {
+        let delayed = match (&d.moving, &d.rise) {
+            (Some(_), _) => true,
+            (None, Some(_)) => false,
+            (None, None) => continue,
+        };
+        if d.moving.as_ref().is_some_and(|mv| mv.curves.is_empty()) {
             warn_text(w, &format!("moving platform with no PlatformCurves: {}", d.name));
             continue;
         }
         let p = &mut w.stage.stage_platforms[i];
         p.moving = Some(true);
+        p.last_move_z = Some(0.0);
         let c = v3(&d.center);
         let owner = PLATFORM_OWNER - i32::try_from(i).expect("a platform index");
         let r = PlatformRun {
@@ -1012,7 +1022,9 @@ fn make_moving_platforms(w: &mut World) {
             m: StageMoved { owner, ev: -1, ..StageMoved::default() },
         };
         run_mut(w).platforms.push(r);
-        stage_delay(w, owner, DELAY_NODE, 2.0, DELAY_LINK);
+        if delayed {
+            stage_delay(w, owner, DELAY_NODE, 2.0, DELAY_LINK);
+        }
     }
 }
 
@@ -1147,6 +1159,7 @@ pub fn stage_solids_moved(run: &mut StageState) {
 /// class (`base_platform_next`), the others' to the stage's timer hook with the action's owner.
 fn stage_moves(w: &mut World, h: Option<StageEntry>) {
     let dt = DELTA_SECONDS;
+    let data = std::sync::Arc::clone(&w.data);
     let r = run_mut(w);
     let mut links = std::mem::take(&mut r.links);
     for s in &mut r.solids {
@@ -1156,7 +1169,10 @@ fn stage_moves(w: &mut World, h: Option<StageEntry>) {
     }
     for k in 0..r.platforms.len() {
         let p = &mut run_mut(w).platforms[k];
-        if update(&mut p.m, dt) {
+        let rising = data.stage.platforms.as_ref().and_then(|d| d.get(p.index as usize)).and_then(|d| d.rise.as_ref());
+        if let Some(rs) = rising {
+            rise(p, rs, dt);
+        } else if update(&mut p.m, dt) {
             links.push((p.m.owner, p.m.ev));
         }
         let i = p.index;
@@ -1176,6 +1192,27 @@ fn stage_moves(w: &mut World, h: Option<StageEntry>) {
     if let Some(r) = w.stage_run.as_mut() {
         r.links = links;
     }
+}
+
+/// `rise`: a layout's rising platform's pass (the port's own): up by its speed x dt; past its top (the box's
+/// centre, UE Z) back down by the rise's height. The pass's move is the climb even at the wrap, so a fighter based
+/// on it is carried the climb and left where the platform was (its top is above the blast box: he is out by then).
+/// Its LastMove.Z, which the one-way gate takes off the top, is the tick's climb (the build has no rise: Move
+/// Platform's value is a distance over frames too).
+// Unverified: a rider still on it at the wrap (one who cannot be ringed out) is left in the air where it was, and a
+// fighter under its bottom line when it comes back is passed through.
+fn rise(p: &mut PlatformRun, rs: &mvs_data::stage::PlatformRise, dt: Real) {
+    let step = crate::math::narrow(rs.speed) * dt;
+    p.last_move_z = step;
+    let o = &mut p.m;
+    o.vx = o.mx / dt;
+    o.vy = o.my / dt;
+    o.dy += step;
+    if p.cy + o.dy > crate::math::narrow(rs.top) {
+        o.dy -= crate::math::narrow(rs.top - rs.bottom);
+    }
+    o.mx = 0.0;
+    o.my = step;
 }
 
 /// One piece's pass: true when its action ended (it is gone by then: a call at the link makes a new one).
@@ -1204,12 +1241,14 @@ fn update(o: &mut StageMoved, dt: Real) -> bool {
 }
 
 /// `placePlatform`: a moving platform's box, move and velocity where its state says (the Platform fields the
-/// fighters read).
+/// fighters read), with its LastMove.Z for the one-way gate (ShouldIgnoreCollision @0-1148).
 fn place_platform(w: &mut World, i: u32) {
     let Some(r) = w.stage_run.as_ref().and_then(|r| r.platforms.iter().find(|p| p.index == i)) else { return };
     let (l, rt, t, b, m) =
         (r.l0 + r.m.dx, r.r0 + r.m.dx, r.t0 + r.m.dy, r.b0 + r.m.dy, (r.m.mx, r.m.my, r.m.vx, r.m.vy));
+    let last_move_z = r.last_move_z;
     let p = &mut w.stage.stage_platforms[i as usize];
+    p.last_move_z = Some(last_move_z);
     p.left = l;
     p.right = rt;
     p.top = t;
@@ -1365,7 +1404,7 @@ pub fn add_runtime_solid(w: &mut World, spec: i32, d: &RuntimeSolidSpec) -> bool
         }
         RuntimeBox::Platform(k)
     };
-    let flags = if d.floor { FLOOR_FLAGS } else { 0 };
+    let flags = if d.floor { d.flags.unwrap_or(FLOOR_FLAGS) } else { 0 };
     let s = RuntimeSolid {
         spec,
         component: d.component,

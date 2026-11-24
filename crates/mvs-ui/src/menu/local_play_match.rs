@@ -237,13 +237,18 @@ pub fn begin_local_play_match(
     let alias = team_style_alias(style);
     // BPI_CreateLocalPlayers (PGI @28113): local players 0..{1,3,3,1}[style], "Player n" each (CreatePlayerData
     // @18330; N4: the player index is the local player's)
-    let count = [2, 4, 4, 2][usize::from(style)];
+    // Deviation: the port's own big matches: Teams and Free For All take every seat of the preferences, up to eight;
+    // the seats past the pads' four are bots (the build's Local Play has four seats and no bot).
+    let pads = mvs_settings::LOCAL_PLAY_PADS;
+    let seats = prefs.players.len().clamp(pads, mvs_settings::LOCAL_PLAY_MAX);
+    let count = [2, seats, seats, 2][usize::from(style)];
+    let no_seat = mvs_settings::LocalPlayPlayer::default();
     let mut players = Vec::new();
     let mut usernames = Vec::new();
     let mut humans = Vec::new();
     let perk_ids = &view.bundle.menu.as_ref()?.perks;
     for i in 0..count {
-        let s = &prefs.players[i];
+        let s = prefs.players.get(i).unwrap_or(&no_seat);
         // SetPlayerSelections (@1286): AssignPlayerAndTeamIndex(index, teamIndex) @55, AssignFighter of the slug's
         // CharacterData @218, AssignSkin @641 (the skin skinReference loads @524: a path no skin of the fighter has
         // loads none, the default), the perks @1561-1681 (a slug the data lacks is a null entry, which the match
@@ -279,24 +284,44 @@ pub fn begin_local_play_match(
                 .map_or("", |k| k.name.as_str());
             loadout::picked_skin(fi, name)
         };
+        // (a bot's seat: its lobby difficulty as the match's level; every seat's team below the style's team count,
+        // a bot's its own in Free For All: `LocalPlaySettings::seat_team`)
+        let bot = i >= pads;
+        let team = prefs.seat_team(i);
         players.push(MatchPlayer {
-            bot: false,
-            team: Some(s.team_index),
+            bot,
+            difficulty: bot.then(|| mvs_sim::math::narrow(f64::from(s.bot_difficulty.clamp(2, 6) - 2))),
+            team: Some(team),
             character: fighter.map(str::to_string),
             skin: (!skin.is_empty()).then_some(skin),
             perks: mvs_sim::setup::perk_list(&perks),
             ..MatchPlayer::default()
         });
-        usernames.push(format!("Player {}", i + 1));
+        usernames.push(if bot {
+            mvs_protocol::lobby_rules::bot_name(fighter.unwrap_or(""))
+        } else {
+            format!("Player {}", i + 1)
+        });
         // slot i is local player i, whose device is the menu's local player i's
-        if let Some(device) = devices.get(i).copied().flatten() {
+        if let Some(device) = devices.get(i).copied().flatten().filter(|_| !bot) {
             humans.push(LocalHuman { slot: i, device, set: i });
         }
     }
     // Maps: GetMapsFromSlugs(prefs Maps), Array_Random, LoadAsset -> OnLoad (@1723)
+    // (the port's own big matches: of the selection, the maps whose stage holds one; none starts no match)
+    let team_style = match style {
+        0 => TeamStyle::OneVsOne,
+        1 => TeamStyle::TwoVsTwo,
+        _ => TeamStyle::FreeForAll,
+    };
+    let big = count > pads;
     let maps = &view.bundle.menu.as_ref()?.maps;
-    let names: Vec<&String> =
-        prefs.maps.iter().filter_map(|slug| maps.iter().find(|(_, m)| m.slug == *slug).map(|(n, _)| n)).collect();
+    let names: Vec<&String> = prefs
+        .maps
+        .iter()
+        .filter_map(|slug| maps.iter().find(|(_, m)| m.slug == *slug).map(|(n, _)| n))
+        .filter(|n| !big || view.bundle.map_holds_big(n, team_style))
+        .collect();
     if names.is_empty() {
         return None;
     }
@@ -305,11 +330,7 @@ pub fn begin_local_play_match(
     let map = names[pick].clone();
     let level = maps.get(&map).map(|m| m.level.clone()).unwrap_or_default(); // MapData.Level (GetLevelAssetPath)
     let mut setup = MatchSetup {
-        team_style: match style {
-            0 => TeamStyle::OneVsOne,
-            1 => TeamStyle::TwoVsTwo,
-            _ => TeamStyle::FreeForAll,
-        },
+        team_style,
         players,
         rules: Some(Rules {
             knockouts_to_win: if style == 2 { 0.0 } else { mvs_sim::math::narrow(f64::from(prefs.ringouts)) },
@@ -327,8 +348,8 @@ pub fn begin_local_play_match(
         &mut setup,
         &settings.hydra,
         view.roster(),
-        &mut |_, i| ring_out_asset_of(&settings.hydra, &prefs.players[i].ringout_slug),
-        &mut |_, i| prefs.players[i].banner_slug.clone(),
+        &mut |_, i| ring_out_asset_of(&settings.hydra, &prefs.players.get(i).unwrap_or(&no_seat).ringout_slug),
+        &mut |_, i| prefs.players.get(i).unwrap_or(&no_seat).banner_slug.clone(),
         &mut |_, i| Some(crate::menu::prefs::sim_input_prefs(&settings.input, i)),
     );
     let lobby = LobbyMatch { setup, me: 0, usernames, map: Some(map.clone()), humans: Some(humans), lobby: None };
@@ -340,6 +361,96 @@ pub fn begin_local_play_match(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::bundle::{Bundle, FighterInfo, MapData, MenuData, RosterEntry};
+    use crate::text::GameText;
+    use std::sync::Arc;
+
+    /// A view of one fighter and two maps: `map_big` on a stage that holds a big Free For All, `map_small` not.
+    fn eight_seat_view() -> MenuView {
+        let map = |slug: &str, level: &str| MapData {
+            slug: slug.to_owned(),
+            level: level.to_owned(),
+            levels: vec![level.to_owned()],
+            ..MapData::default()
+        };
+        let menu = MenuData {
+            roster: vec![RosterEntry {
+                slug: "character_shaggy".to_owned(),
+                fighter: Some("shaggy".to_owned()),
+                ..RosterEntry::default()
+            }],
+            fighters: [(
+                "shaggy".to_owned(),
+                FighterInfo { slug: "character_shaggy".to_owned(), ..FighterInfo::default() },
+            )]
+            .into_iter()
+            .collect(),
+            maps: [("map_big".to_owned(), map("s_big", "L_big")), ("map_small".to_owned(), map("s_small", "L_small"))]
+                .into_iter()
+                .collect(),
+            ..MenuData::default()
+        };
+        let bundle = Bundle {
+            menu: Some(menu),
+            stages: vec![("L_big".to_owned(), "big".to_owned()), ("L_small".to_owned(), "small".to_owned())],
+            big_stages: vec![("big".to_owned(), TeamStyle::FreeForAll), ("big".to_owned(), TeamStyle::TwoVsTwo)],
+            ..Bundle::default()
+        };
+        MenuView::new(Arc::new(bundle), Arc::new(GameText::default()), [1920, 1080])
+    }
+
+    #[test]
+    fn an_eight_seat_free_for_all_fills_the_seats_past_the_pads_with_bots() {
+        let view = eight_seat_view();
+        let mut settings = Settings::default();
+        let lp = &mut settings.local_play;
+        lp.team_style = 2;
+        lp.maps = vec!["s_small".to_owned(), "s_big".to_owned()];
+        lp.players = (0..8usize)
+            .map(|i| mvs_settings::LocalPlayPlayer {
+                character_slug: "character_shaggy".to_owned(),
+                team_index: if i < 4 { u8::try_from(i).expect("a seat") } else { 0 },
+                ..mvs_settings::LocalPlayPlayer::seat(i)
+            })
+            .collect();
+        let devices: Vec<Option<Device>> = (0..4).map(|p| Some(Device::Pad(p))).collect();
+        for r in [0.0, 0.99] {
+            let start = begin_local_play_match(&view, &settings, &devices, &mut || r).expect("a start");
+            let setup = &start.lobby.setup;
+            assert_eq!(setup.team_style, TeamStyle::FreeForAll);
+            assert_eq!(setup.players.len(), 8);
+            let bots: Vec<bool> = setup.players.iter().map(|p| p.bot).collect();
+            assert_eq!(bots, [false, false, false, false, true, true, true, true]);
+            let teams: Vec<Option<u8>> = setup.players.iter().map(|p| p.team).collect();
+            assert_eq!(teams, (0..8).map(Some).collect::<Vec<_>>(), "a team per seat");
+            // (Medium, the default seat's difficulty: BotBehavior 4, the lobby's 2)
+            assert!(setup.players[4..].iter().all(|p| p.difficulty == Some(2.0)));
+            assert_eq!(start.lobby.usernames.len(), 8);
+            assert_eq!(start.lobby.humans.as_ref().map(Vec::len), Some(4), "the pads hold the first four");
+            assert_eq!(start.map, "map_big", "only the map whose stage holds eight");
+        }
+        // Teams: new seats past the pads alternate, so the sides come out even; a saved team past the two is the
+        // alternating default
+        let mut teams = settings.clone();
+        teams.local_play.team_style = 1;
+        teams.local_play.players = (0..8)
+            .map(|i| mvs_settings::LocalPlayPlayer {
+                character_slug: "character_shaggy".to_owned(),
+                ..mvs_settings::LocalPlayPlayer::seat(i)
+            })
+            .collect();
+        teams.local_play.players[2].team_index = 3;
+        let start = begin_local_play_match(&view, &teams, &devices, &mut || 0.0).expect("a start");
+        let got: Vec<Option<u8>> = start.lobby.setup.players.iter().map(|p| p.team).collect();
+        assert_eq!(got, [0, 1, 0, 1, 0, 1, 0, 1].map(Some));
+        assert_eq!(start.lobby.setup.team_style, TeamStyle::TwoVsTwo);
+        // no selected map holds eight: no match
+        settings.local_play.maps = vec!["s_small".to_owned()];
+        assert!(begin_local_play_match(&view, &settings, &devices, &mut || 0.0).is_none());
+        // four seats play on it
+        settings.local_play.players.truncate(4);
+        assert!(begin_local_play_match(&view, &settings, &devices, &mut || 0.0).is_some());
+    }
 
     #[test]
     fn free_for_all_has_its_own_alias() {

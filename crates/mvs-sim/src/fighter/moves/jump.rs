@@ -273,7 +273,11 @@ pub fn do_jump(w: &mut World, f: FighterId, air: bool) {
     let ff = fi.fast_fall.ff_mult;
     fi.fast_fall.ff_triggered = false;
     fi.jump.last_jump_time = fi.clock.time;
-    let v = jump_velocity(w, f) * (if ff { 1.05 } else { 1.0 });
+    // (the port's own Moon Jump: the speed and the height, `own_rules`)
+    let moon = crate::world::own_rules::on(w, crate::world::own_rules::Rule::MoonJump);
+    let v = jump_velocity(w, f)
+        * (if ff { 1.05 } else { 1.0 })
+        * (if moon { crate::world::own_rules::MOON_JUMP_SPEED } else { 1.0 });
     if air {
         if ff {
             tutorial_event_of(w, f, crate::fighter::match_side::TutorialEvent::FastFallJump); // @6888
@@ -300,7 +304,8 @@ pub fn do_jump(w: &mut World, f: FighterId, air: bool) {
     }
     // CalcJumpStopTime; with FastfallMult the height x FastFallJumpBoostMult.
     let h = (if air { double_jump_height(w, f) } else { jump_height(w, f) })
-        * (if ff { FAST_FALL_JUMP_BOOST } else { 1.0 });
+        * (if ff { FAST_FALL_JUMP_BOOST } else { 1.0 })
+        * (if moon { crate::world::own_rules::MOON_JUMP_HEIGHT } else { 1.0 });
     let t = calc_jump_stop_time(w, f, v, h);
     w.fighter_mut(f).jump.jump_cut_at = latent(t);
     if let Some(h) = w.fighter(f).hooks.char.end_jump {

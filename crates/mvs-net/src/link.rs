@@ -2,7 +2,6 @@
 //! session's caller talks to, and [`SimNet`], an in-memory network with a referee on it for the tests (latency, jitter,
 //! loss, a cut, a mute or deaf peer). The relay client on its net thread is the other link.
 
-use mvs_protocol::match_wire::MAX_SLOTS;
 use mvs_protocol::referee::{Referee, RefereeOut, SlotNews};
 
 pub mod relay;
@@ -90,20 +89,22 @@ pub struct SimNet {
 }
 
 impl SimNet {
-    /// A network for the human slots `humans` (each with `ways`), its referee's tick 0 at `tick0` ms, its randomness
-    /// from `seed`.
-    pub fn new(humans: &[usize], ways: Ways, tick0: f64, seed: u64) -> SimNet {
-        let mut by_slot = vec![None; MAX_SLOTS];
+    /// A network for a match of `slots` slots and its human slots `humans` (each with `ways`), its referee's tick 0 at
+    /// `tick0` ms, its randomness from `seed`.
+    pub fn new(slots: usize, humans: &[usize], ways: Ways, tick0: f64, seed: u64) -> SimNet {
+        let referee = Referee::new(slots, humans, tick0);
+        let n = referee.match_slots();
+        let mut by_slot = vec![None; n];
         for &h in humans {
             if let Some(w) = by_slot.get_mut(h) {
                 *w = Some(ways);
             }
         }
         SimNet {
-            referee: Referee::new(humans, tick0),
+            referee,
             ways: by_slot,
-            up: vec![Vec::new(); MAX_SLOTS],
-            down: vec![Vec::new(); MAX_SLOTS],
+            up: vec![Vec::new(); n],
+            down: vec![Vec::new(); n],
             seq: 0,
             rng: seed ^ 0x9e37_79b9_7f4a_7c15,
             news: Vec::new(),
@@ -140,16 +141,30 @@ impl SimNet {
         self.sent(sent, now);
     }
 
+    /// Delivers to the referee what has come up by `now`, a pump after each packet (as the relay's core and an app's
+    /// referee pump after every packet they take): what it sends goes on the ways down.
+    pub fn deliver_pumped(&mut self, now: f64) {
+        while let Some((s, i)) = self.next_up(now) {
+            let mut sent = Sent::default();
+            let p = self.up[s].remove(i);
+            self.referee.receive(s, &p.bytes, now, &mut sent);
+            self.referee.pump(now, &mut sent);
+            self.sent(sent, now);
+        }
+    }
+
     fn deliver_into(&mut self, now: f64, sent: &mut Sent) {
-        loop {
-            // (the earliest due of every slot's way up, in the order they arrive)
-            let next = (0..self.up.len())
-                .filter_map(|s| due(&self.up[s], now).map(|i| (s, i)))
-                .min_by(|a, b| order(&self.up[a.0][a.1], &self.up[b.0][b.1]));
-            let Some((s, i)) = next else { break };
+        while let Some((s, i)) = self.next_up(now) {
             let p = self.up[s].remove(i);
             self.referee.receive(s, &p.bytes, now, sent);
         }
+    }
+
+    /// The earliest due by `now` of every slot's way up, in the order they arrive: its slot and index.
+    fn next_up(&self, now: f64) -> Option<(usize, usize)> {
+        (0..self.up.len())
+            .filter_map(|s| due(&self.up[s], now).map(|i| (s, i)))
+            .min_by(|a, b| order(&self.up[a.0][a.1], &self.up[b.0][b.1]))
     }
 
     /// What the referee sent onto the ways down.

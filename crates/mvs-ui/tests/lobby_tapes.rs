@@ -284,17 +284,18 @@ fn lobby_code_script() {
 
 #[test]
 fn browser_lists_the_answer() {
-    use mvs_protocol::lobby_listing::{ListingState, LobbyListing};
+    use mvs_protocol::lobby_listing::{LISTING_V, ListingState, LobbyListing};
+    use mvs_protocol::lobby_rules::LobbyStyle;
     use mvs_ui::menu::online::BrowsedGame;
     use mvs_ui::menu::widgets::custom_browser::CustomGameBrowser;
     let Some(mut p) = Play::new(env(), "browser") else { return };
     let listing = |name: &str, humans: u32, state: ListingState| LobbyListing {
-        v: 1,
+        v: LISTING_V,
         name: name.into(),
         icon: String::new(),
         compat: "c1".into(),
         app: "1.0".into(),
-        style: 0,
+        style: LobbyStyle::Versus,
         maps: Vec::new(),
         map_count: 0,
         players: humans,

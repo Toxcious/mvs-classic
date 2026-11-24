@@ -10,7 +10,9 @@ use crate::bundle::AccountLevelRow;
 pub const MODE_SOLO: usize = 0;
 pub const MODE_TEAMS: usize = 1;
 /// TeamIndex of a spectator (UI_MatchHistoryEntry @2019, MakeLiteralByte(4)).
-pub const SPECTATOR_TEAM: i32 = 4;
+/// Deviation: the port's big matches have a player on team 4, so the owner who is not among a record's players
+/// takes a team no player has (`pre_match::setup::SPECTATOR_TEAM`).
+pub const SPECTATOR_TEAM: i32 = crate::menu::screens::pre_match::setup::SPECTATOR_TEAM as i32;
 
 /// Unverified: (the port's own) a win rate is wins / games of the mode, a draw a game and no win; -1 ("N/A",
 /// GetWinRateText) with no game of the mode. PlayerProfile TeamsWinRate / SoloWinRate are the backend's, whose rule
@@ -66,7 +68,7 @@ pub fn shown_level(levels: &[AccountLevelRow]) -> (i64, f64) {
 }
 
 /// A record as UI_MatchHistoryEntry and UI_MatchBreakdown read it (MatchHistoryEntry): the profile owner's own line
-/// (PlayerStats; TeamIndex 4 when the owner is not among the players, the build's spectator) and its result.
+/// (PlayerStats; `SPECTATOR_TEAM` when the owner is not among the players, the build's spectator) and its result.
 #[derive(Clone, Debug, PartialEq)]
 pub struct HistoryEntry {
     pub record: MatchRecord,
@@ -96,12 +98,12 @@ pub fn history_entry(r: &MatchRecord, owner: &str) -> HistoryEntry {
 }
 
 /// UI_MatchBreakdown PopulateMatchPlayers: "You" and the players of its team first (You at 0), then the others, in
-/// the record's order; spectators (team 4) left out.
+/// the record's order; spectators (`SPECTATOR_TEAM`) left out.
 pub fn breakdown_teams(e: &HistoryEntry) -> (Vec<MatchRecordPlayer>, Vec<MatchRecordPlayer>) {
     let r = &e.record;
     let spectated = e.player_stats.team == SPECTATOR_TEAM;
     // the first loop (@291-1011): a spectator's You is the first player of the winning team, else the player of the
-    // owner's Username (@3224); the loop skips team 4 and stops on its hit
+    // owner's Username (@3224); the loop skips a spectator and stops on its hit
     let you = r.players.iter().find(|p| {
         p.team != SPECTATOR_TEAM && (if spectated { p.team == r.winning_team } else { p.name == e.player_stats.name })
     });
@@ -200,7 +202,8 @@ mod tests {
 
     #[test]
     fn the_breakdown_puts_you_first_and_leaves_spectators_out() {
-        let r = record(1, vec![player("a", 0, 0), player("me", 1, 1), player("b", 1, 2), player("w", 4, 3)]);
+        let r =
+            record(1, vec![player("a", 0, 0), player("me", 1, 1), player("b", 1, 2), player("w", SPECTATOR_TEAM, 3)]);
         let (yours, theirs) = breakdown_teams(&history_entry(&r, "id-me"));
         assert_eq!(yours.iter().map(|p| p.name.as_str()).collect::<Vec<_>>(), ["me", "b"]);
         assert_eq!(theirs.iter().map(|p| p.name.as_str()).collect::<Vec<_>>(), ["a"]);

@@ -87,6 +87,10 @@ pub struct PreMatchSkinData {
     pub teammates: Vec<Option<PreviewSpec>>,
     pub enemies: Vec<Option<PreviewSpec>>,
     pub usernames: Vec<String>,
+    /// (the port's own) Whether a player stands in the preview slot: a 2v2 match with a side of one (the port's
+    /// Versus lobby) leaves a slot empty, and the level lays that side out as the 1v1's (`PreMatchLevel`). Empty:
+    /// every slot held.
+    pub held: Vec<bool>,
 }
 
 /// What the podium is made with (the scene's constructor arguments).
@@ -99,6 +103,9 @@ pub struct PodiumStart {
     pub losers: Vec<PodiumRecord>,
     /// The local player won: the colour and trophy planes take the Blue material instance, else the Red one.
     pub you_won: bool,
+    /// (the port's own big matches) Both lists are winners: the losers' list holds the winners past the sequence's
+    /// winner places, who stand on its losers' places as winners.
+    pub big: bool,
 }
 
 /// A record of the podium's lists.

@@ -60,8 +60,8 @@ const BUFFER: f64 = 400.0;
 /// The projection's near and far planes, cm.
 // Deviation: a reversed-depth projection with a far plane (a perspective camera of near 0.1 m, far
 // 100000 m), where the build's FReversedZPerspectiveMatrix has none ([2][2] 0).
-const NEAR: f64 = 0.1;
-const FAR: f64 = 100000.0;
+pub const NEAR: f64 = 0.1;
+pub const FAR: f64 = 100000.0;
 
 fn dsin(d: f64) -> f64 {
     (d * std::f64::consts::PI / 180.0).sin()

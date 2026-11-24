@@ -866,6 +866,8 @@ fn tick(w: &mut World, f: FighterId) {
 // the pawn's ticks from the fighter's making, hit pause or not.
 // A minion is no player's pawn: it is not on the list GetAllies gives (the players whose pawn
 // exists, read once at BeginPlay + 2 s), whenever it spawned.
+// Unverified: every ally is bound, so in the port's own big matches the rage builds from two or three allies' hits
+// taken and ring-outs, faster than the beta's 2v2 ever let it; kept as the build's rule.
 fn ally_hit_by_enemy(w: &mut World, f: FighterId, ally: FighterId, damage: Real) {
     if giant(w, f).ally_rage_delay <= 0.0 && !w.fighter(ally).life.is_minion {
         hover_rage::ally_hit(w, f, damage);

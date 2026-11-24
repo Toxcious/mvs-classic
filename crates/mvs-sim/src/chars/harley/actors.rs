@@ -199,11 +199,12 @@ pub(super) fn emitter(
 }
 
 /// `touches`: a sphere of an actor against a fighter in the play plane: his hurt shapes at the current pose and, for a
-/// shape that overlaps the Pawn channel too (capsule), his root capsule.
+/// shape that overlaps the Pawn channel too (capsule), his root capsule. False for an opponent the port's own spare
+/// switch spares what `by` deals.
 // Deviation: the build's shapes are a sphere and, for an actor with Supports2DHitboxes, a capsule along the depth
 // axis; a hurt shape off the play plane and the capsule's exact section are taken as the circle test.
-pub(crate) fn touches(w: &mut World, o: FighterId, x: Real, y: Real, r: Real, capsule: bool) -> bool {
-    if w.fighter(o).life.dead > 0.0 {
+pub(crate) fn touches(w: &mut World, by: FighterId, o: FighterId, x: Real, y: Real, r: Real, capsule: bool) -> bool {
+    if w.fighter(o).life.dead > 0.0 || crate::fighter::spared_by(w, by, o) {
         return false;
     }
     if (w.fighter(o).body.x - x).abs() > r + 600.0 || (actor_y(w, o) - y).abs() > r + 600.0 {
@@ -458,7 +459,7 @@ fn jack_explode(w: &mut World, id: ActorId) {
     let dir = leaning(w, id, "ExplosionHitboxDamage");
     let team = w.fighter(f).team.team;
     for o in match_fighters(w) {
-        if w.fighter(o).team.team == team || !touches(w, o, jx, cy, blast_r * k, true) {
+        if w.fighter(o).team.team == team || !touches(w, f, o, jx, cy, blast_r * k, true) {
             continue;
         }
         if projectile_blocks(w, &dealer(w, me), o) || invulnerable(w, o) {
@@ -762,7 +763,7 @@ fn jack_step(w: &mut World, id: ActorId) {
         let oid = w.fighter(o).id;
         let Some(j) = jack_mut(w, id) else { return };
         let at = j.inside.iter().position(|&i| i == oid);
-        if !touches(w, o, jx, cy, dr, true) {
+        if !touches(w, f, o, jx, cy, dr, true) {
             let Some(at) = at else { continue };
             let Some(j) = jack_mut(w, id) else { return };
             j.inside.remove(at);
@@ -1085,7 +1086,7 @@ fn explode(w: &mut World, f: FighterId, b: BuffRef) {
                 let ux = fx - w.fighter(vic).body.x; // result.Y - owner.Y in UE (the sim's x is UE -Y)
                 let mut hit = base.clone();
                 hit.knock_back_direction_vector = Some(DataVec { x: Some(ux), y: Some(radius), z: None });
-                if crate::fighter::no_hit(w, vic) {
+                if crate::combat::phases::no_hit_by(w, inst, vic) {
                     continue;
                 }
                 let me = ActorRef::Buff(b);

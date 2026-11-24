@@ -66,7 +66,7 @@ use crate::fighter::control::{attack_dodged, dodge_over};
 use crate::fighter::match_side::SpawnRequest;
 use crate::fighter::moves::V2;
 use crate::fighter::traces::{TRACE_PROJECTILE_GROUND, TraceHit, sphere_trace_single};
-use crate::fighter::{FighterId, actor_y, cap_radius, capsule_half, facing, invulnerable, no_collision, no_hit};
+use crate::fighter::{FighterId, actor_y, cap_radius, capsule_half, facing, invulnerable, no_collision};
 use crate::math::{self};
 use crate::name;
 use crate::names::Name;
@@ -275,7 +275,11 @@ fn hit_overlaps(w: &mut World, id: ActorId, n: usize, x: Real, y: Real, r: Real)
     let attack_id = sw_of(w, id).map_or(0, |s| s.attack_id);
     for vic in all_fighters(w) {
         // a minion too (the BP_FighterCharacter filter @1194)
-        if vic == f || w.fighter(vic).life.dead != 0.0 || no_hit(w, vic) || no_collision(w, vic) {
+        if vic == f
+            || w.fighter(vic).life.dead != 0.0
+            || crate::combat::phases::no_hit_by(w, f, vic)
+            || no_collision(w, vic)
+        {
             continue;
         }
         let cr = cap_radius(w, vic);

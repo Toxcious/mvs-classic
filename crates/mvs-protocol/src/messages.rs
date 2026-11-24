@@ -9,18 +9,20 @@
 use serde::{Deserialize, Serialize};
 
 use crate::loadout::NetLoadout;
-use crate::lobby_rules::{LobbyData, LobbyPlayer};
+use crate::lobby_rules::{LobbyData, LobbyPlayer, LobbyStyle};
 use crate::names::clean_name;
 use crate::online::{MatchStartMsg, PlayerCosmetics, PmBegin, PmPick, QueueFoundMsg, QueueMode, QueueParty};
 use crate::profile::{MatchRecord, MatchReportPlayer, ProfileWire, TrackerCounts};
 use crate::setup::MatchSetupWire;
 
-/// A lobby setting's value as `lobby.setOption` carries it: a bool row's true or false, a set row's bits.
+/// A lobby setting's value as `lobby.setOption` carries it: a bool row's true or false, a set row's bits, the
+/// Chaos Wheel's choices.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum OptionWire {
     Bool(bool),
     Number(u32),
+    Wheel(crate::lobby_rules::WheelOptions),
 }
 
 /// What a game sends the host core.
@@ -60,7 +62,7 @@ pub enum ClientMessage {
     #[serde(rename = "lobby.setReady")]
     LobbySetReady { on: bool },
     #[serde(rename = "lobby.setTeamStyle")]
-    LobbySetTeamStyle { style: u8 },
+    LobbySetTeamStyle { style: LobbyStyle },
     #[serde(rename = "lobby.setMatchDuration")]
     LobbySetMatchDuration { sec: u32 },
     #[serde(rename = "lobby.setNumRingoutsForWin")]
@@ -80,8 +82,13 @@ pub enum ClientMessage {
     LobbyKickPlayer { id: String },
     #[serde(rename = "lobby.promoteNewLeader")]
     LobbyPromoteNewLeader { id: String },
+    /// `maps`: the enabled maps the match may draw from, the leader's game's `LobbyRules::match_maps` (a big match's
+    /// stages are known to the games only); absent: every enabled map.
     #[serde(rename = "lobby.startMatch")]
-    LobbyStartMatch,
+    LobbyStartMatch {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        maps: Option<Vec<String>>,
+    },
     /// `draw`: a random whole number in [0, 2^32) the game draws for each join; the core combines every human's into
     /// the found match's draws. `waited`: ms this player has queued already under another host (the bot wait counts
     /// from then). `party`: the sender queues with its party. `rtt`: the game's smallest round trip to the relay (ms),
@@ -492,13 +499,16 @@ pub enum ServerMessage {
     /// referee (0 the referee's own, None a bot or not known), `far` by slot past `path::FAR_ONE_WAY_MS` on every way.
     #[serde(rename = "pm.path")]
     PmPath { referee: i32, ms: Vec<Option<u32>>, far: Vec<bool> },
-    /// To the game whose app referees the match: it goes `in` ms from now, with these humans.
+    /// To the game whose app referees the match: it goes `in` ms from now, with these humans, in a match of `slots`
+    /// slots (its bots' among them: the length of its input headers, `crate::match_wire::input_header`, which the
+    /// humans alone do not tell).
     #[serde(rename = "ref.go")]
     RefGo {
         r#match: u32,
         #[serde(rename = "in")]
         in_ms: u32,
         humans: Vec<PathPeer>,
+        slots: u32,
     },
     /// To the referee's game: a human left the match.
     #[serde(rename = "ref.left")]
@@ -626,9 +636,9 @@ mod tests {
         );
         let path = ServerMessage::PmPath { referee: -1, ms: vec![Some(0), None], far: vec![false, true] };
         assert_eq!(path.text(), r#"{"t":"pm.path","referee":-1,"ms":[0,null],"far":[false,true]}"#);
-        let go = ServerMessage::RefGo { r#match: 2, in_ms: 250, humans: peers };
+        let go = ServerMessage::RefGo { r#match: 2, in_ms: 250, humans: peers, slots: 6 };
         let t = go.text();
-        assert_eq!(t, r#"{"t":"ref.go","match":2,"in":250,"humans":[{"slot":0,"epic":"e0"}]}"#);
+        assert_eq!(t, r#"{"t":"ref.go","match":2,"in":250,"humans":[{"slot":0,"epic":"e0"}],"slots":6}"#);
         assert_eq!(serde_json::from_str::<ServerMessage>(&t).unwrap(), go);
         assert_eq!(ServerMessage::RefLeft { r#match: 2, slot: 1 }.text(), r#"{"t":"ref.left","match":2,"slot":1}"#);
         assert_eq!(ServerMessage::RefEnd { r#match: 2 }.text(), r#"{"t":"ref.end","match":2}"#);

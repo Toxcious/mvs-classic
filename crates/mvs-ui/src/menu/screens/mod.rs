@@ -10,5 +10,6 @@ pub mod main_menu;
 pub mod move_list;
 pub mod pre_match;
 pub mod results;
+pub mod results_list;
 pub mod tutorial;
 pub mod welcome;

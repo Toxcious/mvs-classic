@@ -3177,6 +3177,12 @@ pub struct WheelSpec {
     pub pool: Vec<String>,
     pub seconds: f64,
     pub warn: f64,
+    /// The rate of Chaos mutators (`mvs_mutators::ChaosRate::key`); absent: normal.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chaos: Option<String>,
+    /// Two at once late in the match; absent: off.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub two: bool,
 }
 
 /// The set-up's `mode` of a match of the port's own Waves mode as a header holds it: `{kind: 'waves', variant, cast}`,

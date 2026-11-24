@@ -189,9 +189,9 @@ const ROSTER: &[&str] = &mvs_protocol::roster::CHARACTERS;
 // (the port's own caps on a slot's reported numbers: far past any match the rules let run)
 const DAMAGE_MAX: f64 = 1_000_000.0;
 const COUNT_MAX: f64 = 999.0;
-// (the port's own caps, from protocol/: a match's humans and bots, a player's name; an id is an EOS product user id
-// of 32 characters, a record's the core's)
-const PLAYERS_MAX: usize = 4;
+// (the port's own caps, from protocol/: a match's humans and bots, the big matches' eight included, a player's name;
+// an id is an EOS product user id of 32 characters, a record's the core's)
+const PLAYERS_MAX: usize = mvs_protocol::lobby_rules::MAX_LOBBY_PLAYERS;
 const ID_MAX: usize = 64;
 const MAP_MAX: usize = 128;
 // (the port's own caps) the slugs an arcade record keeps: the build's CharacterData slugs are some 20 characters
@@ -1113,12 +1113,12 @@ mod tests {
         let mut bad = msg(&record("m3", "me"));
         bad["record"] = serde_json::json!({ "id": "m3" });
         assert!(!a.add(&bad, "me") && a.profile("me").matches.len() == 2);
-        // a gain of a character not on the roster, a record of more than 4 players, a name past NAME_LIMIT
+        // a gain of a character not on the roster, a record of more than 8 players, a name past NAME_LIMIT
         let mut odd = msg(&record("c3", "me"));
         odd["trackers"] = serde_json::json!({ "totals": {}, "characters": { "notacharacter": [0, 0, 0, 0] } });
         assert!(!a.add(&odd, "me"));
         let mut many = record("c4", "me");
-        for slot in 2..5 {
+        for slot in 2..9 {
             let mut p = many.players[1].clone();
             p.slot = slot;
             many.players.push(p);
@@ -1431,15 +1431,30 @@ mod tests {
         assert_eq!(d.trackers.totals["TotalRingouts"], SUM_MAX);
         assert!(!d.trackers.totals.contains_key("NotATracker") && !d.trackers.characters.contains_key("notacharacter"));
         assert_eq!(d.trackers.characters["shaggy"], [1.0, 2.0, 3.0, 4.0]);
-        // a record: a name past NAME_LIMIT, more than 4 players, a repeated slot
+        // a record: a name past NAME_LIMIT, more than 8 players, a repeated slot; a big match's eight read
         let ok = serde_json::to_value(record("c", "me")).unwrap();
         assert!(read_record(&ok).is_some());
         let mut named = ok.clone();
         named["players"][1]["name"] = serde_json::json!("x".repeat(NAME_LIMIT + 1));
         assert!(read_record(&named).is_none());
+        let p = ok["players"][1].clone();
+        let players = |n: usize| {
+            let list: Vec<Value> = (0..n)
+                .map(|i| {
+                    let mut q = p.clone();
+                    q["slot"] = serde_json::json!(i);
+                    q["team"] = serde_json::json!(i);
+                    q
+                })
+                .collect();
+            Value::Array(list)
+        };
+        let mut eight = ok.clone();
+        eight["players"] = players(8);
+        eight["winningTeam"] = serde_json::json!(7);
+        assert_eq!(read_record(&eight).map(|r| r.players.len()), Some(8));
         let mut many = ok.clone();
-        let p = many["players"][1].clone();
-        many["players"] = serde_json::json!([p, p, p, p, p]);
+        many["players"] = players(9);
         assert!(read_record(&many).is_none());
         let mut twice = ok.clone();
         twice["players"][1]["slot"] = serde_json::json!(0);

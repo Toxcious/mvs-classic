@@ -69,7 +69,7 @@ use crate::combat::hit::{
     add_hit_stun_from_knockback, hurt_hit, remove_hitstun_from_knock_back, set_hit_pause, timer_count, timer_ticks,
 };
 use crate::combat::hits::{actor_hit_enemy, apply_projectile_hit, dealer, projectile_blocks};
-use crate::combat::phases::{alive, give_vbuf, los_blocked, no_hit, victim_pose};
+use crate::combat::phases::{alive, give_vbuf, los_blocked, victim_pose};
 use crate::combat::reflect::reflect_projectile;
 use crate::combat::spawned_hits::class_rows;
 use crate::combat::{DataVec, HitPacket};
@@ -671,7 +671,11 @@ fn hits(w: &mut World, id: ActorId) {
     let mut shapes: Option<Vec<WorldSphere>> = None;
     for vic in match_fighters(w) {
         let vid = w.fighter(vic).id;
-        if w.fighter(vic).team.team == team || !alive(w, vic) || no_hit(w, vic) || state(w, id).hit_set.contains(&vid) {
+        if w.fighter(vic).team.team == team
+            || !alive(w, vic)
+            || crate::combat::phases::no_hit_by_team(w, team, vic)
+            || state(w, id).hit_set.contains(&vid)
+        {
             continue;
         }
         let Some(vp) = victim_pose(w, vic) else { continue };

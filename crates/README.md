@@ -24,7 +24,10 @@ that compare against them skip and say so.
 | **The match** | |
 | `mvs-sim` | the match simulation: the World, its fighters, actors, buffs and the match's flow, stepped once per tick |
 | `mvs-sim-derive` | `derive(State)` for the sim's rollback state: field-by-field `clone_from` and the desync hash |
+| `mvs-mutators` | the Chaos Wheel's mutators: each one's key, tier and where it may be picked |
 | `mvs-data` | the game's bound data as the sim reads it: fighters, stages, perks, items |
+| `mvs-stage` | custom stages, the port's own: a layout over a base stage and the map's stage data composed from it |
+| `mvs-stage-editor` | the stage editor, a dev program: a layout's stage in a window with its play shapes over it, its pieces picked, moved, copied and deleted with the mouse and egui panels, saved and test played |
 | `mvs-math` | the sim's math: the build's own float32 routines, bit for bit |
 | `mvs-math-check` | long checks of `mvs-math` against a reference and the beta exe's routines, run on request |
 | `mvs-anim` | the clip decoder and pose sampler, the sim's skeleton pose and montage player |

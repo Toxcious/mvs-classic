@@ -23,7 +23,7 @@ use crate::fighter::FighterId;
 use crate::fighter::common::{actor_def, sound_at_for, warn_text};
 use crate::fighter::control::{attack_dodged, dodge_over};
 use crate::fighter::moves::V2;
-use crate::fighter::{actor_y, invulnerable, no_hit};
+use crate::fighter::{actor_y, invulnerable};
 use crate::math::min;
 use crate::math::ue::{SMALL_NUMBER, safe_normal, size2d};
 use crate::name;
@@ -416,7 +416,7 @@ fn bomb_damage(w: &mut World, id: ActorId, last: bool) {
     let team = w.fighter(f).team.team;
     let packet = bomb_packet(w, id, last);
     for vic in list {
-        if w.fighter(vic).team.team == team || no_hit(w, vic) {
+        if w.fighter(vic).team.team == team || crate::combat::phases::no_hit_by_team(w, team, vic) {
             continue;
         }
         if projectile_blocks(w, &dealer(w, me), vic) {

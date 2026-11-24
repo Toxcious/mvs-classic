@@ -4,7 +4,7 @@
 
 use std::sync::Arc;
 
-use mvs_protocol::lobby_rules::{LobbyData, LobbyPlayer, LobbyRules};
+use mvs_protocol::lobby_rules::{LobbyData, LobbyPlayer, LobbyRules, LobbyStyle};
 use mvs_protocol::messages::{ClientMessage, ServerMessage};
 use mvs_protocol::online::{PmBegin, PmKind};
 use mvs_settings::Settings;
@@ -16,6 +16,7 @@ use mvs_ui::menu::input::Pointer;
 use mvs_ui::menu::online::{
     LocalReason, OfflineWhy, OnlineCmd, OnlineEvent, OnlineLine, OnlineView, SessionLink, SessionView,
 };
+use mvs_ui::menu::widgets::controls::drop_menu::DropMenu;
 use mvs_ui::menu::{Manager, MenuInput, MenuScreen, MenuView, NoSound};
 use mvs_ui::slate::{Vis, WidgetId};
 use mvs_ui::text::{Fonts, GameText};
@@ -581,7 +582,9 @@ fn picked_maps_count_in_the_selectors_accept_button() {
     // Select All, then Clear All
     let a = l.find("mapSelector", "btn_SelectAll");
     l.click(a);
-    assert!(l.accept_text().contains("(16 "), "Select All: {}", l.accept_text());
+    // (the build's 16 and the shipped custom maps)
+    let all = format!("({} ", 16 + mvs_stage::shipped().len());
+    assert!(l.accept_text().contains(&all), "Select All: {}", l.accept_text());
     l.click(c);
     assert!(l.accept_text().contains("(0 "), "Clear All again: {}", l.accept_text());
 }
@@ -627,17 +630,18 @@ fn the_mutators_list_ticks_more_than_one() {
     assert_eq!(sent, [("mutators".to_string(), 1 << 2), ("mutators".to_string(), (1 << 2) | (1 << 6))]);
 }
 
-/// The experimental page's Chaos Wheel row: On asks the lobby for the option `wheel`.
+/// The CHAOS WHEEL button opens the wheel's page, and its first row's On asks the lobby for the option `wheel`
+/// with the wheel on and the rest of its choices kept.
 #[test]
 fn the_wheel_row_asks_for_the_option() {
     use mvs_protocol::messages::{ClientMessage, OptionWire};
     use mvs_ui::menu::custom_text;
     use mvs_ui::menu::online::OnlineCmd;
     let Some(mut l) = Lobby::new(env()) else { return };
-    let b = l.find("customGame", "ResetToDefaultsButton");
+    let b = l.find("customGame", "WheelSettingsButton");
     l.click(b);
-    assert!(l.up("customGameExperimental"));
-    let row = l.find("customGameExperimental", "Option_Wheel");
+    assert!(l.up("customGameWheel"));
+    let row = l.find("customGameWheel", "Option_Wheel");
     let open = l.screen.view.tree().find_in(row, "mainInteractor");
     l.click(open);
     l.frames(30, &[]);
@@ -651,20 +655,21 @@ fn the_wheel_row_asks_for_the_option() {
     };
     l.click(on);
     l.frames(20, &[]);
-    let sent: Vec<(String, bool)> = l
+    let sent: Vec<(String, mvs_protocol::lobby_rules::WheelOptions)> = l
         .screen
         .view
         .take_online_cmds()
         .into_iter()
         .filter_map(|c| match c {
             OnlineCmd::Send(m) => match *m {
-                ClientMessage::LobbySetOption { key, value: OptionWire::Bool(b) } => Some((key, b)),
+                ClientMessage::LobbySetOption { key, value: OptionWire::Wheel(o) } => Some((key, o)),
                 _ => None,
             },
             _ => None,
         })
         .collect();
-    assert_eq!(sent, [("wheel".to_string(), true)]);
+    let on = mvs_protocol::lobby_rules::WheelOptions { on: true, ..Default::default() };
+    assert_eq!(sent, [("wheel".to_string(), on)]);
 }
 
 impl Lobby {
@@ -751,7 +756,7 @@ fn the_connection_line_says_the_link_and_greys_a_local_lobby() {
     l.link(SessionLink::Local(LocalReason::Offline(OfflineWhy::NotReached)));
     assert_eq!(l.text("LobbyConnectionHead"), "OFFLINE");
     assert_ne!(l.color("LobbyConnectionHead"), GREEN);
-    assert_eq!(l.text("LobbyConnectionDetail"), t::LOBBY_LOCAL_NOT_REACHED);
+    assert_eq!(l.text("LobbyConnectionDetail"), t::WHY_NOT_REACHED);
     assert!(l.shown("LobbyConnectionTip"), "what to do is the line's tip");
     assert!(l.shown("LobbyCodeButton") && l.shown("LobbySettingsButton"), "greyed, not hidden");
     assert!(!l.takes_clicks(code) && !l.takes_clicks(settings));
@@ -784,7 +789,96 @@ fn a_lobby_with_no_net_service_says_why_it_is_local() {
     let mut l = Lobby { env, screen, out: ElementList::default(), n: 0, online_ms: 0.0 };
     l.frames(30, &[]);
     assert_eq!(l.text("LobbyConnectionHead"), "OFFLINE");
-    assert_eq!(l.text("LobbyConnectionDetail"), mvs_ui::menu::custom_text::LOBBY_LOCAL_TURNED_OFF);
+    assert_eq!(l.text("LobbyConnectionDetail"), mvs_ui::menu::custom_text::WHY_TURNED_OFF);
     let code = l.find("customGame", "LobbyCodeButton");
     assert!(l.shown("LobbyCodeButton") && !l.takes_clicks(code));
+}
+
+/// The Versus lobby shows its eight places, and still does after Versus is picked again from the Game Mode drop (a
+/// pick the lobby does not answer: the empty slots keep the last count of free places).
+#[test]
+fn a_versus_lobby_keeps_its_eight_places() {
+    let Some(mut l) = Lobby::new(env()) else { return };
+    let open = |l: &Lobby, team: &str| {
+        let t = l.find("customGame", team);
+        (1..=8)
+            .filter_map(|n| l.screen.view.tree().find_opt(t, &format!("EmptySlot{n}")))
+            .filter(|&s| l.screen.view.tree().widget(s).vis != Vis::Collapsed)
+            .count()
+    };
+    let places = |l: &Lobby| (open(l, "WBP_CustomGameTeam"), open(l, "WBP_CustomGameTeam_1"));
+    assert_eq!(places(&l), (3, 4));
+    // (the drop's click event as its list's Versus row fires it)
+    let drop = l.find("customGame", "UI_DropGameMode");
+    l.screen.with_cx(&mut l.env.run(), |cx| {
+        cx.visit::<DropMenu, _>(drop, |m, cx| cx.emit(m, |c| &c.on_click, &(0, "versus".to_string())));
+    });
+    l.frames(10, &[]);
+    assert_eq!(places(&l), (3, 4));
+}
+
+/// A bot of the lobby's answers.
+fn bot(n: usize) -> LobbyPlayer {
+    LobbyPlayer { account_id: format!("bot{n}"), username: format!("Bot {n}"), is_bot: true, difficulty: 4, ..me() }
+}
+
+/// The lobby's answer with `teams` and `style`.
+fn lobby_with(teams: Vec<Vec<LobbyPlayer>>, style: LobbyStyle) -> OnlineEvent {
+    let data = LobbyData { leader_id: "local".into(), teams, team_style: style, ..LobbyRules::new().data() };
+    OnlineEvent::Server(Box::new(ServerMessage::LobbyState { id: "L1".into(), ev: "teams".into(), data, who: None }))
+}
+
+/// The shown cells (player rows and empty slots) of the column `team`, with their painted (top, bottom).
+fn cells(l: &Lobby, team: &str) -> Vec<(f64, f64)> {
+    let t = l.screen.view.tree();
+    let col = l.find("customGame", team);
+    let shown = |w: WidgetId| {
+        let mut x = Some(w);
+        while let Some(y) = x {
+            if t.widget(y).vis == Vis::Collapsed || t.widget(y).vis == Vis::Hidden {
+                return false;
+            }
+            x = t.widget(y).parent;
+        }
+        true
+    };
+    t.post_order(col)
+        .into_iter()
+        .filter(|&w| t.user_class(w) == Some("WBP_CustomGamePlayer") && shown(w))
+        .filter_map(|w| top_bottom(l, w))
+        .collect()
+}
+
+/// The lobby always shows every place it has (two Versus columns of four, eight in Free For All), each above the
+/// chat, at every count of players.
+#[test]
+fn every_place_of_a_big_lobby_shows_above_the_chat() {
+    let Some(mut l) = Lobby::new(env()) else { return };
+    let chat_top = |l: &Lobby| top_bottom(l, l.find("customGame", "LobbyChat")).expect("the chat painted").0;
+    let check = |l: &Lobby, team: &str, want: usize| {
+        let c = cells(l, team);
+        assert_eq!(c.len(), want, "{team} shows {want} places");
+        let top = chat_top(l);
+        let chat = top_bottom(l, l.find("customGame", "LobbyChat")).unwrap();
+        let start = top_bottom(l, l.find("customGame", "Btn_StartMatch")).unwrap();
+        assert!(chat.1 <= start.0 && chat.1 - chat.0 >= 150.0, "the chat at {chat:?} keeps its room above {start:?}");
+        for (a, b) in c {
+            assert!(b <= top, "{team}: a place at {a}..{b} under the chat's top {top}");
+        }
+    };
+    check(&l, "WBP_CustomGameTeam", 4);
+    check(&l, "WBP_CustomGameTeam_1", 4);
+    let versus = vec![vec![me(), bot(1), bot(2), bot(3)], vec![bot(4), bot(5), bot(6), bot(7)]];
+    l.screen.view.session.online.events = vec![lobby_with(versus, LobbyStyle::Versus)];
+    l.frames(30, &[]);
+    check(&l, "WBP_CustomGameTeam", 4);
+    check(&l, "WBP_CustomGameTeam_1", 4);
+    let five = vec![vec![me(), bot(1), bot(2)], vec![bot(3), bot(4)]];
+    l.screen.view.session.online.events = vec![lobby_with(five, LobbyStyle::FreeForAll)];
+    l.frames(30, &[]);
+    check(&l, "WBP_CustomGameTeam_ffa", 8);
+    let ffa = vec![vec![me(), bot(1), bot(2), bot(3)], vec![bot(4), bot(5), bot(6), bot(7)]];
+    l.screen.view.session.online.events = vec![lobby_with(ffa, LobbyStyle::FreeForAll)];
+    l.frames(30, &[]);
+    check(&l, "WBP_CustomGameTeam_ffa", 8);
 }

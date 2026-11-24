@@ -759,6 +759,22 @@ pub fn no_hit(w: &World, f: FighterId) -> bool {
     w.fighter(f).invuln.damage_disabled || actor_collision_off(w, f)
 }
 
+/// [`no_hit`] for what `owner` deals: the port's own spare switch spares an opponent too
+/// (`combat::phases::no_hit_by`).
+pub fn no_hit_by(w: &World, owner: FighterId, vic: FighterId) -> bool {
+    crate::combat::phases::no_hit_by(w, owner, vic)
+}
+
+/// [`no_hit`] for what the actor `a` deals (`combat::phases::no_hit_from`): an item the stage dropped is not spared.
+pub fn no_hit_from(w: &World, a: crate::actors::ActorRef, vic: FighterId) -> bool {
+    crate::combat::phases::no_hit_from(w, a, vic)
+}
+
+/// The port's own spare switch spares `vic` what `owner` deals: the rule is on and the two are opponents.
+pub fn spared_by(w: &World, owner: FighterId, vic: FighterId) -> bool {
+    crate::combat::phases::spares(w, owner, vic)
+}
+
 /// `mostRecentAssistAttacker`.
 pub fn most_recent_assist_attacker(w: &World, f: FighterId) -> Option<FighterId> {
     let a = &w.fighter(f).attackers;

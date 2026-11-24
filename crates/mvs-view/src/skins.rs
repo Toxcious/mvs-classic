@@ -265,11 +265,11 @@ pub fn fighter_colours(setup: &MatchSetup, me: usize, playing_online: bool, team
                 Variant::Red
             };
             let palette = if lab || setup.local_play {
-                usize::from(team)
+                team_index_palette(team)
             } else if team == mine {
                 0
             } else if ffa {
-                (0..4u8).filter(|&t| t != mine).position(|t| t == team).map_or(0, |k| k + 1)
+                ffa_team_palette(team, mine)
             } else {
                 1
             };
@@ -277,9 +277,9 @@ pub fn fighter_colours(setup: &MatchSetup, me: usize, playing_online: bool, team
             // place among the other team indexes, two teams mine 0 and the other 1 (mvs-ui hud.rs team_palette)
             let team_palette = |t: u8| {
                 if lab {
-                    usize::from(t)
-                } else if ffa && t != mine {
-                    (0..4u8).filter(|&o| o != mine).position(|o| o == t).map_or(0, |k| 1 + k)
+                    team_index_palette(t)
+                } else if ffa {
+                    ffa_team_palette(t, mine)
                 } else {
                     usize::from(t != mine)
                 }
@@ -293,7 +293,7 @@ pub fn fighter_colours(setup: &MatchSetup, me: usize, playing_online: bool, team
             } else if (lab || one_human) && i == me {
                 4
             } else {
-                usize::from(team)
+                team_index_palette(team)
             };
             let stencil = if palette == 0 { if local_online { 4 } else { 2 } } else { [3, 5, 6][palette - 1] };
             FighterColour {
@@ -317,6 +317,29 @@ pub fn fighter_colours(setup: &MatchSetup, me: usize, playing_online: bool, team
             }
         })
         .collect()
+}
+
+/// The build's opponent palettes (Enemy 1, Team3 2, Team4 3) in turn for the team at `rank` (from 0) among the
+/// teams that are not the player's own: the build's Free For All has three other teams, ranks 0..2.
+// Deviation: a Free For All of more than four teams (the port's big matches) has more opponents than the build has
+// palettes and outline colours (the cooked ColoredOutlines material reads five stencil values, MPC_CentralPalette
+// holds five colours): the fourth opponent on takes the opponent palettes again (red, green, purple, red...). The
+// player's own colour (Ally 0, Me 4) is never reused; opponents of one colour are told apart by their name plates and
+// scoreboard slots. The build has no fifth team.
+pub fn other_team_palette(rank: usize) -> usize {
+    1 + rank % 3
+}
+
+/// UI_Functions Color for Team in Free For All: my team 0, another 1 + its place among the other team indexes
+/// (`other_team_palette`).
+pub fn ffa_team_palette(team: u8, mine: u8) -> usize {
+    if team == mine { 0 } else { other_team_palette(usize::from(team) - usize::from(team > mine)) }
+}
+
+/// A palette taken from the team index itself (the Lab, Local Play, Color for Player offline): the build's teams
+/// 0..3 their own index, a team past them the opponent palettes in turn (`other_team_palette`), never team 0's.
+pub fn team_index_palette(team: u8) -> usize {
+    if team == 0 { 0 } else { other_team_palette(usize::from(team) - 1) }
 }
 
 /// `outlineShown` (BaseFighter SetOutline @166537-167737): whether the outline of a fighter with this StencilValue
@@ -658,6 +681,28 @@ mod tests {
         // (Ally bound to Blue1, Team3 to Green1; the others name no row and keep their defaults)
         let rows = central_palette(&defaults, &game, ["Blue1", "None", "None", "Green1", ""]);
         assert_eq!(rows, [[0.0; 4], [0.0, 0.0, 1.0, 1.0], [2.0; 4], [0.0, 1.0, 0.5, 1.0], [4.0; 4]]);
+    }
+
+    /// Big matches: no opponent takes the player's own palette or outline; the build's teams keep theirs.
+    #[test]
+    fn teams_past_four_reuse_the_opponent_colours() {
+        assert_eq!((0..8).map(team_index_palette).collect::<Vec<_>>(), [0, 1, 2, 3, 1, 2, 3, 1]);
+        assert_eq!((0..8).map(|t| ffa_team_palette(t, 2)).collect::<Vec<_>>(), [1, 2, 0, 3, 1, 2, 3, 1]);
+        let rules = mvs_sim::setup::Rules { knockouts_to_win: 3.0, duration: 420.0, stocks: false };
+        let players = (0..8).map(|i| MatchPlayer { bot: i != 3, ..MatchPlayer::default() }).collect::<Vec<_>>();
+        let ffa =
+            MatchSetup { players, team_style: TeamStyle::FreeForAll, rules: Some(rules), ..MatchSetup::default() };
+        for online in [false, true] {
+            let c = fighter_colours(&ffa, 3, online, true);
+            for (i, c) in c.iter().enumerate().filter(|&(i, _)| i != 3) {
+                assert!(![2, 4].contains(&c.stencil), "opponent {i} has the player's outline (online {online})");
+                assert_ne!(c.team_palette, 0, "opponent {i} has the player's team colour");
+                assert_ne!(c.focus_palette, 4, "opponent {i} has the player's colour");
+            }
+        }
+        let lp = MatchSetup { local_play: true, ..ffa };
+        let c = fighter_colours(&lp, 0, false, true);
+        assert_eq!(c.iter().map(|c| c.stencil).collect::<Vec<_>>(), [2, 3, 5, 6, 3, 5, 6, 3]);
     }
 
     #[test]

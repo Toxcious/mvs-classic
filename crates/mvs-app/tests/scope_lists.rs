@@ -104,10 +104,11 @@ fn scope_lists_equal_the_page_tapes() {
                 ..BeginOpts::default()
             },
         );
+        // (the Chaos Wheel's scope is the port's own: the oracle has none)
         let got: Vec<Scope> = got
             .iter()
             .filter_map(|l| match &l.call {
-                Call::Scope { name, keep, lazy } if !["menu", "base", "preload"].contains(&name.as_str()) => {
+                Call::Scope { name, keep, lazy } if !["menu", "base", "preload", "wheel"].contains(&name.as_str()) => {
                     Some((name.clone(), keep.clone(), lazy.clone()))
                 }
                 _ => None,

@@ -14,6 +14,7 @@ mvs-load.workspace = true
 mvs-material.workspace = true
 mvs-sim = { path = "../mvs-sim" }
 mvs-sim-trace = { path = "../mvs-sim-trace" }
+mvs-stage.workspace = true
 mvs-store.workspace = true
 mvs-trace.workspace = true
 mvs-vfx.workspace = true

@@ -209,13 +209,13 @@ pub struct LocalMatch {
     pub map: String,
 }
 
-/// (the port's own) The status of a match by its shape: a queue's by its mode (Silly is two against two), a custom
-/// lobby's by its ETeamStyle (0 one against one, 1 teams, 2 free-for-all) and its fighters, bots too; another shape
-/// (two against one) is a match with no shape named.
+/// (the port's own) The status of a match by its shape: a queue's by its mode (Chaos is two against two), a custom
+/// lobby's by its match's ETeamStyle (0 one against one, 1 teams, 2 free-for-all) and its fighters, bots too; another
+/// shape (a Versus lobby's two against one, the 2v2 style with three fighters) is a match with no shape named.
 fn match_status(mode: Option<QueueMode>, team_style: u8, fighters: usize) -> PresenceStatus {
     match (mode, team_style, fighters) {
         (Some(QueueMode::OneVOne), ..) | (None, 0, 2) => PresenceStatus::OneVOne,
-        (Some(QueueMode::TwoVTwo | QueueMode::Silly), ..) | (None, 1, 4) => PresenceStatus::TwoVTwo,
+        (Some(QueueMode::TwoVTwo | QueueMode::Chaos), ..) | (None, 1, 4) => PresenceStatus::TwoVTwo,
         (Some(QueueMode::Ffa), ..) | (None, 2, _) => PresenceStatus::Ffa,
         _ => PresenceStatus::Match,
     }
@@ -2150,7 +2150,7 @@ mod tests {
     fn a_match_status_follows_the_queue_mode_else_the_lobby_shape() {
         use PresenceStatus::*;
         assert_eq!(match_status(Some(QueueMode::OneVOne), 1, 4), OneVOne);
-        assert_eq!(match_status(Some(QueueMode::Silly), 0, 2), TwoVTwo);
+        assert_eq!(match_status(Some(QueueMode::Chaos), 0, 2), TwoVTwo);
         assert_eq!(match_status(Some(QueueMode::Ffa), 0, 0), Ffa);
         assert_eq!(match_status(None, 0, 2), OneVOne);
         assert_eq!(match_status(None, 1, 4), TwoVTwo);

@@ -39,6 +39,7 @@ use mvs_sim::fighter::control::ability_row;
 use mvs_sim::names::Name;
 use mvs_sim::{Event, World};
 use mvs_view::Camera;
+use mvs_view::skins::{ffa_team_palette, team_index_palette};
 
 use crate::Result;
 use crate::bundle::{Bundle, Rgba};
@@ -62,6 +63,7 @@ pub use input_label::{LABEL_ACTIONS, LabelInput, Slots};
 use pop::{Place, PopId, PopParams, PopTexts};
 use skill_shot::SkillshotTargets;
 use victory::VictoryText;
+pub use wheel::SCOPE_SOUNDS as WHEEL_SOUNDS;
 use wheel::WheelCard;
 
 /// The Lab's combo texts (TrainGameMode OnPlayerJuggled -> TrainingGameState DisplayComboCounts): the Lab menu's
@@ -132,6 +134,9 @@ pub struct WheelHud {
     pub current: Option<usize>,
     /// The next mutator, once it is drawn.
     pub next: Option<usize>,
+    /// Two at once: the second mutator on, and the second of the next change once it is drawn.
+    pub also: Option<usize>,
+    pub also_next: Option<usize>,
     /// Ticks to the next change; None before the match starts and once it is over.
     pub ticks_left: Option<u32>,
     /// A window's length and how long ahead of a change the next mutator is drawn, ticks.
@@ -480,14 +485,16 @@ pub struct Hud {
     bundle_texts: IndexMap<String, String>,
     setup: HudSetup,
     players: Vec<BrokerPlayer>,
-    /// UI_Functions Color for Team, by team index.
-    team_colors: [Rgba; 4],
+    /// UI_Functions Color for Team, by team index (at least the build's four).
+    team_colors: Vec<Rgba>,
     /// Per HUD pawn: the players by index, then each mode pawn attached after the start, in attach order: its sim
     /// id (None once detached: its widgets are kept unseen, never drawn) and its
     /// broker's player index.
     pawns: Vec<Option<Fid>>,
     slot_of: Vec<usize>,
     huds: Vec<AttachedBottom>,
+    /// (the port's own) By fighter (player index), the player driving it: the Chaos Wheel's Body Swap.
+    drivers: Vec<usize>,
     tops: Vec<AttachedTop>,
     /// What a pawn attached later is made of: the prototypes (the bottom's with UI_FinnCharge in customContainer
     /// and its root, when the bundle has the class), the preferences at build, context 5 and the players' names.
@@ -575,26 +582,27 @@ enum Part {
 }
 
 /// UI_Functions Color for Team, as a palette index: the Lab uses the team index; Free For All gives my team 0 and the
-/// others 1 + their place among the other team indexes; two teams give my team 0, the other 1.
+/// others 1 + their place among the other team indexes; two teams give my team 0, the other 1. A team past the
+/// build's four takes the opponent palettes in turn (mvs-view skins.rs `other_team_palette`).
 fn team_palette(setup: &HudSetup, team: u8) -> usize {
     let mine = setup.players[setup.me].team;
     match setup.mode {
-        4 => usize::from(team),
-        3 if team == mine => 0,
-        3 => (0..4u8).filter(|&t| t != mine).position(|t| t == team).map_or(0, |k| 1 + k),
+        4 => team_index_palette(team),
+        3 => ffa_team_palette(team, mine),
         _ => usize::from(team != mine),
     }
 }
 
 /// UI_Functions Color for Player: online IsMe ? 4 : the local player's team 0, another 1; offline in training or
-/// with exactly one human player IsMe ? 4 : team index, otherwise the team index.
+/// with exactly one human player IsMe ? 4 : team index, otherwise the team index (past the build's four teams,
+/// `team_index_palette`).
 fn player_palette(setup: &HudSetup, player: usize) -> usize {
     if setup.online {
         let mine = setup.players[setup.me].team;
         return if player == setup.me { 4 } else { usize::from(setup.players[player].team != mine) };
     }
     let one_human = setup.mode == 4 || setup.players.iter().filter(|p| !p.bot).count() == 1;
-    if one_human && player == setup.me { 4 } else { usize::from(setup.players[player].team) }
+    if one_human && player == setup.me { 4 } else { team_index_palette(setup.players[player].team) }
 }
 
 /// The struct a queued feeder fills (BPI_PopText: through the pawn's queue).
@@ -744,7 +752,9 @@ impl Hud {
             })
             .collect();
         let tops = (0..n).map(|i| AttachedTop::new(&top, &players[i], i)).collect();
-        let team_colors = [0, 1, 2, 3].map(|t| pal(team_palette(setup, t)));
+        // (the build's four teams, and a team per player past them: the port's big Free For All)
+        let teams = setup.players.iter().map(|p| p.team + 1).max().unwrap_or(0).max(4);
+        let team_colors: Vec<Rgba> = (0..teams).map(|t| pal(team_palette(setup, t))).collect();
         // PFGPlayerController's ReceiveBeginPlay -> CreateUI -> EnableHUD creates UI_Game (HUD time 0); UI_Game
         // Update Team Colors: Broker.SetColorForTeam(0 / 1, Color for Team(i)).
         let sb = ScoreboardSetup {
@@ -759,17 +769,26 @@ impl Hud {
                 .flatten()
                 .map_or_else(String::new, |k| game_text(text, k)),
             stage_label: setup.arcade.map(|a| arcade_stage(text, MI_ARCADE_STAGE, "{Number}", a)),
+            teams: setup.players.iter().map(|p| p.team).collect(),
         };
         let scoreboard = Scoreboard::new(b, &players, 0.0, &sb, &ui, &abilities);
         let wheel_card = setup.wheel.clone().map(|pool| {
             let (clock, mode) = scoreboard.text_styles();
-            WheelCard::new(b, pool, mode, clock, &crate::menu::custom_text::MUTATORS)
+            WheelCard::new(b, pool, mode, clock, &crate::menu::custom_text::wheel_names())
         });
         // (contexts 1 to 3: the versus levels' InToCountdown; the Lab and the tutorial level make none)
         let stage = setup.arcade.map(|a| arcade_stage(text, CD_ARCADE_STAGE, "{Round}", a));
         let countdown = (1..4).contains(&setup.mode).then(|| {
             let style = usize::from(setup.mode - 1);
-            Countdown::new(b, text, style, setup.max_score, setup.stocks, setup.wheel.is_some(), stage.as_deref())
+            let mut c =
+                Countdown::new(b, text, style, setup.max_score, setup.stocks, setup.wheel.is_some(), stage.as_deref());
+            // Deviation: a Teams match with sides of different sizes (2v1) or of more than two (the port's big
+            // matches) shows each side's own count.
+            let sizes = [0, 1].map(|t| setup.players.iter().filter(|p| p.team == t).count());
+            if style == 1 && (sizes[0] != sizes[1] || sizes[0] > 2) {
+                c.set_sides(text, sizes);
+            }
+            c
         });
         // UI_Game MatchEnded: EnemyWin = not a spectator, not local play, my team is not the winner, and
         // (IsPlayingOnline or Is1v1BotMatch); the port's local custom game takes IsPlayingOnline as true (a match
@@ -814,6 +833,7 @@ impl Hud {
             players,
             team_colors,
             huds,
+            drivers: (0..n).collect(),
             tops,
             sent: vec![Sent::fresh(); n],
             facing_left: vec![false; n],
@@ -1039,6 +1059,7 @@ impl Hud {
                 self.detach(id);
             }
         }
+        self.follow_drivers(w);
         // (a pawn record's op lists go with the pawn)
         self.ui_ops.retain(|&id, _| w.by_id(id).is_some());
         self.ability_ops.retain(|&id, _| w.by_id(id).is_some());
@@ -1056,7 +1077,7 @@ impl Hud {
         for e in events {
             self.event(w, e, now, real);
         }
-        self.observe_wheel(now);
+        self.observe_wheel();
         // BaseFighter AddPopTextToQueue / ApplyPopText: one text at a time per pawn, the next after the shown one's
         // lifetime.
         for q in &mut self.pop_queues {
@@ -1220,19 +1241,52 @@ impl Hud {
     }
 
     /// (the port's own) The Chaos Wheel after a step's events, off the status the app set for it: the roll's sound
-    /// when the next mutator is drawn, and at the change its sound and the mutator's name shown as the Silly
-    /// selector shows its pick (`mutator_pop`), in the menus' words.
-    fn observe_wheel(&mut self, now: f64) {
+    /// when the next mutator is drawn, a click at each name the reel passes, the landing's when the spin lands and
+    /// the change's at the change. The card shows the change itself (its landing and its punch): no text over the
+    /// screen repeats the name.
+    /// (the port's own) The Chaos Wheel's Body Swap: each fighter's widgets (attached and fixed) show the player
+    /// driving it, and the fixed slots the lives it holds (its driver's).
+    fn follow_drivers(&mut self, w: &World) {
+        if self.setup.mode == MODE_WAVES || w.wheel.is_none() {
+            return;
+        }
+        let n = self.players.len().min(w.players.len()).min(self.drivers.len());
+        let ctx5 = self.setup.mode == 5;
+        let mut changed = false;
+        for k in 0..n {
+            let d = mvs_sim::world::wheel_events::input_slot(w, k);
+            if self.drivers[k] == d || d >= self.players.len() {
+                continue;
+            }
+            changed = true;
+            self.drivers[k] = d;
+            let b = &self.players[d];
+            if let Some(h) = self.huds.get_mut(k) {
+                h.rebind(b, &self.ui, ctx5, &self.names);
+            }
+            self.scoreboard.rebind(k, b, &self.names);
+        }
+        if changed && let Some(l) = &w.flow.stocks {
+            for (k, &x) in l.iter().enumerate().take(n) {
+                self.scoreboard.stocks(k, i64::from(x));
+            }
+        }
+    }
+
+    fn observe_wheel(&mut self) {
         let Some(c) = &mut self.wheel_card else { return };
-        let (rolled, changed) = c.observe(self.wheel.as_ref());
-        if rolled {
+        let seen = c.observe(self.wheel.as_ref());
+        if seen.rolled {
             self.sounds.push(wheel::ROLL_SOUND.to_owned());
         }
-        if let Some(m) = changed {
+        if seen.click {
+            self.sounds.push(wheel::CLICK_SOUND.to_owned());
+        }
+        if seen.landed {
+            self.sounds.extend(wheel::LAND_SOUNDS.map(String::from));
+        }
+        if seen.changed.is_some() {
             self.sounds.push(wheel::CHANGE_SOUND.to_owned());
-            let name = crate::menu::custom_text::MUTATORS.get(m).copied().unwrap_or_default();
-            let p = mutator_pop(name, SELECTOR_POP.0, SELECTOR_POP.1);
-            self.pops.add(p, now, &mut self.order);
         }
     }
 
@@ -1474,7 +1528,8 @@ impl Hud {
             // text, Color for Team(the scoring team), (0, 0, 0, 0)): offline the team's name.
             Event::MatchPointShow { team } => {
                 let adv = if *team == 0 { &self.texts.blue_advantage } else { &self.texts.red_advantage };
-                let color = self.team_colors[usize::try_from(*team).unwrap_or(0).min(3)];
+                let color = usize::try_from(*team).ok().and_then(|t| self.team_colors.get(t)).copied();
+                let color = color.unwrap_or(self.team_colors[0]);
                 for p in warning_pops(&self.texts.match_point, adv, color, [0.0; 4], None) {
                     self.pops.add(p, now, &mut self.order);
                 }
@@ -1818,6 +1873,8 @@ impl Hud {
             }
             // Buff_TransferDebuffs @1067-1571.
             PopKind::Transferred => queued(fighter, &x.transferred, [0.0, 1.0, 0.204562, 1.0], 1.0, [0.0, 0.0, 250.0]),
+            // (the port's own Chaos Wheel's Hot Potato: the Chaos tier's orange, shown at once each second)
+            PopKind::HotPotato => now1(custom_text::HOT_POTATO, 0.9, [1.0, 0.35, 0.05, 1.0], [0.0, 0.0, 300.0]),
             // Comp_Pawn_HitBoxHandler SpawnDodgePopText @0-1014: called directly on every machine.
             PopKind::Dodged => {
                 let (mut p, q) = now1(&x.dodged, 0.5, focus, [0.0, 0.0, 300.0]);
@@ -2207,11 +2264,42 @@ mod tests {
         Some((h, hud, bundle))
     }
 
-    /// A Lab HUD with the Chaos Wheel (pool `[4, 6]`, Giant and Low Gravity) and one without it: the card under the
-    /// clock, the scoreboard where it is without the card, the roll's and the change's sounds and the change's pop
-    /// text, and the world mutators' texts (needs the dev store).
+    /// A Lab HUD with the Chaos Wheel (pool `[0, 3]`, Giant and Low Gravity) and one without it: the card under the
+    /// clock, the scoreboard where it is without the card, the roll's and the change's sounds with no text over the
+    /// screen, and the world mutators' texts (needs the dev store).
     #[test]
-    fn a_wheel_card_stands_under_the_clock_and_pops_at_the_change() {
+    fn a_body_swap_shows_each_fighter_under_its_driver() {
+        use mvs_sim::setup::{MatchPlayer, MatchSetup, Wheel};
+        let Ok(store) = mvs_store::Store::open(mvs_store::dev_store_dir()) else { return };
+        let player = |c: &str| MatchPlayer { character: Some(c.to_owned()), ..MatchPlayer::default() };
+        let ms = MatchSetup {
+            players: vec![player("shaggy"), player("superman")],
+            wheel: Some(Wheel { seconds: 10_000.0, ..Wheel::of(vec!["Chaos_BodySwap".to_owned()]) }),
+            ..MatchSetup::default()
+        };
+        let Some(mut h) = mvs_sim_trace::harness::fresh(&ms, 1) else { return };
+        let bundle = Bundle::load(&store, "hud").expect("the hud bundle");
+        let text = GameText::load(&store).expect("the game text");
+        let mut s = setup(1, &[0, 1], &[false, false]);
+        s.players[0].username = "Alpha".to_owned();
+        s.players[1].username = "Bravo".to_owned();
+        let mut hud = Hud::new(&bundle, &text, &h.w, &s).expect("the HUD");
+        let name = |hud: &Hud, k: usize| {
+            let t = &hud.huds[k].t;
+            t.widget(t.find_in(t.find("UI_IGv3_Username"), "nameLabel")).text.clone()
+        };
+        hud.observe(&h.w, &[], 1.0, 1.0);
+        assert_eq!((name(&hud, 0), name(&hud, 1)), ("Alpha".to_owned(), "Bravo".to_owned()));
+        mvs_sim::world::wheel::change_to(&mut h.w, Some(0));
+        hud.observe(&h.w, &[], 2.0, 2.0);
+        assert_eq!((name(&hud, 0), name(&hud, 1)), ("Bravo".to_owned(), "Alpha".to_owned()), "the drivers' names");
+        mvs_sim::world::wheel::change_to(&mut h.w, None);
+        hud.observe(&h.w, &[], 3.0, 3.0);
+        assert_eq!((name(&hud, 0), name(&hud, 1)), ("Alpha".to_owned(), "Bravo".to_owned()), "back");
+    }
+
+    #[test]
+    fn a_wheel_card_stands_under_the_clock_and_shows_the_change() {
         use mvs_sim::setup::{MatchPlayer, MatchSetup};
         let Ok(store) = mvs_store::Store::open(mvs_store::dev_store_dir()) else { return };
         let player = |c: &str| MatchPlayer { character: Some(c.to_owned()), ..MatchPlayer::default() };
@@ -2223,7 +2311,7 @@ mod tests {
         let mut s = setup(4, &[0, 1], &[false, true]);
         s.max_score = -1;
         let mut plain = Hud::new(&bundle, &text, &h.w, &s).expect("the HUD");
-        s.wheel = Some(vec![4, 6]);
+        s.wheel = Some(vec![0, 3]);
         let mut hud = Hud::new(&bundle, &text, &h.w, &s).expect("the HUD");
         let id: mvs_view::M4 = std::array::from_fn(|r| std::array::from_fn(|c| f64::from(u8::from(r == c))));
         let cam = Camera { origin: [0.0; 3], translated_world_to_view: id, view_to_clip: id };
@@ -2242,8 +2330,14 @@ mod tests {
             };
             hud.draw(&f, &mut fonts, &mut ElementList::default());
         };
-        let status =
-            |current, next, left| WheelHud { current, next, ticks_left: left, window_ticks: 1200, warn_ticks: 180 };
+        let status = |current, next, left| WheelHud {
+            current,
+            next,
+            ticks_left: left,
+            window_ticks: 1200,
+            warn_ticks: 180,
+            ..WheelHud::default()
+        };
         let step = |hud: &mut Hud, w: Option<WheelHud>, t: f64| {
             hud.set_wheel(w);
             hud.observe(&h.w, &[], t, t);
@@ -2274,17 +2368,18 @@ mod tests {
         assert_eq!(hud.scoreboard.clock_place(), plain.scoreboard.clock_place());
         hud.take_sounds();
         // the roll: its sound once
-        step(&mut hud, Some(status(None, Some(6), Some(180))), 4.0);
-        step(&mut hud, Some(status(None, Some(6), Some(179))), 4.1);
+        step(&mut hud, Some(status(None, Some(3), Some(180))), 4.0);
+        step(&mut hud, Some(status(None, Some(3), Some(179))), 4.1);
         assert_eq!(hud.take_sounds(), vec![wheel::ROLL_SOUND.to_owned()]);
-        // the change: its sound and the name over the screen, as the Silly selector's pick
+        // the landing: its sounds once
+        step(&mut hud, Some(status(None, Some(3), Some(90))), 4.5);
+        step(&mut hud, Some(status(None, Some(3), Some(89))), 4.6);
+        assert_eq!(hud.take_sounds(), wheel::LAND_SOUNDS.map(String::from).to_vec());
+        // the change: its sound, the card's name and no text over the screen
         let before = hud.pops.pops().len();
-        step(&mut hud, Some(status(Some(6), None, Some(1200))), 5.0);
+        step(&mut hud, Some(status(Some(3), None, Some(1200))), 5.0);
         assert_eq!(hud.take_sounds(), vec![wheel::CHANGE_SOUND.to_owned()]);
-        let pops = hud.pops.pops();
-        assert_eq!(pops.len(), before + 1);
-        let p = &pops[before].p;
-        assert_eq!((p.text.as_str(), p.place.clone(), p.scale, p.lifetime), ("Low Gravity", Place::Viewport, 2.0, 5.0));
+        assert_eq!(hud.pops.pops().len(), before);
         draw(&mut hud, 5.0);
         let card = hud.wheel_card.as_ref().unwrap();
         assert_eq!(card.t.widget(card.t.find("WheelName")).text, "LOW GRAVITY");
@@ -2538,6 +2633,65 @@ mod tests {
         assert_eq!((five.text.as_str(), q, five.lifetime), ("High Five!!", false, 0.5));
         let (sale, q) = pop(PopKind::FinnSale, 0.0);
         assert_eq!((sale.text.as_str(), q, sale.lifetime), ("Going Out Of Business!", true, 1.0));
+    }
+
+    /// A custom Versus lobby's 2v1 (Teams, three players, team = slot % 2): the scoreboard has no slot for a fourth
+    /// player, and the countdown says 2 VS 1 (needs the dev store).
+    #[test]
+    fn two_v_one_scoreboard_and_countdown() {
+        use mvs_sim::setup::{MatchPlayer, MatchSetup, TeamStyle};
+        let Ok(store) = mvs_store::Store::open(mvs_store::dev_store_dir()) else { return };
+        let player =
+            |t: u8| MatchPlayer { character: Some("shaggy".to_owned()), team: Some(t), ..MatchPlayer::default() };
+        let ms = MatchSetup {
+            players: vec![player(0), player(1), player(0)],
+            team_style: TeamStyle::TwoVsTwo,
+            ..MatchSetup::default()
+        };
+        let Some(h) = mvs_sim_trace::harness::fresh(&ms, 1) else { return };
+        let bundle = Bundle::load(&store, "hud").expect("the hud bundle");
+        let text = GameText::load(&store).expect("the game text");
+        let hud = Hud::new(&bundle, &text, &h.w, &setup(2, &[0, 1, 0], &[false, true, true])).expect("the HUD");
+        assert!((0..3).all(|i| hud.scoreboard.slot_parts(i).is_some()), "the three players' slots");
+        assert!(hud.scoreboard.slot_parts(3).is_none(), "no fourth slot");
+        let numbers = |hud: &Hud| {
+            let c = hud.countdown.as_ref().expect("the countdown");
+            ["VS_Number_Left", "VS_Number_Right"].map(|n| {
+                let w = c.t.find_in(c.t.find(n), "MainText");
+                c.t.widget(w).text.clone()
+            })
+        };
+        assert_eq!(numbers(&hud), ["2", "1"]);
+        // A full 2v2 keeps all four slots and "2" on both sides.
+        let ms = MatchSetup { players: vec![player(0), player(1), player(0), player(1)], ..ms };
+        let Some(h) = mvs_sim_trace::harness::fresh(&ms, 1) else { return };
+        let s = setup(2, &[0, 1, 0, 1], &[false, true, true, true]);
+        let hud = Hud::new(&bundle, &text, &h.w, &s).expect("the HUD");
+        assert!((0..4).all(|i| hud.scoreboard.slot_parts(i).is_some()), "the four slots");
+        assert_eq!(numbers(&hud), ["2", "2"]);
+        // Big matches: a 4v3 and a 4v4 have a slot per player and each side's count; a Free For All of eight a slot
+        // per player, and no team colour past the fourth team is the player's own.
+        for teams in [&[0, 1, 0, 1, 0, 1, 0][..], &[0, 1, 0, 1, 0, 1, 0, 1]] {
+            let ms = MatchSetup { players: teams.iter().map(|&t| player(t)).collect(), ..ms.clone() };
+            let Some(h) = mvs_sim_trace::harness::fresh(&ms, 1) else { return };
+            let bots: Vec<bool> = (0..teams.len()).map(|i| i > 0).collect();
+            let hud = Hud::new(&bundle, &text, &h.w, &setup(2, teams, &bots)).expect("the HUD");
+            assert!((0..teams.len()).all(|i| hud.scoreboard.slot_parts(i).is_some()), "a slot per player");
+            let left = teams.iter().filter(|&&t| t == 0).count().to_string();
+            let right = teams.iter().filter(|&&t| t == 1).count().to_string();
+            assert_eq!(numbers(&hud), [left, right]);
+        }
+        let ffa: Vec<u8> = (0..8).collect();
+        let ms = MatchSetup {
+            players: ffa.iter().map(|_| MatchPlayer { team: None, ..player(0) }).collect(),
+            team_style: TeamStyle::FreeForAll,
+            ..ms
+        };
+        let Some(h) = mvs_sim_trace::harness::fresh(&ms, 1) else { return };
+        let bots: Vec<bool> = (0..8).map(|i| i > 0).collect();
+        let hud = Hud::new(&bundle, &text, &h.w, &setup(3, &ffa, &bots)).expect("the HUD");
+        assert!((0..8).all(|i| hud.scoreboard.slot_parts(i).is_some()), "a slot per player");
+        assert!(hud.team_colors.len() == 8 && hud.team_colors[1..].iter().all(|&c| c != hud.team_colors[0]));
     }
 
     /// Velma's GlassesOff blur: up only in an online match (IsPlayingOnline) for a live local Velma whose

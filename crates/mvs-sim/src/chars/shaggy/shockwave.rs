@@ -501,7 +501,7 @@ pub fn shock_hits(w: &mut World, id: ActorId, fired: &[Fired]) {
         // a minion too (GetOverlappingActors(null))
         for vic in all_fighters(w) {
             let v = w.fighter(vic);
-            if vic == f || v.life.dead != 0.0 || crate::fighter::no_hit(w, vic) {
+            if vic == f || v.life.dead != 0.0 || crate::combat::phases::no_hit_by(w, f, vic) {
                 continue;
             }
             let mut vp = Vec::new();

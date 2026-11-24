@@ -68,7 +68,7 @@ use std::time::{Duration, Instant};
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as B64;
 use indexmap::{IndexMap, IndexSet};
-use mvs_protocol::match_wire::{MAX_PACKET, packet_fits};
+use mvs_protocol::match_wire::{MAX_PACKET, MAX_SLOTS, packet_fits};
 use mvs_protocol::referee::{Referee, RefereeOut, SlotNews};
 use mvs_protocol::relay_seal::{
     DatagramOpener, KX_BYTES, KxSecret, MAX_SEALED_DATAGRAM, SealedReader, TxSeal, datagram_token, derive, shared,
@@ -634,11 +634,11 @@ enum Cmd {
     /// Who may open a link to this player (the service says): in place of the members of the lobbies.
     Accept(IndexSet<String>),
     /// A match's packets from now on: to and from `referee`, to the game on `to_game`; `hosted` this thread's own
-    /// referee of the humans (slot, id) with its tick 0.
+    /// referee of the match.
     Match {
         referee: String,
         to_game: Sender<Vec<u8>>,
-        hosted: Option<(Vec<(usize, String)>, f64)>,
+        hosted: Option<HostedMatch>,
     },
     /// A packet of the game's session to the match's referee.
     MatchPacket(Vec<u8>),
@@ -684,6 +684,15 @@ impl Paced {
             Paced::Close(_) => 0,
         }
     }
+}
+
+/// A match the net thread referees itself, as the game asks for it: its slot count (its bots' among them), its
+/// humans (slot, id), its tick 0 on the client's clock.
+#[derive(Clone, Debug)]
+pub(crate) struct HostedMatch {
+    slots: usize,
+    humans: Vec<(usize, String)>,
+    tick0: f64,
 }
 
 /// A match this thread referees.
@@ -899,8 +908,8 @@ impl Net {
             Cmd::Match { referee, to_game, hosted } => {
                 let now = self.now();
                 self.faults.go.get_or_insert(now);
-                let hosted = hosted.map(|(humans, tick0)| Hosted {
-                    referee: Referee::new(&humans.iter().map(|h| h.0).collect::<Vec<_>>(), tick0),
+                let hosted = hosted.map(|HostedMatch { slots, humans, tick0 }| Hosted {
+                    referee: Referee::new(slots, &humans.iter().map(|h| h.0).collect::<Vec<_>>(), tick0),
                     slots: humans.iter().map(|(s, id)| (id.clone(), *s)).collect(),
                     ids: humans.into_iter().collect(),
                     pumped: now,
@@ -1524,7 +1533,7 @@ impl Net {
             if let Some(h) = &mut r.hosted
                 && let Some(&slot) = h.slots.get(&from)
             {
-                if packet_fits(bytes) {
+                if packet_fits(bytes, h.referee.match_slots()) {
                     self.referee(|r, out| r.receive(slot, bytes, now, out));
                     // (what it ruled goes out now, not at the clock's next pump)
                     self.pump(None);
@@ -1533,7 +1542,8 @@ impl Net {
             }
             // the referee's packet to this player's session
             if r.referee == from {
-                if packet_fits(bytes) {
+                // (of a match the game's session checks them against)
+                if packet_fits(bytes, MAX_SLOTS) {
                     let _ = r.to_game.send(bytes.to_vec());
                 }
                 return;
@@ -1547,9 +1557,10 @@ impl Net {
         let Some(r) = &mut self.route else { return };
         if let Some(h) = &mut r.hosted {
             let Some(&slot) = h.slots.get(&self.w.id) else { return };
+            let fits = packet_fits(&bytes, h.referee.match_slots());
             let now = self.now();
             self.playing(now);
-            if packet_fits(&bytes) {
+            if fits {
                 self.referee(|r, out| r.receive(slot, &bytes, now, out));
                 self.pump(None);
             }
@@ -2155,11 +2166,12 @@ impl RelayClient {
         }
     }
 
-    /// A match the net thread referees itself: its humans (slot, id), its tick 0
-    /// on the client's clock. Its referee's id is this player's.
-    pub fn host_match(&self, humans: Vec<(usize, String)>, tick0: f64) -> RelayMatchLink {
+    /// A match the net thread referees itself: its slot count (its bots' among them), its humans (slot, id), its tick
+    /// 0 on the client's clock. Its referee's id is this player's.
+    pub fn host_match(&self, slots: usize, humans: Vec<(usize, String)>, tick0: f64) -> RelayMatchLink {
         let (tx, rx) = mpsc::channel();
-        let _ = self.cmds.send(Cmd::Match { referee: self.me.clone(), to_game: tx, hosted: Some((humans, tick0)) });
+        let hosted = Some(HostedMatch { slots, humans, tick0 });
+        let _ = self.cmds.send(Cmd::Match { referee: self.me.clone(), to_game: tx, hosted });
         RelayMatchLink { cmds: self.cmds.clone(), from: rx }
     }
 
@@ -2168,7 +2180,7 @@ impl RelayClient {
         self.route(referee.to_owned(), None)
     }
 
-    fn route(&self, referee: String, hosted: Option<(Vec<(usize, String)>, f64)>) -> RelayMatchLink {
+    fn route(&self, referee: String, hosted: Option<HostedMatch>) -> RelayMatchLink {
         let (tx, rx) = mpsc::channel();
         let _ = self.cmds.send(Cmd::Match { referee, to_game: tx, hosted });
         RelayMatchLink { cmds: self.cmds.clone(), from: rx }

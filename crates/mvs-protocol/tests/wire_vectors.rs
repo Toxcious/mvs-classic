@@ -1,5 +1,6 @@
 //! The match wire and the relay wire against the oracle's golden vectors (`packets.json`, `frames.json`,
 //! `datagrams.json` and `checks.json` of the oracle's wire recorder). A test that finds no vectors says so and passes.
+//! The oracle's matches had four slots: its input headers are of four.
 
 use mvs_protocol::match_wire::{
     self as mw, Checksum, InputHeader, RULED_HEADER, RUN_HEADER, RuledHeader, RunHeader, WireInput, packet_fits,
@@ -8,6 +9,9 @@ use mvs_protocol::match_wire::{
 use mvs_protocol::relay_wire::{self as rw, ClientMessage, ServerMessage};
 use mvs_protocol::vectors;
 use serde_json::{Value, json};
+
+/// The oracle's slot count.
+const SLOTS: usize = 4;
 
 fn unhex(s: &str) -> Vec<u8> {
     (0..s.len() / 2).map(|i| u8::from_str_radix(&s[2 * i..2 * i + 2], 16).expect("hex")).collect()
@@ -56,25 +60,36 @@ fn runs_of(b: &[u8]) -> Vec<Value> {
         .collect()
 }
 
+/// An oracle input packet with the port's sequence byte after its acks: 0 (the oracle's had none); any other packet,
+/// or one too short for the acks, as it is.
+fn with_seq(mut b: Vec<u8>) -> Vec<u8> {
+    if b.first() == Some(&mw::MSG_INPUT) && b.len() >= 11 + 4 * SLOTS {
+        b.insert(11 + 4 * SLOTS, 0);
+    }
+    b
+}
+
 #[test]
 fn packets() {
     let Some(v) = vectors::read("packets.json") else { return };
     let mut n = 0;
     for c in v["input"].as_array().unwrap() {
         let acks: Vec<u32> = c["acks"].as_array().unwrap().iter().map(u).collect();
+        assert_eq!(acks.len(), SLOTS, "the oracle's acks");
         let h = InputHeader {
             slot: u8::try_from(u(&c["slot"])).unwrap(),
             first: u(&c["first"]),
             count: u8::try_from(u(&c["count"])).unwrap(),
             stamp: u(&c["stamp"]),
-            acks: acks.try_into().unwrap(),
+            acks: std::array::from_fn(|s| acks.get(s).copied().unwrap_or(0)),
+            seq: 0,
         };
         let inputs = wire_inputs(&c["inputs"]);
-        let bytes = unhex(c["bytes"].as_str().unwrap());
-        assert_eq!(mw::input_packet(&h, &inputs), bytes, "input packet {n}");
-        assert_eq!(packet_fits(&bytes), c["fits"].as_bool().unwrap(), "input fits {n}");
-        assert_eq!(InputHeader::read(&bytes), Some(h), "input header {n}");
-        assert_eq!(packet_inputs(&bytes), inputs.as_slice(), "input inputs {n}");
+        let bytes = with_seq(unhex(c["bytes"].as_str().unwrap()));
+        assert_eq!(mw::input_packet(&h, SLOTS, &inputs), bytes, "input packet {n}");
+        assert_eq!(packet_fits(&bytes, SLOTS), c["fits"].as_bool().unwrap(), "input fits {n}");
+        assert_eq!(InputHeader::read(&bytes, SLOTS), Some(h), "input header {n}");
+        assert_eq!(packet_inputs(&bytes, SLOTS), inputs.as_slice(), "input inputs {n}");
         n += 1;
     }
     for c in v["checksum"].as_array().unwrap() {
@@ -82,7 +97,7 @@ fn packets() {
         let bytes = unhex(c["bytes"].as_str().unwrap());
         assert_eq!(k.bytes().to_vec(), bytes, "checksum {n}");
         assert_eq!(Checksum::read(&bytes), Some(k), "checksum read {n}");
-        assert_eq!(packet_fits(&bytes), c["fits"].as_bool().unwrap(), "checksum fits {n}");
+        assert_eq!(packet_fits(&bytes, SLOTS), c["fits"].as_bool().unwrap(), "checksum fits {n}");
         n += 1;
     }
     for c in v["ruled"].as_array().unwrap() {
@@ -113,7 +128,7 @@ fn packets() {
         let bytes = unhex(c["bytes"].as_str().unwrap());
         assert_eq!(b, bytes, "ruled packet {n}");
         assert_eq!(RuledHeader::read(&bytes), Some(head), "ruled header {n}");
-        assert_eq!(packet_fits(&bytes), c["fits"].as_bool().unwrap(), "ruled fits {n}");
+        assert_eq!(packet_fits(&bytes, SLOTS), c["fits"].as_bool().unwrap(), "ruled fits {n}");
         assert_eq!(runs_of(&bytes), c["forRuns"].as_array().unwrap().clone(), "ruled runs {n}");
         // the runs' inputs are what was written
         for (r, want) in mw::runs(&bytes).zip(runs) {
@@ -123,10 +138,10 @@ fn packets() {
     }
     let mut rejected = 0;
     for c in v["fits"].as_array().unwrap() {
-        let bytes = unhex(c["bytes"].as_str().unwrap());
+        let bytes = with_seq(unhex(c["bytes"].as_str().unwrap()));
         let why = c["why"].as_str().unwrap();
-        assert_eq!(packet_fits(&bytes), c["fits"].as_bool().unwrap(), "{why}: {}", c["bytes"]);
-        if !packet_fits(&bytes) {
+        assert_eq!(packet_fits(&bytes, SLOTS), c["fits"].as_bool().unwrap(), "{why}: {}", c["bytes"]);
+        if !packet_fits(&bytes, SLOTS) {
             rejected += 1;
         }
         if !c["forRuns"].is_null() {

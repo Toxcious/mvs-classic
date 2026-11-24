@@ -5,6 +5,7 @@
 //! arcade's (the run in `Session::arcade`, its match made at the screen's end). The queue's seamless entry over the
 //! main menu's scene and the online rematch path are not here yet.
 
+pub mod card_row;
 pub mod child_widgets;
 pub mod path_plate;
 pub mod setup;

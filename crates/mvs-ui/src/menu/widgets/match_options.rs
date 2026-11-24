@@ -145,8 +145,6 @@ fn override_title(o: &str) -> Option<(&'static str, Option<&'static str>)> {
         _ => return None,
     })
 }
-/// SetCardTitle's Casual title (@3969, Silly Queue) and its empty subtitle (@4056).
-const CASUAL_TITLE: &str = "95F2CC7145437E299415B0A1BFEBBF98";
 /// SetCardTitle's arcade overrides (@2698-3450): the title and subtitle keys.
 fn arcade_titles(o: &str) -> Option<(&'static str, &'static str)> {
     Some(match o {
@@ -344,10 +342,11 @@ impl GameModeCard {
             wd(cx, sub).text = s;
             return;
         }
+        // Deviation: SetCardTitle's Casual title (@3969, Silly Queue) and its empty subtitle (@4056) are the port's
+        // Chaos queue's
         if o == "Casual" {
-            let t = cx.view.game_text(CASUAL_TITLE).to_string();
-            wd(cx, mode).text = t;
-            wd(cx, sub).text = String::new();
+            wd(cx, mode).text = crate::menu::custom_text::CHAOS_QUEUE_TITLE.to_owned();
+            wd(cx, sub).text = crate::menu::custom_text::CHAOS_QUEUE_SUB.to_owned();
             return;
         }
         let Some((t, s)) = override_title(&o) else { return };
@@ -843,7 +842,8 @@ pub fn type_index(id: &str) -> Option<usize> {
         _ => None,
     }
 }
-/// PrintSelectedModes: the order and the names (Game.locres keys: 1 VS 1, TEAMS, CO-OP VS AI, FFA, SILLY).
+/// PrintSelectedModes: the order and the names (Game.locres keys: 1 VS 1, TEAMS, CO-OP VS AI, FFA, SILLY; the
+/// Casual card's SILLY is shown as the port's Chaos queue's name).
 const PRINT_ORDER: [(&str, &str); 5] = [
     ("1v1", "C1413E164DB8DCE5DC2CC19A2E4AEBA5"),
     ("2v2", "720C33654366ACE4376C668A91B54234"),
@@ -874,7 +874,7 @@ const RANKED_FEATURE_ENABLED: bool = false;
 const RANKED_LEVEL_MET: bool = false;
 /// Deviation: the cards the port runs, per tab; every other card shows the card's own disabled look
 /// (ToggleDisable(false): greyed, its "COMING SOON!" Disabled Text) and takes no input. The online tab runs the
-/// Normal 1v1, 2v2, FFA and Silly (Casual) queues only (BOTS has no queue in the port); of the tutorials, the
+/// Normal 1v1, 2v2, FFA and Chaos (the Casual card) queues only (BOTS has no queue in the port); of the tutorials, the
 /// Beginner Tutorial and the Advanced Tutorials (Tutorial_chars, the character tutorials, stays off).
 const PORTED_CARDS: [&str; 15] = [
     "1v1",
@@ -909,7 +909,7 @@ fn queue_card(m: QueueMode) -> &'static str {
         QueueMode::OneVOne => "1v1",
         QueueMode::TwoVTwo => "2v2",
         QueueMode::Ffa => "FFA",
-        QueueMode::Silly => "Casual",
+        QueueMode::Chaos => "Casual",
     }
 }
 
@@ -1688,7 +1688,11 @@ impl MatchOptions {
         let mut names = Vec::new();
         for (n, key) in PRINT_ORDER {
             if self.flags(cx, n).0 && Self::shown(cx, n) {
-                names.push(cx.view.game_text(key).to_string());
+                names.push(if n == "Casual" {
+                    crate::menu::custom_text::CHAOS_QUEUE.to_owned()
+                } else {
+                    cx.view.game_text(key).to_string()
+                });
             }
         }
         let l = find(cx, "ModesLabel");
@@ -1815,7 +1819,7 @@ impl MatchOptions {
     }
 
     /// Confirm @58609 -> ActOnMatchParams MH@6037: the solo queue's, then EnterPreMatch. Deviation: a queue of 1v1,
-    /// 2v2, FFA, Silly or any of them, of the Normal style, in the queue rules' order. A party member's page does not
+    /// 2v2, FFA, Chaos or any of them, of the Normal style, in the queue rules' order. A party member's page does not
     /// queue (its leader's does). The modes go to the session (Lobby.queue and lastQueue) and the program's online
     /// client searches them and opens the PreMatch level (EnterPreMatch, PGI@30694-31709).
     /// Deviation: the build's seamless branch (NewPrematchEnter: the main menu's screen fades out and hosts the
@@ -1834,7 +1838,7 @@ impl MatchOptions {
         if modes.is_empty() {
             return warn_once(
                 "Button_Confirm",
-                "Confirm (ConfirmMultiQueue) of a mode other than Normal 1v1 / 2v2 / FFA / Silly",
+                "Confirm (ConfirmMultiQueue) of a mode other than Normal 1v1 / 2v2 / FFA / Chaos",
             );
         }
         self.request_dismiss_self(cx);

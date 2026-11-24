@@ -69,9 +69,7 @@ use crate::fighter::traces::{
     TRACE_PROJECTILE_GROUND, TRACE_PROJECTILE_GROUND_NO_PLATFORM, TraceBody, body_info, box_trace_single,
     sphere_trace_single,
 };
-use crate::fighter::{
-    FighterId, actor_y, cap_radius, capsule_half, facing, in_hitstun, invulnerable, no_collision, no_hit,
-};
+use crate::fighter::{FighterId, actor_y, cap_radius, capsule_half, facing, in_hitstun, invulnerable, no_collision};
 use crate::math::ue::{KINDA_SMALL_NUMBER, normal, safe_normal2d, size2d};
 use crate::math::{max, min, to_int32};
 use crate::name;
@@ -557,7 +555,7 @@ fn hitbox_overlap(w: &mut World, id: ProjectileId, vic: FighterId) {
     let bkb = p.hit.base_knock_back.unwrap_or(0.0);
     if w.fighter(vic).team.team != owner_team(w, a) {
         let (d, packet) = dealt(w, id);
-        if no_hit(w, vic) || projectile_blocks(w, &d, vic) {
+        if crate::combat::phases::no_hit_from(w, a, vic) || projectile_blocks(w, &d, vic) {
             return;
         }
         if invulnerable(w, vic) {
@@ -1255,7 +1253,7 @@ fn overlap_drop(w: &mut World, id: ProjectileId, vic: FighterId) {
     let (at, attack_id, bkb) = (V2 { x: p.x, y: p.y }, p.attack_id, p.hit.base_knock_back.unwrap_or(0.0));
     if w.fighter(vic).team.team != w.fighter(inst).team.team {
         let (dl, packet) = dealt(w, id);
-        if no_hit(w, vic) || projectile_blocks(w, &dl, vic) {
+        if crate::combat::phases::no_hit_by(w, inst, vic) || projectile_blocks(w, &dl, vic) {
             return;
         }
         drop_mut(pm(w, id)).struck.insert(vid);

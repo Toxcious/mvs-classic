@@ -81,7 +81,7 @@ use crate::fighter::traces::{
     OBJ_DAMAGE_DESTRUCTIBLE, OBJ_ITEM_DESTRUCTIBLE, OBJ_PAWN, OBJ_PROJECTILE_DESTRUCTIBLE, TraceBody, body_info,
     sphere_overlap_actors,
 };
-use crate::fighter::{FighterId, invulnerable, no_hit};
+use crate::fighter::{FighterId, invulnerable};
 use crate::math::ue::{SMALL_NUMBER, cosf, safe_normal, sinf};
 use crate::math::{max, to_int32};
 use crate::name;
@@ -355,7 +355,7 @@ fn blast(w: &mut World, id: ActorId) {
             continue;
         }
         if w.fighter(o).team.team != team {
-            if no_hit(w, o) || projectile_blocks(w, &dealer(w, me), o) {
+            if crate::combat::phases::no_hit_by(w, f, o) || projectile_blocks(w, &dealer(w, me), o) {
                 continue;
             }
             if invulnerable(w, o) {

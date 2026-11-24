@@ -120,6 +120,10 @@ pub struct Wheel {
     pub seconds: Real,
     /// How long ahead of a change the next mutator is drawn, so the HUD can name it, in seconds.
     pub warn: Real,
+    /// How many of the pool's Chaos mutators a round of the draw's bag holds.
+    pub chaos: mvs_mutators::ChaosRate,
+    /// Two at once: late in the match (`world::wheel`'s `late`) each change brings two mutators.
+    pub two: bool,
 }
 
 impl Wheel {
@@ -130,7 +134,7 @@ impl Wheel {
 
     /// A custom game's rule over `pool`.
     pub fn of(pool: Vec<String>) -> Wheel {
-        Wheel { pool, seconds: Wheel::SECONDS, warn: Wheel::WARN }
+        Wheel { pool, seconds: Wheel::SECONDS, warn: Wheel::WARN, chaos: mvs_mutators::ChaosRate::Normal, two: false }
     }
 }
 
@@ -149,6 +153,10 @@ pub struct MatchSetup {
     pub mode: Option<MatchMode>,
     /// The port's own Chaos Wheel rule, or None (off).
     pub wheel: Option<Wheel>,
+    /// (the port's own) What a fighter deals spares the fighters of another team: its attacks, grabs, projectiles and
+    /// what its moves spawn do nothing to them, while the stage's hazards and an item the stage dropped hit as ever
+    /// (`combat::phases::spares`). No menu sets it: the seam a custom rule switches on.
+    pub spare_opponents: bool,
 }
 
 /// `MATCH_START_TICKS`: BPI_SetMatchStarted, counted from the first game tick.
@@ -162,15 +170,32 @@ pub const INPUT_OPEN_TICKS: u32 = 369;
 /// ParentGameMode.GetPlayerStart: the PlayerStart actor tag per team style.
 pub const START_TAGS: [&str; 3] = ["1v1", "2v2", "FreeForAll"];
 
-/// `teamCount`.
-pub fn team_count(style: TeamStyle) -> u8 {
-    if style == TeamStyle::FreeForAll { 4 } else { 2 }
+/// The most players a match holds: the port's own big matches (Versus up to 4v4, Free For All up to eight). The
+/// beta's matches have four at most.
+pub const MAX_PLAYERS: usize = 8;
+
+/// `teamCount`: AssignPlayerAndTeamIndex_Immediate's PlayerIndex % (2, 2, 4 by team style).
+// Deviation: Free For All of more than four players (the port's own big matches) has a team per player, so player 4
+// is nobody's ally; the build's four teams would pair player 4 with player 0.
+pub fn team_count(setup: &MatchSetup) -> u8 {
+    if setup.team_style == TeamStyle::FreeForAll {
+        u8::try_from(setup.players.len().clamp(4, MAX_PLAYERS)).expect("a player count")
+    } else {
+        2
+    }
 }
 
 /// `playerTeam`.
 pub fn player_team(setup: &MatchSetup, i: usize) -> u8 {
-    let n = usize::from(team_count(setup.team_style));
+    let n = usize::from(team_count(setup));
     setup.players[i].team.unwrap_or_else(|| u8::try_from(i % n).expect("a team below the team count"))
+}
+
+/// How many teams the per-team tallies hold (`teamKnockouts`, `teamDamage`): the team count, or more where a
+/// set-up gives a player a team past it (the Lab sends teams 0..3 in the 1v1 and 2v2 styles).
+pub fn team_slots(setup: &MatchSetup) -> usize {
+    let highest = (0..setup.players.len()).map(|i| usize::from(player_team(setup, i)) + 1).max().unwrap_or(0);
+    usize::from(team_count(setup)).max(highest)
 }
 
 /// The player's preferences, the defaults for a bot. The wire's absent
@@ -190,8 +215,12 @@ const ITEM_MUTATORS: [&str; 2] = ["Mutator_RandomItemSpawns", "Mutator_RandomMut
 pub fn items_on(setup: &MatchSetup) -> bool {
     crate::world::flow::ffa_items_on(setup)
         || setup.mutators.iter().any(|m| ITEM_MUTATORS.contains(&m.as_str()))
-        || setup.wheel.as_ref().is_some_and(|w| w.pool.iter().any(|m| m == "Mutator_RandomItemSpawns"))
+        || setup.wheel.as_ref().is_some_and(|w| w.pool.iter().any(|m| WHEEL_ITEM_KEYS.contains(&m.as_str())))
 }
+
+/// The wheel's pool entries that run the item area's spawner: Random Items, and the port's own Bomb Rain and
+/// Projectile Party (`world::own_rules`).
+const WHEEL_ITEM_KEYS: [&str; 3] = ["Mutator_RandomItemSpawns", "Chaos_BombRain", "Chaos_ProjectileParty"];
 
 /// The match reads the mutators' data (`world::flow::mutator_data`): the set-up lists a mutator, or the port's own
 /// Chaos Wheel may roll one.

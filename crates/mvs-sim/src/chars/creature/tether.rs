@@ -126,7 +126,7 @@ use crate::combat::hit::knockback::timer_ticks;
 use crate::combat::holds::{picked_up, pull_launch, pull_time, pull_toward};
 use crate::consts::DELTA_SECONDS;
 use crate::events::{Event, SoundKey};
-use crate::fighter::common::{latent_frames, peers, warn_text};
+use crate::fighter::common::{last_ally, latent_frames, peers, warn_text};
 use crate::fighter::control::data_name;
 use crate::fighter::match_side::TutorialEvent;
 use crate::fighter::moves::V2;
@@ -464,6 +464,10 @@ fn cylinder_tick(w: &mut World, id: ProjectileId, dt: Real) {
         if invulnerable(w, v) || w.fighter(v).invuln.damage_disabled || team(w, v) == team(w, f) {
             continue;
         }
+        // Deviation: the port's spare switch spares an opponent the cylinder's damage.
+        if crate::fighter::spared_by(w, f, v) {
+            continue;
+        }
         // ApplyDamage -> Comp_Actor_Damage OnTakeAnyDamage @546-910: the temp health's share first, CurrentDamage +=
         // (float), RecordDamage to the causer's instigator.
         apply_direct_damage(w, v, dmg, Some(f));
@@ -510,13 +514,9 @@ fn begin(w: &mut World, id: ProjectileId) {
     // AdjustIfPossibleButAlwaysSpawn (Comp_Pawn_Tether's spawn): FindTeleportSpot for the Capsule came ahead of
     // BeginPlay (the stage block alone). BPI_SetTether(self) on the Instigator @14148.
     set_tether(w, f, Some(id));
-    // CheckForHomingTarget: the last ally (GetAllies: the owner's team, a fighter waiting for its respawn left out;
-    // the order unverified).
-    for i in 0..peers(w).len() {
-        let o = peers(w)[i];
-        if o != f && team(w, o) == team(w, f) && w.fighter(o).life.dead <= 0.0 {
-            t_mut(w, id).home_to = Some(o);
-        }
+    // CheckForHomingTarget: the last ally of GetAllies (`common::last_ally`).
+    if let Some(o) = last_ally(w, f) {
+        t_mut(w, id).home_to = Some(o);
     }
     let s = t_mut(w, id);
     s.at0225 = latent_frames(0.225);

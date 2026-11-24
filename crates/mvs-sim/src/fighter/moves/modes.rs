@@ -84,21 +84,23 @@ fn friction_state(w: &mut World, f: FighterId) -> &mut FrictionState {
 /// `groundFriction`: GroundFriction, the walking CalcVelocity's Friction.
 pub fn ground_friction(w: &World, f: FighterId) -> Real {
     let m = &w.fighter(f).moves;
-    match &m.friction {
+    let gf = match &m.friction {
         Some(s) => s.gf,
         None if m.friction_zero => 0.0,
         None => GROUND_FRICTION,
-    }
+    };
+    gf * crate::world::own_rules::ice(w) // (the port's own Ice Rink)
 }
 
 /// `walkBrakingFriction`: GroundFriction x BrakingFrictionFactor, float32.
 pub fn walk_braking_friction(w: &World, f: FighterId) -> Real {
     let m = &w.fighter(f).moves;
-    match &m.friction {
+    let bf = match &m.friction {
         Some(s) => s.gf * s.bff.unwrap_or(BRAKING_FRICTION_FACTOR),
         None if m.friction_zero => 0.0,
         None => BRAKING_FRICTION,
-    }
+    };
+    bf * crate::world::own_rules::ice(w) // (the port's own Ice Rink)
 }
 
 /// `brakingFrictionFactor`: the factor of the CMC's every braking friction.
@@ -117,11 +119,12 @@ pub fn set_cmc_friction(w: &mut World, f: FighterId, gf: Real, bf: Real, bff: Re
 /// `brakingDecelWalking`: GetMaxBrakingDeceleration while walking.
 pub fn braking_decel_walking(w: &World, f: FighterId) -> Real {
     let m = &w.fighter(f).moves;
-    match &m.friction {
+    let b = match &m.friction {
         Some(s) => s.bdw,
         None if m.friction_zero => MOVE_COMMAND_BRAKING,
         None => BRAKING_DECEL,
-    }
+    };
+    b * crate::world::own_rules::ice(w) // (the port's own Ice Rink)
 }
 
 /// `brakingDecelFalling`: GetMaxBrakingDeceleration while falling.

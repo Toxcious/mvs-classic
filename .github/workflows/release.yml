@@ -1,0 +1,99 @@
+# Builds a release's programs from its tag on GitHub's own machines and attests each one (where it was built, from
+# which commit, by this workflow), so anyone can check that the programs in a release zip came from this repo's code:
+#   gh attestation verify "MVS Classic.exe" --repo <owner>/<repo>
+# The zip itself is packed on the maintainer's machine by tools/release-fetch.ps1, which downloads these programs,
+# verifies their attestations and adds what only that machine has (the self check's reference, made by playing the
+# check match on an imported store, and Epic's SDK). Started only by a version tag; it holds no secrets.
+name: release
+
+on:
+  push:
+    tags: ['v*.*.*']
+
+permissions:
+  contents: read
+
+env:
+  CARGO_INCREMENTAL: '0'
+  CARGO_TERM_COLOR: always
+  SCCACHE_GHA_ENABLED: 'true'
+  RUSTC_WRAPPER: sccache
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 150
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
+      - name: Build
+        shell: bash
+        run: |
+          export MVS_VERSION="${GITHUB_REF_NAME#v}"
+          export MVS_UPDATE_FEED="https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/latest"
+          # the C runtime linked in, as mvs-dist builds it (no Visual C++ Redistributable needed)
+          export CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS="-C target-feature=+crt-static"
+          cargo build --release --locked -p mvs-app --bin mvs --bin mvs-launcher
+          cargo build --release --locked -p mvs-relay --bin mvs-relay
+          mkdir programs
+          cp target/release/mvs.exe target/release/mvs-launcher.exe target/release/mvs-relay.exe programs/
+          for p in mvs mvs-launcher mvs-relay; do
+            line=$("programs/$p.exe" --version | head -n 1)
+            case "$line" in
+              "$p $MVS_VERSION" | "$p $MVS_VERSION "*) echo "$line" ;;
+              *) echo "$p.exe says \"$line\", not \"$p $MVS_VERSION\"" >&2; exit 1 ;;
+            esac
+          done
+          sha256sum programs/*
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: programs/*.exe
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: programs-windows
+          path: programs/
+          if-no-files-found: error
+
+  relay-linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
+      - name: Build
+        run: |
+          export MVS_VERSION="${GITHUB_REF_NAME#v}"
+          # one static file, as tools/relay-linux.ps1 builds it
+          export CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=rust-lld
+          export CARGO_PROFILE_RELEASE_DEBUG=0
+          export CARGO_PROFILE_RELEASE_STRIP=symbols
+          rustup target add x86_64-unknown-linux-musl
+          cargo build --release --locked --target x86_64-unknown-linux-musl -p mvs-relay
+          mkdir programs
+          cp target/x86_64-unknown-linux-musl/release/mvs-relay programs/
+          line=$(programs/mvs-relay --version | head -n 1)
+          case "$line" in
+            "mvs-relay $MVS_VERSION" | "mvs-relay $MVS_VERSION "*) echo "$line" ;;
+            *) echo "mvs-relay says \"$line\", not \"mvs-relay $MVS_VERSION\"" >&2; exit 1 ;;
+          esac
+          sha256sum programs/*
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: programs/mvs-relay
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: programs-relay-linux
+          path: programs/
+          if-no-files-found: error

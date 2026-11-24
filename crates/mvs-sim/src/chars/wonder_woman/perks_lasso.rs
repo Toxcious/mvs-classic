@@ -36,7 +36,7 @@ use crate::fighter::common::latent_frames;
 use crate::fighter::control::{attack_dodged, dodge_over};
 use crate::fighter::match_side::end_move_buff;
 use crate::fighter::moves::{V2, force_move_to_point};
-use crate::fighter::{FighterId, actor_y, cap_radius, capsule_half, invulnerable, no_hit};
+use crate::fighter::{FighterId, actor_y, cap_radius, capsule_half, invulnerable};
 use crate::math::{max, min, to_int32};
 use crate::name;
 use crate::names::Name;
@@ -205,11 +205,12 @@ fn grapple_server(w: &mut World, id: ProjectileId) {
 /// SphereOverlapActors(the lasso's location, r, [Pawn], BP_FighterCharacter): the fighters whose root capsule the
 /// sphere overlaps.
 // Deviation: the capsule is tested in the plane, the results come in the sim's fighter order, and a fighter waiting
-// for its respawn or out of the hits (noHit) is left out.
-fn sphere_fighters(w: &World, x: Real, y: Real, r: Real) -> Vec<FighterId> {
+// for its respawn or out of the hits (noHit) is left out, and so is an opponent the port's own spare switch spares
+// what `by` deals.
+fn sphere_fighters(w: &World, by: FighterId, x: Real, y: Real, r: Real) -> Vec<FighterId> {
     let mut out = Vec::new();
     for vic in match_fighters(w) {
-        if w.fighter(vic).life.dead > 0.0 || no_hit(w, vic) {
+        if w.fighter(vic).life.dead > 0.0 || crate::combat::phases::no_hit_by(w, by, vic) {
             continue;
         }
         let cr = cap_radius(w, vic);
@@ -290,7 +291,7 @@ fn tipper(w: &mut World, id: ProjectileId) {
         HitPacket::from_props(&w.names, &base, None)
     };
     pk.attack_id = Some(attack_id);
-    for vic in sphere_fighters(w, px, py, 175.0) {
+    for vic in sphere_fighters(w, f, px, py, 175.0) {
         if !deal(w, id, vic, &pk, &[]) {
             continue;
         }
@@ -409,7 +410,7 @@ pub fn lasso_grapple_box(w: &mut World, id: ProjectileId) {
     let pk = grapple_hit(w);
     let f = owner(w, id);
     let fid = w.fighter(f).id;
-    for vic in sphere_fighters(w, px, py, 150.0) {
+    for vic in sphere_fighters(w, f, px, py, 150.0) {
         deal(w, id, vic, &pk, &rows);
         w.events.push(Event::Sound {
             fighter: fid,

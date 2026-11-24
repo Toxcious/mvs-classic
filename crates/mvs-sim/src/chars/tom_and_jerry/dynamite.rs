@@ -26,7 +26,6 @@ use crate::actors::projectile::{ProjectileExt, class_p, set_gravity_scale, updat
 use crate::actors::{ActorClass, ActorRef, Projectile, ProjectileClass, ProjectileId};
 use crate::combat::elem::charge_pct;
 use crate::combat::hits::{DamageCall, actor_hit_enemy, apply_projectile_hit, dealer, do_damage, projectile_blocks};
-use crate::combat::phases::no_hit;
 use crate::combat::spawned_hits::is_vulnerable_to;
 use crate::combat::{BuffClass, DataVec, HitPacket};
 use crate::events::{Event, SoundKey};
@@ -205,7 +204,10 @@ fn detonate(w: &mut World, id: ProjectileId) -> bool {
             continue;
         };
         // IsVulnerableTo(the owner's TeamIndex): another team.
-        if w.fighter(vic).team.team == team || w.fighter(vic).life.dead > 0.0 || no_hit(w, vic) {
+        if w.fighter(vic).team.team == team
+            || w.fighter(vic).life.dead > 0.0
+            || crate::combat::phases::no_hit_by_team(w, team, vic)
+        {
             continue;
         }
         if projectile_blocks(w, &dealer(w, me), vic) {

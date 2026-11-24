@@ -18,6 +18,7 @@ use crate::menu::controller::{Controller, Cx, Event, Handler};
 use crate::menu::custom_text;
 use crate::menu::lobby::loadout::BadgeRef;
 use crate::menu::manager::Manager;
+use crate::menu::map_tag::{self, MapTag};
 use crate::menu::screens::lab_selectors::{
     CollectionCharacterItem, GridItemList, SkinTile, T_CLICK, T_FOCUS, Tile, TileData, TileEvent, run_on, run_tile,
     set_color, set_text, set_vis,
@@ -465,14 +466,14 @@ pub struct PMStateInfo {
 
 /// QueueLabel: the multiqueue configs' ToDisplayText @1275 (native). Unverified: read as the mode card's name that
 /// WBP_MatchOptions' PrintSelectedModes shows for the same config: the Game.locres keys of WBP_GameModeCard's titles
-/// 1 VS 1, TEAMS, FFA, and of PrintSelectedModes' SILLY (the Casual card's own title is "Silly Queue").
-fn queue_label_key(q: mvs_protocol::online::QueueMode) -> &'static str {
+/// 1 VS 1, TEAMS, FFA; None for the port's Chaos queue in the Casual card's place (`custom_text::CHAOS_QUEUE`).
+fn queue_label_key(q: mvs_protocol::online::QueueMode) -> Option<&'static str> {
     use mvs_protocol::online::QueueMode;
     match q {
-        QueueMode::OneVOne => "C1413E164DB8DCE5DC2CC19A2E4AEBA5",
-        QueueMode::TwoVTwo => "720C33654366ACE4376C668A91B54234",
-        QueueMode::Ffa => "1789A04E4D313B3F325D3485EB970175",
-        QueueMode::Silly => "B2EE21AE4D716D4BC84E558DB0B5FCC8",
+        QueueMode::OneVOne => Some("C1413E164DB8DCE5DC2CC19A2E4AEBA5"),
+        QueueMode::TwoVTwo => Some("720C33654366ACE4376C668A91B54234"),
+        QueueMode::Ffa => Some("1789A04E4D313B3F325D3485EB970175"),
+        QueueMode::Chaos => None,
     }
 }
 
@@ -571,7 +572,15 @@ impl PMStateInfo {
         wd(cx, header).transform.translation = [0.0, 0.0];
         set_vis(cx, "SizeBox_1", if self.queue.is_some() { Vis::SelfHitTestInvisible } else { Vis::Collapsed });
         if let Some(q) = self.queue.clone() {
-            let list: Vec<String> = q.into_iter().map(|m| cx.view.game_text(queue_label_key(m)).to_string()).collect();
+            let list: Vec<String> = q
+                .into_iter()
+                .map(|m| {
+                    queue_label_key(m).map_or_else(
+                        || crate::menu::custom_text::CHAOS_QUEUE.to_owned(),
+                        |k| cx.view.game_text(k).to_string(),
+                    )
+                })
+                .collect();
             set_text(cx, "QueueLabel", &list.join(", "));
         }
     }
@@ -704,10 +713,11 @@ impl PMStateInfo {
     }
 
     /// SetMapName @14667 (the player controller's BPI_PreMatchTransition(NextMapPath) @14863 is the caller's).
-    pub fn set_map_name(&mut self, cx: &mut Cx<'_>, name: &str, experimental: bool) {
+    pub fn set_map_name(&mut self, cx: &mut Cx<'_>, name: &str, tag: MapTag) {
         set_text(cx, "MapLabelSide", name);
-        // UI_PM_Experimental.ShowExperimentalTag(exp, false)
-        set_vis(cx, "UI_PM_Experimental", if experimental { Vis::SelfHitTestInvisible } else { Vis::Hidden });
+        // UI_PM_Experimental.ShowExperimentalTag(exp, false) (the port's own: Custom on a custom map)
+        let t = find(cx, "UI_PM_Experimental");
+        map_tag::show(cx, t, tag, Vis::SelfHitTestInvisible, Vis::Hidden);
         let me = cx.w;
         if !cx.view.is_animation_playing(me, "Mapreveal") {
             cx.view.play(me, "Mapreveal", false, 1.0);

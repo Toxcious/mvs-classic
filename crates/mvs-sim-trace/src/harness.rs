@@ -76,10 +76,15 @@ fn load_at(dir: &std::path::Path, stable: bool, name: &str, frame: usize) -> Opt
 
 /// A fresh World of `setup` with `seed`, the characters' data from the dev store.
 pub fn fresh(setup: &MatchSetup, seed: i32) -> Option<Harness> {
+    fresh_on(setup, seed, crate::TRACE_STAGE)
+}
+
+/// [`fresh`] on the stage `stage` (its key, as a header's `stage`).
+pub fn fresh_on(setup: &MatchSetup, seed: i32, stage: &str) -> Option<Harness> {
     let store = store()?;
     let keys = crate::keys_of(setup);
     let refs: Vec<&str> = keys.iter().map(String::as_str).collect();
-    let data = mvs_data::GameData::load(&store, &refs, crate::TRACE_STAGE).expect("the gamedata kind loads");
+    let data = mvs_data::GameData::load(&store, &refs, stage).expect("the gamedata kind loads");
     let book = Book::new(&data);
     let w = World::new(std::sync::Arc::new(data), seed, setup).expect("binds");
     Some(Harness { w, book, trace: None, at: 0, inputs: Vec::new(), stable: false })

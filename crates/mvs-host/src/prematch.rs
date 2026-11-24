@@ -571,7 +571,7 @@ impl Core {
         self.rand.bytes(&mut id);
         let rules = ReportRules {
             slot_teams: players.iter().map(|x| x.team).collect(),
-            teams: if team_style == 2 { 4 } else { 2 },
+            teams: mvs_protocol::setup::team_count(team_style, players.len()),
             knockouts_to_win: match &setup.rules {
                 Some(r) if r.stocks == Some(true) => 0,
                 Some(r) => r.knockouts_to_win,

@@ -123,7 +123,8 @@ fn after_grapple_travel(w: &mut World, pr: ProjectileId) {
     for vic in list {
         // (noHit: damage turned off or no collision, the gates every port caller of pfgDoDamage takes first)
         let vid = w.fighter(vic).id;
-        if w.fighter(vic).life.dead > 0.0 || phases::no_hit(w, vic) || (once && pg(w, pr).boom_hit.contains(&vid)) {
+        if w.fighter(vic).life.dead > 0.0 || phases::no_hit_by(w, f, vic) || (once && pg(w, pr).boom_hit.contains(&vid))
+        {
             continue;
         }
         let d = hits::dealer(w, ActorRef::Projectile(pr));

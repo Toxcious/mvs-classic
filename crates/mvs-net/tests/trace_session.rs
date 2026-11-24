@@ -147,7 +147,7 @@ fn over_the_net(name: &str, store: &mvs_store::Store, until: usize) -> Result<St
     let ends = Rc::new(RefCell::new(Vec::<u32>::new()));
     // (three ticks of latency each way, past the delay: the peers predict and roll back; nothing lost or late)
     let way = Way { latency: 3.0 * TICK_MS, ..Way::PERFECT };
-    let mut net = SimNet::new(&humans, Ways { up: way, down: way }, 0.0, 7);
+    let mut net = SimNet::new(w0.setup.players.len(), &humans, Ways { up: way, down: way }, 0.0, 7);
     let mut frames = 0usize;
     let checked = Rc::new(RefCell::new(0usize));
     let hashes = Rc::new(want.hashes.clone());
@@ -174,9 +174,9 @@ fn over_the_net(name: &str, store: &mvs_store::Store, until: usize) -> Result<St
             })
             .collect();
         // (the first peer goes back to the confirmed line every frame, so its hook sees every confirmed tick; the
-        // others keep their predicted line where it held, KEEP_BEHIND)
-        let keep_behind = if p == 0 { 0 } else { SessionConfig::new(Vec::new()).keep_behind };
-        let cfg = SessionConfig { keep_behind, ..SessionConfig::new(kinds) };
+        // others keep their predicted line where it held, the match's keep_behind)
+        let cfg = SessionConfig::new(kinds);
+        let cfg = SessionConfig { keep_behind: if p == 0 { 0 } else { cfg.keep_behind }, ..cfg };
         let mut s = Session::new(&w, cfg, 0.0).map_err(|e| e.to_string())?;
         let sums = Rc::new(RefCell::new(Vec::new()));
         let g = sums.clone();

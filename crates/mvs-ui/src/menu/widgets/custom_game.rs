@@ -15,17 +15,18 @@
 
 use std::any::Any;
 
-use mvs_protocol::lobby_rules::{BOT_DIFFICULTY_EXPERT, LobbyPlayer, STYLE_FFA, TEAM_STYLE_IDS};
-use serde_json::json;
+use mvs_protocol::lobby_rules::{BOT_DIFFICULTY_EXPERT, LobbyPlayer, LobbyStyle};
+use serde_json::{Value, json};
 
 use super::super::screens::lab_selectors::{LabCharacterSelector, LabMapSelector, LabSkinSelector};
 use super::common::{ModalBase, fill_page, palette_entry};
+use super::controls::bar_buttons::P_ID;
 use super::controls::buttons::{ButtonMain, ButtonSecondary, ButtonSecondaryVertical, IconButton, ToggleSwitch};
-use super::controls::drop_menu::DropMenu;
+use super::controls::drop_menu::{DropMenu, own_item};
 use super::controls::interactor::{self, batch_set_context, batch_set_scroll_box};
 use super::controls::tooltip::{TooltipTarget, tooltip_params};
 use super::controls::{bind, find, focus_frame, slot_z_order, wd};
-use super::custom_settings::{CustomGameSettings, LobbyView, SettingsPage, experimental_page, room_page};
+use super::custom_settings::{CustomGameSettings, LobbyView, SettingsPage, experimental_page, room_page, wheel_page};
 use super::home::Homescreen;
 use super::lobby_chat::{self, ChatAction, LobbyChat};
 use super::nav::{GlobalNav, live};
@@ -48,6 +49,10 @@ use crate::slate::{HAlign, Margin, VAlign, Vis, WidgetId};
 
 /// (the port's own) the space between the two columns of the free-for-all grid (CustomGameTeam.asGrid).
 const GRID_GAP: f64 = 40.0;
+/// (the port's own) A row's and an empty slot's height and the space under it: four of them fit above the lobby's
+/// chat (the build's rows are 135 pixels high at 1080p with 30 under them, two to a column).
+const ROW_H: f64 = 132.0;
+const ROW_GAP: f64 = 20.0;
 
 /// (the port's own) The lobby's difficulty of the Expert bot, after EBotDifficulty's Hard (5), offline and online:
 /// its match level is the Expert level (lobby_rules' difficulty - 2).
@@ -642,6 +647,20 @@ const T_SWITCH: u32 = 2;
 const T_BOT_SETTINGS: u32 = 3;
 const T_PROMOTE: u32 = 4;
 
+/// Deviation: a row or an empty slot `ROW_H` high with `ROW_GAP` under it, so a column of four sits above the
+/// chat; the build's are 135 pixels high at 1080p with 30 under them (its columns hold two).
+fn fit_cell(cx: &mut Cx<'_>, w: WidgetId) {
+    let sb = cx.view.tree().find_in(w, "SizeBox_0");
+    wd(cx, sb).h_override = ROW_H;
+    wd(cx, w).pad = Margin { l: 0.0, t: 0.0, r: 0.0, b: ROW_GAP };
+}
+
+/// The column `team`'s empty slots EmptySlot1.., in order.
+fn slots_of(cx: &Cx<'_>, team: WidgetId) -> Vec<WidgetId> {
+    let t = cx.view.tree();
+    (1..=LobbyStyle::FreeForAll.cap()).map_while(|n| t.find_opt(team, &format!("EmptySlot{n}"))).collect()
+}
+
 /// A team's column. The colour of TeamIndex -1 (the free-for-all column) comes from a Select without that case: the
 /// tree's colour stays. Unverified.
 #[derive(Debug, Default)]
@@ -651,6 +670,9 @@ pub struct CustomGameTeam {
     pub on_bot_settings_change_requested: Event<(String, String, i32, String)>,
     pub on_promote_new_leader_clicked: Event<String>,
     pub cached_num_players: usize,
+    /// AvailableSlots: the lobby's free places, set by Populate (@5783) and read by every UpdateEmptySlotVisibility,
+    /// the calls without a count included (a team switch, a style picked).
+    cached_available: usize,
     /// (account id, row).
     players: Vec<(String, WidgetId)>,
     context: String,
@@ -666,9 +688,9 @@ impl CustomGameTeam {
         super::controls::prop_f64(cx, "TeamIndex", 0.0) as i32
     }
 
-    /// EmptySlot1..4.
+    /// EmptySlot1..4, and the free-for-all column's EmptySlot5..8 (`as_grid`).
     pub fn empty_slots(cx: &Cx<'_>) -> Vec<WidgetId> {
-        (1..=4).map(|n| find(cx, &format!("EmptySlot{n}"))).collect()
+        slots_of(cx, cx.w)
     }
 
     #[allow(clippy::too_many_arguments)] // populate: one parameter per field of the Lobby call.
@@ -709,7 +731,7 @@ impl CustomGameTeam {
             // is not decoded).
             if cx.view.tree().widget(w).parent != Some(bx) {
                 cx.view.tree_mut().remove(w);
-                wd(cx, w).pad = Margin { l: 0.0, t: 0.0, r: 0.0, b: 40.0 };
+                fit_cell(cx, w);
                 cx.view.tree_mut().add(bx, w);
             }
             let (p2, l2, f2) = (p.clone(), leader_id.to_string(), facts.as_row());
@@ -729,7 +751,7 @@ impl CustomGameTeam {
         self.players.push((p.account_id.clone(), w));
         let ctx = self.context.clone();
         cx.visit::<CustomGamePlayer, _>(w, |c, cx| c.update_context(cx, &ctx));
-        wd(cx, w).pad = Margin { l: 0.0, t: 0.0, r: 0.0, b: 40.0 };
+        fit_cell(cx, w);
         MenuView::add_child(cx, bx, w, None);
         let me = cx.w;
         cx.visit::<CustomGamePlayer, _>(w, |c, _| {
@@ -740,11 +762,15 @@ impl CustomGameTeam {
         });
     }
 
+    /// UpdateEmptySlotVisibility: the column's free places, at most the lobby's (`available`, kept as AvailableSlots;
+    /// None: the last one kept).
     pub fn update_empty_slot_visibility(&mut self, cx: &mut Cx<'_>, can_add_bots: bool, available: Option<usize>) {
-        let available = available.unwrap_or(0);
+        let available = available.unwrap_or(self.cached_available);
+        self.cached_available = available;
         let max = super::controls::prop_f64(cx, "MaxPlayers", 2.0) as i64;
         let open = (max - self.cached_num_players as i64).min(available as i64);
         for (i, s) in Self::empty_slots(cx).into_iter().enumerate() {
+            fit_cell(cx, s);
             wd(cx, s).vis = if open > i as i64 { Vis::Visible } else { Vis::Collapsed };
             let b = cx.view.tree().find_in(cx.view.tree().find_in(s, "btn_InviteBot"), "UI_Interactor");
             interactor::set_interactable(cx, b, can_add_bots);
@@ -771,12 +797,26 @@ impl CustomGameTeam {
             g.h_align = ha;
             g.v_align = va;
             g.fill = fill;
-            g.slot_pad = Margin { l: GRID_GAP / 2.0, t: 0.0, r: GRID_GAP / 2.0, b: 40.0 };
+            g.slot_pad = Margin { l: GRID_GAP / 2.0, t: 0.0, r: GRID_GAP / 2.0, b: ROW_GAP };
         }
         MenuView::add_child(cx, parent, grid, at);
         cx.view.tree_mut().remove(old);
         for s in Self::empty_slots(cx) {
             cx.view.tree_mut().add(grid, s);
+        }
+        // Deviation: the port's big matches have eight free-for-all places; the build's column has four slots, the
+        // others are made here like them.
+        let like = cx.view.tree().props(find(cx, "EmptySlot1")).clone();
+        for n in 5..=LobbyStyle::FreeForAll.cap() {
+            let s = MenuView::create(cx, "WBP_CustomGamePlayer");
+            if let Value::Object(m) = &like {
+                for (k, v) in m {
+                    cx.view.tree_mut().set_prop(s, k, v.clone());
+                }
+            }
+            wd(cx, s).name = format!("EmptySlot{n}");
+            cx.visit::<CustomGamePlayer, _>(s, |c, _| c.slot_is_empty = true);
+            MenuView::add_child(cx, grid, s, None);
         }
         self.grid = Some(grid);
     }
@@ -896,9 +936,16 @@ impl Controller for CustomGameMapThumbnail {
 
 /// The owner of the pictures the lobby holds ahead.
 const PICTURES_LOBBY: &str = "lobby";
-/// EMapRotation of the lobby's team style (0 1v1, 1 2v2, 2 ffa): CustomSolos, CustomDuos, CustomFreeForAll.
-const LOBBY_ROTATIONS: [i32; 3] = [6, 5, 7];
-const LOBBY_SELECTOR_COUNTS: [i32; 3] = [2, 4, 4];
+/// EMapRotation of the lobby's style and the map selector's count: Versus CustomDuos, Free For All
+/// CustomFreeForAll.
+/// Deviation: the build's 1 vs 1 had CustomSolos (6) and a count of 2; Versus, which holds 1 vs 1, takes the
+/// Teams rotation.
+fn lobby_rotation(style: LobbyStyle) -> (i32, i32) {
+    match style {
+        LobbyStyle::Versus => (5, 4),
+        LobbyStyle::FreeForAll => (7, 4),
+    }
+}
 /// EMapRotation names of the three custom rotations: the maps of the lobby's map selector.
 const LOBBY_MAP_ROTATIONS: [&str; 3] = ["CustomSolos", "CustomDuos", "CustomFreeForAll"];
 /// How far a lobby scroll box's clip reaches past its sides: room for a hover outline.
@@ -906,6 +953,7 @@ const CLIP_BLEED: f64 = 16.0;
 const LOBBY_DROPS: [&str; 4] = ["UI_DropGameMode", "UI_DropRingouts", "UI_DropTime", "UI_DropMatches"];
 const LOBBY_TEAMS: [&str; 3] = ["WBP_CustomGameTeam", "WBP_CustomGameTeam_1", "WBP_CustomGameTeam_ffa"];
 const EXPERIMENTAL_MODAL: &str = "customGameExperimental";
+const WHEEL_MODAL: &str = "customGameWheel";
 const SETTINGS_MODAL: &str = "customGameSettings";
 
 const G_SUBMIT3: u32 = 1;
@@ -924,6 +972,7 @@ const G_ROOM_SETTINGS: u32 = 13;
 const G_INVITED: u32 = 14;
 const G_KEY: u32 = 15;
 const G_MAPS_SELECTED: u32 = 16;
+const G_WHEEL: u32 = 18;
 /// (the port's own) The eye beside the room code: shows or masks it.
 const G_EYE: u32 = 17;
 /// The chat input's events (lobby_chat::H_*) arrive under these ids.
@@ -1112,6 +1161,59 @@ impl CustomGame {
         w
     }
 
+    /// (the port's own) CHAOS WHEEL, a button of EXPERIMENTAL's kind beside it, the two in a row in
+    /// EXPERIMENTAL's slot (the column under the settings has no room for a second line): the wheel's page
+    /// (`wheel_page`).
+    fn add_wheel_button(cx: &mut Cx<'_>, reset: WidgetId) {
+        let (user, props, parent, at, pad, ha, va, fill) = {
+            let t = cx.view.tree();
+            let r = t.widget(reset);
+            let parent = r.parent;
+            let at = parent.and_then(|p| t.widget(p).children.iter().position(|c| *c == reset));
+            (
+                t.user_class(reset).map(str::to_string),
+                t.props(reset).clone(),
+                parent,
+                at,
+                r.pad,
+                r.h_align,
+                r.v_align,
+                r.fill,
+            )
+        };
+        let (Some(user), Some(parent)) = (user, parent) else { return };
+        let bundle = cx.view.bundle.clone();
+        let b = MenuView::create(cx, &user);
+        let row = {
+            let t = cx.view.tree_mut();
+            let row = t.create_plain(&bundle, "HorizontalBox", "ExperimentalButtons");
+            let w = t.widget_mut(row);
+            w.pad = pad;
+            w.h_align = ha;
+            w.v_align = va;
+            w.fill = fill;
+            t.insert(parent, row, at);
+            t.insert(row, reset, None);
+            let w = t.widget_mut(reset);
+            w.pad = Margin::default();
+            w.fill = 1.0;
+            if let Some(o) = props.as_object() {
+                // (its own tag: the interactor's id is the button's)
+                for (k, v) in o.iter().filter(|(k, _)| k.as_str() != "tag") {
+                    t.set_prop(b, k, v.clone());
+                }
+            }
+            let w = t.widget_mut(b);
+            w.name = "WheelSettingsButton".into();
+            w.pad = Margin { l: TOP_GAP, ..Margin::default() };
+            w.fill = 1.0;
+            w.v_align = va;
+            row
+        };
+        MenuView::add_child(cx, row, b, None);
+        cx.visit::<ButtonSecondary, _>(b, |x, cx| x.init(cx, custom_text::WHEEL_BUTTON));
+    }
+
     fn add_code_button(&mut self, cx: &mut Cx<'_>) {
         self.code_button =
             Some(self.top_button(cx, "LobbyCodeButton", custom_text::COPY_ROOM_CODE, CODE_ICON, 0, 0.0, G_COPY_CODE));
@@ -1272,8 +1374,7 @@ impl CustomGame {
         }
         for i in 0..LOBBY_TEAMS.len() {
             let team = Self::team(cx, i);
-            for n in 1..=4 {
-                let slot = cx.view.tree().find_in(team, &format!("EmptySlot{n}"));
+            for slot in slots_of(cx, team) {
                 let b = cx.view.tree().find_in(slot, "btn_InvitePlayer");
                 let b = cx.view.tree().find_in(b, "UI_Interactor");
                 interactor::set_interactable(cx, b, !local);
@@ -1393,7 +1494,7 @@ impl CustomGame {
             "me={} leader={} style={} teams=[{}] [{}] ready=[{}] maps={} blockers={:?} can={} start_on={start}",
             l.my_id(),
             l.leader_id(),
-            l.team_style(),
+            l.team_style().id(),
             team(&l.teams()[0]),
             team(&l.teams()[1]),
             l.rules().ready.join(","),
@@ -1429,10 +1530,10 @@ impl CustomGame {
                 self.update_start_match_enabled(cx);
             }
             LobbyEvent::TeamStyleUpdated(style) => {
-                self.update_ringouts(cx, Some(style == STYLE_FFA));
-                let id = TEAM_STYLE_IDS.get(usize::from(style)).copied().unwrap_or("");
+                self.update_ringouts(cx, Some(style == LobbyStyle::FreeForAll));
                 let d = Self::drop_menu(cx, "UI_DropGameMode");
-                cx.visit::<DropMenu, _>(d, |d, cx| d.set_active_by_id(cx, id));
+                cx.visit::<DropMenu, _>(d, |d, cx| d.set_active_by_id(cx, style.id()));
+                Self::apply_team_caps(cx);
                 self.update_teams(cx);
                 self.update_start_match_enabled(cx);
                 let ctx = self.base.context.clone();
@@ -1594,6 +1695,7 @@ impl CustomGame {
         for n in [
             "CancelCustomGameButton",
             "ResetToDefaultsButton",
+            "WheelSettingsButton",
             "SelectMapsButton",
             "Button_JoinSpectators",
             "Button_JoinPlayers",
@@ -1645,7 +1747,7 @@ impl CustomGame {
             let l = self.lobby();
             (l.team_style(), l.options().stocks, l.num_ringouts_for_win(), l.am_i_leader())
         };
-        let ffa = ffa.unwrap_or(style == STYLE_FFA);
+        let ffa = ffa.unwrap_or(style == LobbyStyle::FreeForAll);
         let heading = find(cx, "CustomGames_2");
         if self.ringouts_label.is_empty() {
             self.ringouts_label = cx.view.tree().widget(heading).text.clone();
@@ -1662,21 +1764,48 @@ impl CustomGame {
     }
 
     fn set_game_mode_from_dropdown(&mut self, cx: &mut Cx<'_>, id: &str) {
-        let style = TEAM_STYLE_IDS.iter().position(|s| *s == id);
-        if let Some(style) = style
-            && style as u8 != self.lobby().team_style()
-        {
-            self.lobby_mut().set_team_style(style as u8);
+        let Some(style) = LobbyStyle::from_id(id) else { return };
+        if style != self.lobby().team_style() {
+            self.lobby_mut().set_team_style(style);
         }
-        self.update_ringouts(cx, Some(id == "ffa"));
-        for i in 0..2 {
+        self.update_ringouts(cx, Some(style == LobbyStyle::FreeForAll));
+        Self::apply_team_caps(cx);
+    }
+
+    /// The columns' MaxPlayers and every column's empty slots: on the drop's click and on every style the lobby
+    /// applies (a member's lobby follows the leader's pick).
+    /// Deviation: the port's big matches; the build's team columns take 2 (its 1 vs 1 had 1) and its free-for-all
+    /// column 4. Each column shows every place the lobby has, empty ones included.
+    fn apply_team_caps(cx: &mut Cx<'_>) {
+        for i in 0..3 {
+            let cap = if i < 2 { LobbyStyle::Versus.cap() } else { LobbyStyle::FreeForAll.cap() };
             let t = Self::team(cx, i);
-            cx.view.tree_mut().set_prop(t, "MaxPlayers", json!(if id == "1v1" { 1 } else { 2 }));
+            cx.view.tree_mut().set_prop(t, "MaxPlayers", json!(cap));
         }
         for i in 0..3 {
             let t = Self::team(cx, i);
             cx.visit::<CustomGameTeam, _>(t, |t, cx| t.update_empty_slot_visibility(cx, false, None));
         }
+    }
+
+    /// (the port's own) The Game Mode drop's items: Versus, the port's own, and the build's Free For All; the build's
+    /// 1 vs 1 and Teams are left out (Versus holds both).
+    fn offer_styles(cx: &mut Cx<'_>) {
+        let d = Self::drop_menu(cx, "UI_DropGameMode");
+        let items = cx.view.tree().props(d).get("Items").and_then(Value::as_array).cloned().unwrap_or_default();
+        let versus = LobbyStyle::Versus.id();
+        if items.iter().any(|i| i.get(P_ID).and_then(Value::as_str) == Some(versus)) {
+            return;
+        }
+        let ffa = LobbyStyle::FreeForAll.id();
+        let mut list = vec![own_item(custom_text::VERSUS, versus)];
+        list.extend(items.into_iter().filter(|i| i.get(P_ID).and_then(Value::as_str) == Some(ffa)));
+        cx.view.tree_mut().set_prop(d, "Items", Value::Array(list));
+        cx.visit::<DropMenu, _>(d, |m, cx| {
+            let selected = m.current_selected_id.clone();
+            m.initialize(cx);
+            m.set_active_by_id(cx, &selected);
+        });
     }
 
     fn update_is_leader(&mut self, cx: &mut Cx<'_>) {
@@ -1692,6 +1821,7 @@ impl CustomGame {
         // (the experimental settings button is every member's: custom_settings greys the rows of one who does not
         // lead)
         set_vis(cx, "ResetToDefaultsButton", Vis::SelfHitTestInvisible);
+        set_vis(cx, "WheelSettingsButton", Vis::SelfHitTestInvisible);
         let label = if leader { "Start Match".to_string() } else { self.ready_label() };
         let b = find(cx, "Btn_StartMatch");
         cx.visit::<ButtonMain, _>(b, |b, cx| b.set_label(cx, &label));
@@ -1715,7 +1845,7 @@ impl CustomGame {
         let (ffa, leader, slots, leader_id, players, teams) = {
             let l = self.lobby();
             (
-                l.team_style() == STYLE_FFA,
+                l.team_style() == LobbyStyle::FreeForAll,
                 l.am_i_leader(),
                 l.get_available_player_slot_count(),
                 l.leader_id().to_string(),
@@ -1752,12 +1882,32 @@ impl CustomGame {
         }
     }
 
+    /// (the port's own) The enabled maps the lobby's match may draw from: every one, or for a big match (more than
+    /// four players) the ones whose stage holds it (`Bundle::map_holds_big`).
+    fn start_maps(&self, cx: &Cx<'_>) -> Vec<String> {
+        let bundle = &cx.view.bundle;
+        self.lobby().rules().match_maps(&|m, s| {
+            let style = match s {
+                LobbyStyle::Versus => mvs_sim::setup::TeamStyle::TwoVsTwo,
+                LobbyStyle::FreeForAll => mvs_sim::setup::TeamStyle::FreeForAll,
+            };
+            bundle.map_holds_big(m, style)
+        })
+    }
+
     /// The last blocker of the list is the one shown.
     fn update_start_match_enabled(&mut self, cx: &mut Cx<'_>) {
-        let (leader, blockers, can, ready_button) = {
+        let maps = self.start_maps(cx);
+        let (leader, mut blockers, mut can, ready_button) = {
             let l = self.lobby();
             (l.am_i_leader(), l.get_start_match_blockers(), l.can_start_match(), l.has_ready_button())
         };
+        // (the port's own) a big match with no enabled map that holds it: first in the list, so it shows once the
+        // build's own are gone
+        if maps.is_empty() && !self.lobby().enabled_maps().is_empty() {
+            blockers.insert(0, custom_text::BLOCKER_NO_BIG_MAP);
+            can = false;
+        }
         if leader {
             let error = find(cx, "ErrorInfoText");
             let w = wd(cx, error);
@@ -1867,14 +2017,13 @@ impl CustomGame {
     /// custom rotations; the rotation of the lobby's style says which are available while connected (the port's
     /// rule is the Lab's: the maps it has a stage for). Accept -> SetMaps; the echo redraws the grid.
     fn select_maps(&mut self, cx: &mut Cx<'_>) {
-        let style = usize::from(self.lobby().team_style());
+        let (rotation, count) = lobby_rotation(self.lobby().team_style());
         let Some(w) = Manager::show_modal(cx, "UI_LAB_MapSelector", "mapSelector", "", "") else { return };
         let all = cx.view.soft_maps(&LOBBY_MAP_ROTATIONS);
         let selected = self.cached_selected_maps.clone();
         let me = cx.w;
         cx.visit::<LabMapSelector, _>(w, |m, cx| {
-            m.selected_rotation = LOBBY_ROTATIONS.get(style).copied().unwrap_or(12);
-            let count = LOBBY_SELECTOR_COUNTS.get(style).copied().unwrap_or(0);
+            m.selected_rotation = rotation;
             m.init(cx, &all, &selected, count, true, false);
             m.multi_selected_event.add(Handler { owner: me, id: G_MAPS_SELECTED });
         });
@@ -1883,7 +2032,15 @@ impl CustomGame {
     /// The settings modals' state.
     fn lobby_view(&self) -> LobbyView {
         let l = self.lobby();
-        LobbyView { leader: l.am_i_leader(), team_style: l.team_style(), options: *l.options() }
+        // The settings modal's art is by ETeamStyle; the lobby's own style picks it, as the match's is only known at
+        // the start.
+        // Deviation: a Versus lobby shows the Teams art (1) whatever its split; the build's 1 vs 1 lobby showed its
+        // own (0).
+        let art = match l.team_style() {
+            LobbyStyle::Versus => 1,
+            LobbyStyle::FreeForAll => 2,
+        };
+        LobbyView { leader: l.am_i_leader(), team_style: art, options: *l.options() }
     }
 
     fn show_settings(&mut self, cx: &mut Cx<'_>, id: &str, page: SettingsPage) {
@@ -1899,7 +2056,7 @@ impl CustomGame {
     /// The settings modals' rows again (an options change, a new leader).
     fn refresh_settings(&mut self, cx: &mut Cx<'_>) {
         let view = self.lobby_view();
-        for id in [SETTINGS_MODAL, EXPERIMENTAL_MODAL] {
+        for id in [SETTINGS_MODAL, EXPERIMENTAL_MODAL, WHEEL_MODAL] {
             if let Some(w) = cx.view.manager.get_modal(id) {
                 cx.visit::<CustomGameSettings, _>(w, |s, cx| s.refresh(cx, Some(view)));
             }
@@ -1949,7 +2106,8 @@ impl CustomGame {
             self.lobby_mut().set_ready(on);
             return;
         }
-        if !self.lobby().can_start_match() {
+        let maps = self.start_maps(cx);
+        if !self.lobby().can_start_match() || maps.is_empty() {
             return;
         }
         // CG@17287: the Game Mode drop off; CG@17346-17556: the fade to black, which stays over the 1.0 s before the
@@ -1960,7 +2118,7 @@ impl CustomGame {
             cx,
             TransitionParams { kind: 0, level_options: "Lobby".into(), ..TransitionParams::default() },
         );
-        self.lobby_mut().start_match();
+        self.lobby_mut().start_match(maps);
     }
 
     fn on_team_event(&mut self, cx: &mut Cx<'_>, team: usize, kind: u32, arg: &dyn Any) {
@@ -1995,7 +2153,7 @@ impl CustomGame {
                 self.lobby_mut().join_team(id, 1 - team);
                 let (this, other) = (Self::team(cx, team), Self::team(cx, 1 - team));
                 cx.view.tree_mut().remove(*row);
-                wd(cx, *row).pad = Margin { l: 0.0, t: 0.0, r: 0.0, b: 40.0 };
+                fit_cell(cx, *row);
                 let bx = cx.view.tree().find_in(other, "CustomGamePlayers");
                 cx.view.tree_mut().add(bx, *row);
                 cx.visit::<CustomGameTeam, _>(this, |t, cx| {
@@ -2033,6 +2191,7 @@ impl Modal for CustomGame {
 
     fn post_show(&mut self, cx: &mut Cx<'_>, _instructions: &str, _extra_data: &str) {
         let me = cx.w;
+        Self::offer_styles(cx);
         let scroll = find(cx, "scrollContainer");
         let mut list: Vec<WidgetId> = LOBBY_DROPS.iter().map(|n| Self::main_interactor(cx, n)).collect();
         list.push(Self::hazards_interactor(cx));
@@ -2051,6 +2210,7 @@ impl Modal for CustomGame {
         cx.visit::<ToggleSwitch, _>(h, |t, _| t.on_toggle_changed.add(Handler { owner: me, id: G_HAZARDS }));
         for (n, id) in [
             ("ResetToDefaultsButton", G_EXPERIMENTAL),
+            ("WheelSettingsButton", G_WHEEL),
             ("CancelCustomGameButton", G_LEAVE),
             ("SelectMapsButton", G_SELECT_MAPS),
         ] {
@@ -2067,8 +2227,7 @@ impl Modal for CustomGame {
                 t.on_bot_settings_change_requested.add(Handler { owner: me, id: team_h(i, K_BOT_SETTINGS) });
                 t.on_join_team_clicked.add(Handler { owner: me, id: team_h(i, K_SWITCH) });
             });
-            for n in 1..=4 {
-                let s = cx.view.tree().find_in(t, &format!("EmptySlot{n}"));
+            for s in slots_of(cx, t) {
                 cx.visit::<CustomGamePlayer, _>(s, |p, _| {
                     p.add_bot_dispatch.add(Handler { owner: me, id: team_h(i, K_ADD_BOT) });
                     p.invite_player_clicked.add(Handler { owner: me, id: team_h(i, K_INVITE) });
@@ -2122,6 +2281,7 @@ impl Controller for CustomGame {
         cx.visit::<CustomGameTeam, _>(ffa, |t, cx| t.as_grid(cx));
         let reset = find(cx, "ResetToDefaultsButton");
         cx.visit::<ButtonSecondary, _>(reset, |b, cx| b.init(cx, custom_text::EXPERIMENTAL_BUTTON));
+        Self::add_wheel_button(cx, reset);
         let sb = find(cx, "scrollContainer");
         cx.view.manager.register_scrollbox(sb);
         // Deviation: both scroll boxes clip to their bounds as the build's do, but their content (the inputs, the team
@@ -2228,6 +2388,7 @@ impl Controller for CustomGame {
         // (the lobby's settings go with it)
         Manager::dismiss_modal(cx, SETTINGS_MODAL);
         Manager::dismiss_modal(cx, EXPERIMENTAL_MODAL);
+        Manager::dismiss_modal(cx, WHEEL_MODAL);
         let me = cx.w;
         cx.view.manager.on_key_input.remove(Handler { owner: me, id: G_KEY });
         if let Some(c) = self.chat.take() {
@@ -2283,7 +2444,7 @@ impl Controller for CustomGame {
             G_DROP_RINGOUTS => {
                 if let Some((_, s)) = arg.downcast_ref::<(i32, String)>() {
                     let (style, stocks) = (self.lobby().team_style(), self.lobby().options().stocks);
-                    if style != STYLE_FFA || stocks {
+                    if style != LobbyStyle::FreeForAll || stocks {
                         let n = s.parse::<u32>().unwrap_or(0);
                         self.lobby_mut().set_num_ringouts_for_win(n);
                     }
@@ -2300,6 +2461,7 @@ impl Controller for CustomGame {
                 self.lobby_mut().set_allow_hazards(on);
             }
             G_EXPERIMENTAL => self.show_settings(cx, EXPERIMENTAL_MODAL, experimental_page()),
+            G_WHEEL => self.show_settings(cx, WHEEL_MODAL, wheel_page()),
             G_LEAVE => self.leave(cx),
             G_LEAVE_CONFIRMED => {
                 let id = self.base.modal_id.clone();

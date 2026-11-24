@@ -37,6 +37,7 @@ use crate::menu::view::MenuView;
 use crate::slate::{HAlign, Justify, Margin, VAlign, Vis, WidgetId};
 use mvs_net::backend::BackendKind;
 use mvs_protocol::lobby_listing::ListingState;
+use mvs_protocol::lobby_rules::LobbyStyle;
 
 /// The Game strings the screen shows (the menu's text table).
 mod texts {
@@ -45,9 +46,8 @@ mod texts {
     pub const BACK: &str = "236BBA9A4F869C25AEE457BB914D1B39"; // BACK
     pub const IN_GAME: &str = "1DC94E7D4A7CF17468D703A175F5D949"; // in game
     pub const JOIN_CODE: &str = "D55C2EE74ADE85593595F5AA556BEDB2"; // Join Lobby (the code box's title)
-    /// The history row's mode names by ETeamStyle: 1 vs 1, Teams, Free For All.
-    pub const MODES: [&str; 3] =
-        ["681AD7484AAEDE692897EF8A77BD8D8C", "3C0EF72945B5E7488210B38F5FC6BB8F", "0ABB0A3F43B89BD6A9FB1E8029AF6935"];
+    /// The history row's Free For All mode name (ETeamStyle's; the lobby's Versus is the port's own word).
+    pub const MODE_FFA: &str = "0ABB0A3F43B89BD6A9FB1E8029AF6935";
 }
 
 const PICTURES: &str = "customGames";
@@ -417,7 +417,10 @@ impl CustomGameBrowser {
         }
         let first = map.as_ref().map(|m| m.data.display_name.clone()).unwrap_or_default();
         let more = i64::from(l.map_count) - i64::from(!first.is_empty());
-        let mode = texts::MODES.get(usize::from(l.style)).map(|k| cx.view.game_text(k).to_string()).unwrap_or_default();
+        let mode = match l.style {
+            LobbyStyle::Versus => custom_text::VERSUS.to_string(),
+            LobbyStyle::FreeForAll => cx.view.game_text(texts::MODE_FFA).to_string(),
+        };
         let map_part = format!("{first}{}", if more > 0 { format!(" +{more}") } else { String::new() });
         let line: Vec<String> = [mode, map_part].into_iter().filter(|p| !p.is_empty()).collect();
         let set = |cx: &mut Cx<'_>, name: &str, f: &dyn Fn(&mut crate::slate::Widget)| {

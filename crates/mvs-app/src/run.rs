@@ -10,7 +10,8 @@ use std::time::Instant;
 use mvs_audio::tape::post::Line;
 use mvs_data::GameData;
 use mvs_render::fx::Fx;
-use mvs_render::fx::surfaces::level_surfaces;
+use mvs_render::fx::surfaces::{level_surfaces, stage_surfaces};
+use mvs_render::scenery::layout::PieceBounds;
 use mvs_render::scenery::{SceneryMatch, level_emitters};
 use mvs_render::warm::WarmLists;
 use mvs_sim::ai::bt::{BtBot, LAB_BOTS};
@@ -530,6 +531,7 @@ fn load_world(
     prefs: &mvs_view::skins::ViewPrefs,
     level_kept: bool,
     prepared: Option<Box<Prepared>>,
+    layout: Option<&mvs_stage::Layout>,
     laps: &mut crate::perf::LoadLaps,
 ) -> Result<Loaded> {
     let store = sh.store().ok_or_else(|| Error::Match(NO_STORE.into()))?;
@@ -582,7 +584,13 @@ fn load_world(
                     }
                     let keys = mvs_sim_trace::keys_of(setup);
                     let refs: Vec<&str> = keys.iter().map(String::as_str).collect();
-                    let data = GameData::load(store, &refs, stage)?;
+                    let mut data = GameData::load(store, &refs, stage)?;
+                    if let Some(l) = layout {
+                        // (the port's own) a custom stage's play shapes over its base's
+                        let what = |e: String| Error::Match(format!("the layout {}: {e}", l.key));
+                        let b = PieceBounds::read(store, l).map_err(|e| what(e.to_string()))?;
+                        mvs_stage::apply(&mut data, l, &|p| b.get(l, p)).map_err(|e| what(e.to_string()))?;
+                    }
                     laps.lap("data");
                     let w = World::new(Arc::new(data), seed, setup)
                         .map_err(|e| Error::Match(format!("the bind: {e:?}")))?;
@@ -599,8 +607,25 @@ impl MatchLoop {
     pub fn new(sh: &mut Shell, start: MatchStart, o: &MatchOptions) -> Result<MatchLoop> {
         let load_start = Instant::now();
         let mut laps = crate::perf::LoadLaps::new();
-        let MatchStart { mut setup, mut kind, seed, mut stage, map, me, usernames, humans, mut prepared, lab_ahead } =
-            start;
+        let MatchStart {
+            mut setup,
+            mut kind,
+            seed,
+            mut stage,
+            map,
+            me,
+            usernames,
+            humans,
+            mut prepared,
+            lab_ahead,
+            layout,
+        } = start;
+        // (the port's own) a shipped custom map plays its layout; a custom stage's match is loaded here, its parts
+        // with the layout
+        let layout = layout.or_else(|| map.as_deref().and_then(mvs_stage::layout_of_map).map(Arc::new));
+        if layout.is_some() {
+            prepared = None;
+        }
         // (the port's own, dev) `--wheel`: the rule added to the set-up the menus made; parts prepared off the frame
         // were built for the set-up without it.
         if let Some(rule) = &sh.wheel
@@ -638,6 +663,7 @@ impl MatchLoop {
             &prefs,
             level_kept,
             prepared,
+            layout.as_deref(),
             &mut laps,
         )?;
         laps.lap("world");
@@ -663,7 +689,15 @@ impl MatchLoop {
         laps.lap("fx");
         // The level's Emitter actors on the particle player, before the first step.
         if !level_kept && !fx_made {
-            fx.begin_level(&level_emitters(store, &stage)?, level_surfaces(store, &stage)?)?;
+            match &layout {
+                // (a custom stage: the base's emitters but the hidden ones, the surfaces of the composed data)
+                Some(l) => {
+                    let mut emitters = level_emitters(store, &stage)?;
+                    emitters.retain(|e| !l.hide.contains(&e.name));
+                    fx.begin_level(&emitters, stage_surfaces(&world.data.stage))?;
+                }
+                None => fx.begin_level(&level_emitters(store, &stage)?, level_surfaces(store, &stage)?)?,
+            }
             laps.lap("level");
         }
         // The Lab's menu: a restart's takes over the one before it, with its camera and music (the new map's begin anew).
@@ -732,7 +766,7 @@ impl MatchLoop {
             }
             match parts.as_mut().and_then(|p| p.stage.take()) {
                 Some(p) => renderer.set_stage_prepared(p)?,
-                None => renderer.set_stage(&stage)?,
+                None => renderer.set_stage_with(&stage, layout.as_deref())?,
             }
             // The scenery's begin, after the level's emitters spawn:
             // the match, the camera's centre before its first tick.
@@ -1200,7 +1234,8 @@ impl MatchLoop {
         // (a bot's slot is the controller's; it thinks before the step)
         for (slot, bot) in self.bots.iter_mut().enumerate() {
             if let Some(bot) = bot {
-                let me = self.world.players[slot];
+                // (the fighter the slot's input drives: under the Chaos Wheel's Body Swap its opponent's)
+                let me = mvs_sim::world::wheel_events::controlled(&self.world, slot);
                 self.inputs[slot] = bot.think(&mut self.world, me);
             }
         }
@@ -2219,11 +2254,13 @@ impl MatchLoop {
             let at: Vec<_> = self.world.players.iter().map(|&f| self.poser.hud_point(&self.world, f, alpha)).collect();
             if let Some(t) = self.lab.as_mut().and_then(|l| l.menu.tools.as_mut()) {
                 let mut o = crate::shapes::Overlay {
-                    camera: &camera,
-                    size,
-                    list: &mut s.list,
-                    fonts: &mut *fonts,
-                    layer: TOP_LAYER - 1,
+                    canvas: mvs_ui::canvas::Canvas {
+                        camera: &camera,
+                        size,
+                        list: &mut s.list,
+                        fonts: &mut *fonts,
+                        layer: TOP_LAYER - 1,
+                    },
                     at: &at,
                     alpha: f64::from(alpha),
                 };

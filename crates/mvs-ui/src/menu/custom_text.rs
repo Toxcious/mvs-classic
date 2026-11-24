@@ -2,10 +2,50 @@
 //! lobby's experimental settings and the rules they turn on. English only; the beta's own text comes from the
 //! player's Game.locres. The HUD's lines are `hud::custom_text`.
 
-pub const EXPERIMENTAL_BUTTON: &str = "EXPERIMENTAL SETTINGS";
+/// The custom lobby's start blocker of a big match (more than four players) whose enabled maps hold none of it, in
+/// the words of the build's "Too many players for selected game mode".
+pub const BLOCKER_NO_BIG_MAP: &str = "Too many players for selected maps";
+
+/// The tag on a custom map's tile, in the place of the build's Experimental tag.
+pub const CUSTOM_TAG: &str = "CUSTOM";
+
+/// A shipped layout's map name by its key; the key itself for one with no name here.
+pub fn custom_map_name(key: &str) -> &str {
+    match key {
+        "rising" => "Rising Arena",
+        _ => key,
+    }
+}
+
+pub const EXPERIMENTAL_BUTTON: &str = "EXPERIMENTAL";
 pub const EXPERIMENTAL_TITLE: &str = "Experimental";
 pub const STOCK_MODE: &str = "Stock Mode";
 pub const CHAOS_WHEEL: &str = "Chaos Wheel";
+/// The custom lobby's button of the Chaos Wheel's page, and the page's rows.
+pub const WHEEL_BUTTON: &str = "CHAOS WHEEL";
+pub const WHEEL_TIME: &str = "Time per Change";
+pub const WHEEL_WARNING: &str = "Warning";
+pub const WHEEL_EVENTS: &str = "Chaos Events";
+pub const WHEEL_TWO: &str = "Two at Once";
+pub const WHEEL_POOL: &str = "Mutators";
+/// The pool's quick picks.
+pub const POOL_ALL: &str = "All";
+pub const POOL_MILD: &str = "Mild Only";
+pub const POOL_NO_CHAOS: &str = "No Chaos";
+/// The Chaos events' rates, in `mvs_mutators::ChaosRate::ALL`'s order.
+pub const WHEEL_RATES: [&str; 4] = ["Off", "Rare", "Normal", "Often"];
+/// A time of the wheel's rows.
+pub fn seconds(n: u32) -> String {
+    format!("{n} Seconds")
+}
+/// A tier's name (`mvs_mutators::Tier`).
+pub fn tier_name(t: mvs_mutators::Tier) -> &'static str {
+    match t {
+        mvs_mutators::Tier::Mild => "Mild",
+        mvs_mutators::Tier::Wild => "Wild",
+        mvs_mutators::Tier::Chaos => "Chaos",
+    }
+}
 pub const OFF: &str = "Off";
 pub const ON: &str = "On";
 pub const MUTATOR: &str = "Mutators";
@@ -13,8 +53,13 @@ pub const MUTATOR: &str = "Mutators";
 pub fn mutator_count(n: usize) -> String {
     format!("{n} Mutators")
 }
+/// The Chaos queue, in the build's Casual (Silly) card's place: the card's title and subtitle, and the queue's name
+/// in the lists of queues (the searching and pre-match labels).
+pub const CHAOS_QUEUE_TITLE: &str = "Chaos Queue";
+pub const CHAOS_QUEUE_SUB: &str = "A new mutator every 20 seconds";
+pub const CHAOS_QUEUE: &str = "CHAOS";
 /// The mutators row's values, in the order of mvs_protocol::lobby_rules::LOBBY_MUTATORS: Off clears the list.
-pub const MUTATORS: [&str; 18] = [
+pub const MUTATORS: [&str; 28] = [
     "Off",
     "Silly (Random)",
     "Big Head",
@@ -23,17 +68,71 @@ pub const MUTATORS: [&str; 18] = [
     "Miniature",
     "Low Gravity",
     "Instant Kill",
-    "Grey Health",
+    "Shields Up",
     "Unlimited Jumps",
-    "Faster Cooldowns",
-    "Attacks Break Armor",
-    "Extra Air Special",
-    "Weaken on Hit",
-    "Charge Freeze",
-    "Ice Gauntlets",
+    "Ability Frenzy",
+    "Heavy Hitters",
+    "Air Show",
+    "Double Damage",
+    "Ice Charge",
+    "Freeze Touch",
     "Random Items",
     "Final Point Shrink",
+    "Moon Jump",
+    "Featherweight",
+    "Heavyweight",
+    "Vampire",
+    "Dodge Frenzy",
+    "Lava Floor",
+    "Ghosts",
+    "Ice Rink",
+    "Wind",
+    "Magnet",
 ];
+/// The name of a Chaos Wheel mutator (`mvs_mutators::ALL`'s keys); "" for a key not on the list.
+pub fn wheel_name(key: &str) -> &'static str {
+    match key {
+        "Mutator_Giant" => "Giant",
+        "Mutator_Miniature" => "Miniature",
+        "Mutator_BigHeadAbilityBoost" => "Big Head",
+        "Mutator_LowGravity" => "Low Gravity",
+        "Mutator_Boost_UnlimitedJumps" => "Unlimited Jumps",
+        "Mutator_Boost_CooldownReductionLarge" => "Ability Frenzy",
+        "Mutator_Boost_AttacksBreakArmor" => "Heavy Hitters",
+        "Mutator_Boost_WeakenOnHit" => "Double Damage",
+        "Mutator_Boost_ChargeFreeze" => "Ice Charge",
+        "Mutator_Boost_IceGauntlets" => "Freeze Touch",
+        "Mutator_Boost_AdditionalAirSpecial" => "Air Show",
+        "Mutator_GreyHealth" => "Shields Up",
+        "Mutator_RandomItemSpawns" => "Random Items",
+        "Mutator_GrowWithDamage" => "Grow",
+        "Mutator_InstantKill" => "Sudden Death",
+        "Mutator_ShrinkBlastBoxLastPoint" => "Shrinking Arena",
+        "Chaos_MoonJump" => "Moon Jump",
+        "Chaos_Featherweight" => "Featherweight",
+        "Chaos_Heavyweight" => "Heavyweight",
+        "Chaos_Vampire" => "Vampire",
+        "Chaos_DodgeFrenzy" => "Dodge Frenzy",
+        "Chaos_BombRain" => "Bomb Rain",
+        "Chaos_ProjectileParty" => "Projectile Party",
+        "Chaos_LavaFloor" => "Lava Floor",
+        "Chaos_Ghosts" => "Ghosts",
+        "Chaos_IceRink" => "Ice Rink",
+        "Chaos_Wind" => "Wind",
+        "Chaos_Magnet" => "Magnet",
+        "Chaos_DamageSwap" => "Damage Swap",
+        "Chaos_Shuffle" => "Shuffle",
+        "Chaos_FreshStart" => "Fresh Start",
+        "Chaos_Underdog" => "Underdog",
+        "Chaos_HotPotato" => "Hot Potato",
+        "Chaos_BodySwap" => "Body Swap",
+        _ => "",
+    }
+}
+/// The wheel's names by `mvs_mutators::ALL` index.
+pub fn wheel_names() -> Vec<&'static str> {
+    mvs_mutators::keys().map(wheel_name).collect()
+}
 /// The lobby's ring-out drop under the stock rule.
 pub const STOCKS: &str = "Stocks";
 /// The custom game browser's tag on a row: the backend the lobby was found on.
@@ -68,6 +167,9 @@ pub const EXPERT: &str = "Expert";
 /// Its entry in the custom game's bot difficulty menu (the build's rows read "Very Easy Difficulty" .. "Hard
 /// Difficulty").
 pub const EXPERT_DIFFICULTY: &str = "Expert Difficulty";
+/// The custom lobby's Game Mode item of two teams of up to 2 each (the port's own style: the build's items are
+/// 1 vs 1, Teams and Free For All).
+pub const VERSUS: &str = "Versus";
 /// The pre-match header of an Expert Arcade run (the build's lines read "Arcade - Easy" .. "Arcade - Hard").
 pub const ARCADE_EXPERT: &str = "Arcade - Expert";
 
@@ -270,8 +372,7 @@ pub const PM_LEFT: &str = "A player has disconnected.";
 pub const PM_LEFT_NAMED: &str = "{username} has disconnected";
 // ---- the online lobby (menu/lobby/net.rs, widgets/lobby_chat.rs, custom_game.rs, custom_browser.rs) ----
 
-/// The lobby's chat: its heading, the input's hint, the notes of a player who came in or went.
-pub const CHAT_LOBBY_TITLE: &str = "LOBBY CHAT";
+/// The lobby's chat: the input's hint, the notes of a player who came in or went.
 pub const CHAT_LOBBY_HINT: &str = "Press Enter to chat";
 pub const CHAT_JOINED: &str = "joined the lobby";
 pub const CHAT_LEFT: &str = "left the lobby";
@@ -346,29 +447,32 @@ pub const CODE_MAKE_DIRECT_PORT: &str = "a direct code cannot hold the port {por
 pub const CODE_MAKE_DIRECT_FINGERPRINT: &str = "a direct code needs a 16-digit key fingerprint";
 pub const CODE_MAKE_DIRECT_LOBBY: &str = "a direct code needs a lobby id of l and 20 hex digits";
 
+// Why online play is off (OfflineWhy), one wording for both lines that say it: after "Offline: " on the menus' line,
+// after OFFLINE on the custom lobby's connection line. Three words at most (the lobby's line is a label), and none
+// repeats the state before it.
+pub const WHY_CHECKING: &str = "Checking the game";
+pub const WHY_SIGNING_IN: &str = "Connecting";
+pub const WHY_UPDATE: &str = "Update needed";
+pub const WHY_IMPORT: &str = "Game files outdated";
+pub const WHY_SELF_CHECK: &str = "Game check failed";
+pub const WHY_TURNED_OFF: &str = "Turned off";
+pub const WHY_NOT_REACHED: &str = "Server not reached";
+pub const WHY_OTHER: &str = "Could not connect";
+
 // The menus' one line of online play (OnlineLine): a headline, and for offline a sentence of what to do. No backend
 // is named.
 pub const LINE_ONLINE: &str = "Online";
 pub const LINE_SLOWER: &str = "Online, but matches may lag";
 pub const LINE_SLOWER_DO: &str = "A firewall or your network is blocking the game's faster connection, so matches use a slower one. Allowing MVS Classic through your firewall usually fixes this.";
 pub const LINE_OFFLINE: &str = "Offline";
-pub const LINE_CHECKING: &str = "Checking this copy of the game";
 pub const LINE_CHECKING_DO: &str = "Online play starts in a moment.";
-pub const LINE_SIGNING_IN: &str = "Connecting";
 pub const LINE_SIGNING_IN_DO: &str = "Online play starts in a moment.";
-pub const LINE_UPDATE: &str = "Update needed";
 /// {version}: the newer release's.
-pub const LINE_UPDATE_DO: &str = "Version {version} is out. Update it in the launcher to play online.";
-pub const LINE_IMPORT: &str = "Game files out of date";
+pub const LINE_UPDATE_DO: &str = "Version {version} is out. Update in the launcher to play online.";
 pub const LINE_IMPORT_DO: &str = "Rebuild the game files in the launcher to play online.";
-pub const LINE_SELF_CHECK: &str = "This copy plays differently";
-pub const LINE_SELF_CHECK_DO: &str =
-    "Its online matches would go out of sync. Rebuild the game files in the launcher, or install the game again.";
-pub const LINE_TURNED_OFF: &str = "Online play is turned off";
-pub const LINE_TURNED_OFF_DO: &str = "Turn it on in the launcher's Settings, under Online.";
-pub const LINE_NOT_REACHED: &str = "Server not reached";
+pub const LINE_SELF_CHECK_DO: &str = "This copy of the game would go out of sync in online matches. Rebuild the game files in the launcher, or install the game again.";
+pub const LINE_TURNED_OFF_DO: &str = "Turn online play on in the launcher's Settings, under Online.";
 pub const LINE_NOT_REACHED_DO: &str = "Check your internet connection. The game keeps trying on its own.";
-pub const LINE_OTHER: &str = "Online play could not start";
 pub const LINE_OTHER_DO: &str = "Test the connection in the launcher's Settings, under Online.";
 
 // The custom lobby's connection line (menu/connection_line.rs), a status label under the page's title: the state in
@@ -379,29 +483,22 @@ pub const LOBBY_HEAD_LAN: &str = "LAN";
 pub const LOBBY_HEAD_OFFLINE: &str = "OFFLINE";
 pub const LOBBY_ON_RELAY: &str = "via Relay";
 pub const LOBBY_ON_EPIC: &str = "via Epic";
-/// Why a lobby is local, after the state; what to do, the line's tip (`_DO`).
-pub const LOBBY_LOCAL_RELAY_VERSION: &str = "Version mismatch";
+/// Why a lobby is local, after the state: the lobby's own reasons here, online play's are the `WHY_` words. What
+/// to do, the line's tip (`_DO`).
+pub const LOBBY_LOCAL_RELAY_VERSION: &str = "Server version differs";
 pub const LOBBY_LOCAL_RELAY_VERSION_DO: &str = "Update the game, or wait for the server's update";
-pub const LOBBY_LOCAL_CANNOT_HOST: &str = "Server can't host";
+pub const LOBBY_LOCAL_CANNOT_HOST: &str = "Server can't host lobbies";
 pub const LOBBY_LOCAL_CANNOT_HOST_DO: &str = "Turn on Epic or LAN in the launcher's Settings";
-pub const LOBBY_LOCAL_TURNED_OFF: &str = "No connection";
-pub const LOBBY_LOCAL_TURNED_OFF_DO: &str = "Turn one on in the launcher's Settings";
-pub const LOBBY_LOCAL_SIGNING_IN: &str = "Signing in";
-pub const LOBBY_LOCAL_SIGNING_IN_DO: &str = "Make a new lobby once online";
-pub const LOBBY_LOCAL_NOT_REACHED: &str = "Server unreachable";
-pub const LOBBY_LOCAL_NOT_REACHED_DO: &str = "Check your internet connection";
-pub const LOBBY_LOCAL_MADE_OFFLINE: &str = "Made offline";
+pub const LOBBY_LOCAL_MADE_OFFLINE: &str = "Made before connecting";
 pub const LOBBY_LOCAL_MADE_OFFLINE_DO: &str = "Make a new lobby to play online";
-pub const LOBBY_LOCAL_CHECKING: &str = "Checking game";
+pub const LOBBY_LOCAL_TURNED_OFF_DO: &str = "Turn online play on in the launcher's Settings";
+pub const LOBBY_LOCAL_SIGNING_IN_DO: &str = "Make a new lobby once connected";
+pub const LOBBY_LOCAL_NOT_REACHED_DO: &str = "Check your internet connection";
 pub const LOBBY_LOCAL_CHECKING_DO: &str = "Make a new lobby in a moment";
-pub const LOBBY_LOCAL_UPDATE: &str = "Update needed";
 /// {version}: the newer release's.
 pub const LOBBY_LOCAL_UPDATE_DO: &str = "Update to {version} in the launcher";
-pub const LOBBY_LOCAL_IMPORT: &str = "Files outdated";
-pub const LOBBY_LOCAL_IMPORT_DO: &str = "Rebuild them in the launcher";
-pub const LOBBY_LOCAL_SELF_CHECK: &str = "Copy differs";
+pub const LOBBY_LOCAL_IMPORT_DO: &str = "Rebuild the game files in the launcher";
 pub const LOBBY_LOCAL_SELF_CHECK_DO: &str = "Rebuild the game files in the launcher";
-pub const LOBBY_LOCAL_OTHER: &str = "Online failed";
 pub const LOBBY_LOCAL_OTHER_DO: &str = "Test the connection in the launcher";
 
 /// A match that went out of sync: its report kept for a bug report (nothing is uploaded).

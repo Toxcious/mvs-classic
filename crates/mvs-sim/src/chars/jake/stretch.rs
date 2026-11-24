@@ -94,7 +94,7 @@ use crate::combat::hit::{
     add_hit_stun_from_knockback, hurt_hit, remove_hitstun_from_knock_back, set_hit_pause, timer_count,
 };
 use crate::combat::hits::{actor_hit_enemy, apply_projectile_hit, dealer, projectile_blocks};
-use crate::combat::phases::{alive, give_vbuf, no_hit, victim_pose};
+use crate::combat::phases::{alive, give_vbuf, victim_pose};
 use crate::combat::{DataEnum, DataVec, HitPacket};
 use crate::consts::{AIR_EVADE_MAX, DELTA_SECONDS, GRAVITY_SCALE};
 use crate::events::Event;
@@ -929,7 +929,7 @@ fn knock_hit(w: &mut World, id: ActorId, vic: FighterId) {
     if seen {
         return; // CheckIfActorHasBeenHit @2883
     }
-    if no_hit(w, vic) || projectile_blocks(w, &dealer(w, me), vic) {
+    if crate::combat::phases::no_hit_by(w, own, vic) || projectile_blocks(w, &dealer(w, me), vic) {
         return;
     }
     if invulnerable(w, vic) {
@@ -953,6 +953,10 @@ fn actor_begin(w: &mut World, id: ActorId, v: FighterId) {
     let vid = w.fighter(v).id;
     let a = state(w, id);
     if invulnerable(w, v) || v == own || a.knock_in.contains(&vid) || a.bounced.contains(&vid) {
+        return;
+    }
+    // Deviation: the port's spare switch spares an opponent the bounce (its launch, stun and hit pause).
+    if crate::fighter::spared_by(w, own, v) {
         return;
     }
     state_mut(w, id).bounced.push(vid); // BouncedFighters (the cooldown branch is never reached: one bounce per fighter)

@@ -1,5 +1,7 @@
-//! The release guard: no file of the build, no developer's key and no EOS secret in a release
-//! zip, and nothing but names, sizes and hashes in the build list the exe embeds. It never prints a key or a secret.
+//! The release guard: no file of the build and no developer's key in a release zip, the EOS client credentials in
+//! `resources/eos.json` alone, and nothing but names, sizes and hashes in the build list the exe embeds. It never
+//! prints the key. (The client credentials are public by design: every EOS game ships its own, and the client's
+//! policy allows only what a player's game does. They stay in one file so a release changes them in one place.)
 
 use std::path::Path;
 
@@ -241,7 +243,7 @@ fn contains(hay: &[u8], needle: &[u8]) -> bool {
     !needle.is_empty() && hay.windows(needle.len()).any(|w| w == needle)
 }
 
-/// The EOS client id and secret of an `eos.json`: the strings that must be in no other file. None when it does not
+/// The EOS client id and secret of an `eos.json`: the strings no other file holds (one place to change them). None when it does not
 /// read or holds no id and secret of 16 characters or more.
 pub fn eos_secrets(json: &[u8]) -> Option<Vec<Vec<u8>>> {
     let v: serde_json::Value = serde_json::from_slice(json).ok()?;
@@ -252,7 +254,7 @@ pub fn eos_secrets(json: &[u8]) -> Option<Vec<Vec<u8>>> {
     (secrets.len() == 2).then_some(secrets)
 }
 
-/// What a guard found: one line per finding (no key, no secret in them) and what it read.
+/// What a guard found: one line per finding (no key in them) and what it read.
 pub struct Report {
     pub findings: Vec<String>,
     /// The EOS credentials it searched for (those given and the zip's own `resources/eos.json`'s), for the next

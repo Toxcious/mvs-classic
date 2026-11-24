@@ -32,7 +32,7 @@ use crate::fighter::control::{
 use crate::fighter::moves::{Impulse, V2, net_impulse, recall_move};
 use crate::fighter::traces::solids::{QUERY_UNKNOWN, QUERY_WORLDSTATIC};
 use crate::fighter::traces::{OBJ_ITEM_DESTRUCTIBLE, OBJ_PAWN, OBJ_PROJECTILE_DESTRUCTIBLE, box_overlap_actors};
-use crate::fighter::{FighterId, actor_y, cap_radius, capsule_half, facing, invulnerable, no_collision, no_hit};
+use crate::fighter::{FighterId, actor_y, cap_radius, capsule_half, facing, invulnerable, no_collision};
 use crate::math::ue::{KINDA_SMALL_NUMBER, normal, size2d};
 use crate::math::{max, min};
 use crate::name;
@@ -196,7 +196,7 @@ pub fn marker_tick(w: &mut World, m: MarkerId) {
         // once). The hit's own loop (5931): ApplyBuffHit? && ApplyBuffAlly? to a hit actor of the instigator's team
         // that is not the instigator, with Round(StackCount x the charge multiplier). `apply_projectile_hit` below
         // runs the first for its call.
-        let hits = team(w, vic) != team(w, f) && !no_hit(w, vic) && !invulnerable(w, vic);
+        let hits = team(w, vic) != team(w, f) && !crate::combat::phases::no_hit_by(w, f, vic) && !invulnerable(w, vic);
         if !hits {
             hit_buffs_call(w, f, &buffs);
         }
@@ -212,7 +212,7 @@ pub fn marker_tick(w: &mut World, m: MarkerId) {
                 ally_hit(w, &d, vic, &hit);
             }
         }
-        if team(w, vic) == team(w, f) || no_hit(w, vic) {
+        if team(w, vic) == team(w, f) || crate::combat::phases::no_hit_by(w, f, vic) {
             continue;
         }
         if projectile_blocks(w, &dealer(w, me), vic) {
@@ -437,7 +437,7 @@ pub fn seismic_boom(w: &mut World, mo: MortarId) {
         }
     }
     for vic in targets {
-        if no_hit(w, vic) || vic == f {
+        if crate::combat::phases::no_hit_by(w, f, vic) || vic == f {
             continue;
         }
         if projectile_blocks(w, &dealer(w, me), vic) {

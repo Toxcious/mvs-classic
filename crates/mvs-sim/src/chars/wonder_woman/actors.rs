@@ -657,7 +657,11 @@ fn lasso_overlap(w: &mut World, id: ProjectileId, o: FighterId) {
     let oid = w.fighter(o).id;
     let at = lasso(w, id).inside.iter().position(|&i| i == oid);
     let (px, py, radius) = (pr_ref(w, id).x, pr_ref(w, id).y, lasso(w, id).radius);
-    let pose = if w.fighter(o).life.dead > 0.0 || no_hit(w, o) { None } else { victim_pose(w, o) };
+    let pose = if w.fighter(o).life.dead > 0.0 || crate::combat::phases::no_hit_from(w, ActorRef::Projectile(id), o) {
+        None
+    } else {
+        victim_pose(w, o)
+    };
     let met = match pose {
         Some(vp) => {
             let sphere = WorldSphere { x: px, y: py, z: Some(0.0), r: radius, ..WorldSphere::default() };

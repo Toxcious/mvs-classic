@@ -18,13 +18,13 @@ pub struct QueueFound {
     pub me: u32,
 }
 
-pub const QUEUE_MODES: [QueueMode; 4] = [QueueMode::OneVOne, QueueMode::TwoVTwo, QueueMode::Ffa, QueueMode::Silly];
+pub const QUEUE_MODES: [QueueMode; 4] = [QueueMode::OneVOne, QueueMode::TwoVTwo, QueueMode::Ffa, QueueMode::Chaos];
 
 /// Fighters in a match of the mode (QUEUE_SIZE).
 pub fn queue_size(mode: QueueMode) -> usize {
     match mode {
         QueueMode::OneVOne => 2,
-        QueueMode::TwoVTwo | QueueMode::Ffa | QueueMode::Silly => 4,
+        QueueMode::TwoVTwo | QueueMode::Ffa | QueueMode::Chaos => 4,
     }
 }
 
@@ -32,7 +32,7 @@ pub fn queue_size(mode: QueueMode) -> usize {
 pub fn queue_team_style(mode: QueueMode) -> u8 {
     match mode {
         QueueMode::OneVOne => 0,
-        QueueMode::TwoVTwo | QueueMode::Silly => 1,
+        QueueMode::TwoVTwo | QueueMode::Chaos => 1,
         QueueMode::Ffa => 2,
     }
 }
@@ -115,12 +115,12 @@ pub const SET_WINS: u32 = 2;
 pub const SET_GAMES: u32 = 3;
 
 /// FFA's set is one game (GetSetLengthForConfig MaximumWins 1 for team style FFA in context 1; the port's own: a game
-/// of it with no winner ends the set too), and so is Silly's (GetSetLengthForConfig: queue type 3, Casual, one game).
+/// of it with no winner ends the set too), and so is Chaos's (GetSetLengthForConfig: queue type 3, Casual, one game).
 fn one_game(mode: QueueMode) -> bool {
-    matches!(mode, QueueMode::Ffa | QueueMode::Silly)
+    matches!(mode, QueueMode::Ffa | QueueMode::Chaos)
 }
 
-/// A mode's wins that decide its set (FFA and Silly one game).
+/// A mode's wins that decide its set (FFA and Chaos one game).
 pub fn set_wins(mode: QueueMode) -> u32 {
     if one_game(mode) { 1 } else { SET_WINS }
 }
@@ -226,7 +226,7 @@ pub fn pick_bots(pool: &[String], humans: &[String], n: usize, rand: &mut dyn Fn
 /// streak.
 pub const QUEUE_BOT_DIFFICULTY: i32 = 3;
 
-/// Deviation: a queue match is won at 3 ring-outs, in 1v1, 2v2 and Silly alike: the build's queue rules are the
+/// Deviation: a queue match is won at 3 ring-outs, in 1v1, 2v2 and Chaos alike: the build's queue rules are the
 /// backend's match config, not in its files. An FFA match has none (0): it ends by time.
 pub const QUEUE_RINGOUTS: i32 = 3;
 

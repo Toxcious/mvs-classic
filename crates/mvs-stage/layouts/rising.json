@@ -1,0 +1,869 @@
+{
+  "key": "rising",
+  "base": "m011",
+  "blocks": [
+    "floating",
+    "ship"
+  ],
+  "hide": [
+    "M011_MainStage_BackPillars_01_5",
+    "M011_MainStage_CornerPillars_01_6",
+    "M011_MainStage_FrontPillars_01_2",
+    "M011_MainStage_Top_01_12",
+    "M011_MainStage_Transparent_01_15",
+    "M011_MainStage_Underside_01_18",
+    "M011_MainStage_UndersideWalls_01_21",
+    "M011_Platform_A_01_2",
+    "M011_Platform_A_02_5",
+    "M011_Platform_A_03_2",
+    "M011_PlatformShadow_A_01_11",
+    "M011_PlatformShadow_A_2",
+    "M011_PlatformShadow_A_3",
+    "M011_GemGlow_A_01_8",
+    "M011_GemGlow_A_02_13",
+    "M011_GemGlow_A_2",
+    "M011_GemGlow_A_3",
+    "M011_GemGlow_A_4",
+    "M011_GemGlow_A_5",
+    "M011_GemGlow_A_6",
+    "M011_GemGlow_A_7",
+    "M011_GemGlow_A_8",
+    "M011_GemGlow_A_9",
+    "M011_BurgerBackpack_01_2",
+    "M011_DonutBox_A_01_5",
+    "M011_DonutCrumbs_01_2",
+    "M011_DonutCrumbs_11",
+    "M011_DonutCrumbs_3",
+    "M011_DonutCrumbs_4",
+    "M011_Drinks_A_01_2",
+    "M011_FishPizza_A_2",
+    "M011_FoodBag_A_01_2",
+    "M011_Plate_A_2",
+    "M011_Sticker_A_01_2",
+    "M011_Sticker_A_03_2",
+    "M011_Whip_A_01_2",
+    "M011_Donut2",
+    "M011_Donut_3",
+    "M011_Pillar_A_01_2",
+    "M011_Pillar_A_2",
+    "M011_StatueStageL_01_2",
+    "M011_StatueStageR_01_5",
+    "M011_Arm_2",
+    "M011_Arm_2.Donut",
+    "M011_Arm_2.DonutBitten",
+    "PS_M011_HotDonuts_8"
+  ],
+  "pieces": [
+    {
+      "instance": "M011_Platform_A_02_5",
+      "loc": [
+        -450,
+        0,
+        -1500
+      ],
+      "scale": [
+        1,
+        5,
+        1
+      ],
+      "light": "baked",
+      "platform": "Mid1"
+    },
+    {
+      "instance": "M011_Platform_A_02_5",
+      "loc": [
+        -450,
+        0,
+        -125
+      ],
+      "scale": [
+        1,
+        5,
+        1
+      ],
+      "light": "baked",
+      "platform": "Mid2"
+    },
+    {
+      "instance": "M011_Platform_A_02_5",
+      "loc": [
+        -450,
+        0,
+        1250
+      ],
+      "scale": [
+        1,
+        5,
+        1
+      ],
+      "light": "baked",
+      "platform": "Mid3"
+    },
+    {
+      "instance": "M011_Platform_A_02_5",
+      "loc": [
+        -450,
+        0,
+        2625
+      ],
+      "scale": [
+        1,
+        5,
+        1
+      ],
+      "light": "baked",
+      "platform": "Mid4"
+    },
+    {
+      "instance": "M011_Platform_A_02_5",
+      "loc": [
+        -450,
+        2890,
+        -1580
+      ],
+      "light": "baked",
+      "platform": "LeftIn1"
+    },
+    {
+      "instance": "M011_Platform_A_02_5",
+      "loc": [
+        -450,
+        3020,
+        -415
+      ],
+      "light": "baked",
+      "platform": "LeftIn2"
+    },
+    {
+      "instance": "M011_Platform_A_02_5",
+      "loc": [
+        -450,
+        2920,
+        1110
+      ],
+      "light": "baked",
+      "platform": "LeftIn3"
+    },
+    {
+      "instance": "M011_Platform_A_02_5",
+      "loc": [
+        -450,
+        3000,
+        2275
+      ],
+      "light": "baked",
+      "platform": "LeftIn4"
+    },
+    {
+      "instance": "M011_Platform_A_02_5",
+      "loc": [
+        -450,
+        4050,
+        -1080
+      ],
+      "light": "baked",
+      "platform": "LeftOut1"
+    },
+    {
+      "instance": "M011_Platform_A_02_5",
+      "loc": [
+        -450,
+        3970,
+        515
+      ],
+      "light": "baked",
+      "platform": "LeftOut2"
+    },
+    {
+      "instance": "M011_Platform_A_02_5",
+      "loc": [
+        -450,
+        4020,
+        1640
+      ],
+      "light": "baked",
+      "platform": "LeftOut3"
+    },
+    {
+      "instance": "M011_Platform_A_02_5",
+      "loc": [
+        -450,
+        3980,
+        3155
+      ],
+      "light": "baked",
+      "platform": "LeftOut4"
+    },
+    {
+      "instance": "M011_Platform_A_02_5",
+      "loc": [
+        -450,
+        -2890,
+        -1580
+      ],
+      "light": "baked",
+      "platform": "RightIn1"
+    },
+    {
+      "instance": "M011_Platform_A_02_5",
+      "loc": [
+        -450,
+        -3020,
+        -415
+      ],
+      "light": "baked",
+      "platform": "RightIn2"
+    },
+    {
+      "instance": "M011_Platform_A_02_5",
+      "loc": [
+        -450,
+        -2920,
+        1110
+      ],
+      "light": "baked",
+      "platform": "RightIn3"
+    },
+    {
+      "instance": "M011_Platform_A_02_5",
+      "loc": [
+        -450,
+        -3000,
+        2275
+      ],
+      "light": "baked",
+      "platform": "RightIn4"
+    },
+    {
+      "instance": "M011_Platform_A_02_5",
+      "loc": [
+        -450,
+        -4050,
+        -1080
+      ],
+      "light": "baked",
+      "platform": "RightOut1"
+    },
+    {
+      "instance": "M011_Platform_A_02_5",
+      "loc": [
+        -450,
+        -3970,
+        515
+      ],
+      "light": "baked",
+      "platform": "RightOut2"
+    },
+    {
+      "instance": "M011_Platform_A_02_5",
+      "loc": [
+        -450,
+        -4020,
+        1640
+      ],
+      "light": "baked",
+      "platform": "RightOut3"
+    },
+    {
+      "instance": "M011_Platform_A_02_5",
+      "loc": [
+        -450,
+        -3980,
+        3155
+      ],
+      "light": "baked",
+      "platform": "RightOut4"
+    }
+  ],
+  "floor": {
+    "parked": true
+  },
+  "platforms": [
+    {
+      "name": "Mid1",
+      "box": {
+        "piece": "Mid1.StaticMesh",
+        "thickness": 20
+      },
+      "rise": {
+        "bottom": -1800,
+        "top": 3700,
+        "speed": 300
+      }
+    },
+    {
+      "name": "Mid2",
+      "box": {
+        "piece": "Mid2.StaticMesh",
+        "thickness": 20
+      },
+      "rise": {
+        "bottom": -1800,
+        "top": 3700,
+        "speed": 300
+      }
+    },
+    {
+      "name": "Mid3",
+      "box": {
+        "piece": "Mid3.StaticMesh",
+        "thickness": 20
+      },
+      "rise": {
+        "bottom": -1800,
+        "top": 3700,
+        "speed": 300
+      }
+    },
+    {
+      "name": "Mid4",
+      "box": {
+        "piece": "Mid4.StaticMesh",
+        "thickness": 20
+      },
+      "rise": {
+        "bottom": -1800,
+        "top": 3700,
+        "speed": 300
+      }
+    },
+    {
+      "name": "LeftIn1",
+      "box": {
+        "piece": "LeftIn1.StaticMesh",
+        "thickness": 20
+      },
+      "rise": {
+        "bottom": -1800,
+        "top": 3700,
+        "speed": 200
+      }
+    },
+    {
+      "name": "LeftIn2",
+      "box": {
+        "piece": "LeftIn2.StaticMesh",
+        "thickness": 20
+      },
+      "rise": {
+        "bottom": -1800,
+        "top": 3700,
+        "speed": 200
+      }
+    },
+    {
+      "name": "LeftIn3",
+      "box": {
+        "piece": "LeftIn3.StaticMesh",
+        "thickness": 20
+      },
+      "rise": {
+        "bottom": -1800,
+        "top": 3700,
+        "speed": 200
+      }
+    },
+    {
+      "name": "LeftIn4",
+      "box": {
+        "piece": "LeftIn4.StaticMesh",
+        "thickness": 20
+      },
+      "rise": {
+        "bottom": -1800,
+        "top": 3700,
+        "speed": 200
+      }
+    },
+    {
+      "name": "LeftOut1",
+      "box": {
+        "piece": "LeftOut1.StaticMesh",
+        "thickness": 20
+      },
+      "rise": {
+        "bottom": -1800,
+        "top": 3700,
+        "speed": 160
+      }
+    },
+    {
+      "name": "LeftOut2",
+      "box": {
+        "piece": "LeftOut2.StaticMesh",
+        "thickness": 20
+      },
+      "rise": {
+        "bottom": -1800,
+        "top": 3700,
+        "speed": 160
+      }
+    },
+    {
+      "name": "LeftOut3",
+      "box": {
+        "piece": "LeftOut3.StaticMesh",
+        "thickness": 20
+      },
+      "rise": {
+        "bottom": -1800,
+        "top": 3700,
+        "speed": 160
+      }
+    },
+    {
+      "name": "LeftOut4",
+      "box": {
+        "piece": "LeftOut4.StaticMesh",
+        "thickness": 20
+      },
+      "rise": {
+        "bottom": -1800,
+        "top": 3700,
+        "speed": 160
+      }
+    },
+    {
+      "name": "RightIn1",
+      "box": {
+        "piece": "RightIn1.StaticMesh",
+        "thickness": 20
+      },
+      "rise": {
+        "bottom": -1800,
+        "top": 3700,
+        "speed": 200
+      }
+    },
+    {
+      "name": "RightIn2",
+      "box": {
+        "piece": "RightIn2.StaticMesh",
+        "thickness": 20
+      },
+      "rise": {
+        "bottom": -1800,
+        "top": 3700,
+        "speed": 200
+      }
+    },
+    {
+      "name": "RightIn3",
+      "box": {
+        "piece": "RightIn3.StaticMesh",
+        "thickness": 20
+      },
+      "rise": {
+        "bottom": -1800,
+        "top": 3700,
+        "speed": 200
+      }
+    },
+    {
+      "name": "RightIn4",
+      "box": {
+        "piece": "RightIn4.StaticMesh",
+        "thickness": 20
+      },
+      "rise": {
+        "bottom": -1800,
+        "top": 3700,
+        "speed": 200
+      }
+    },
+    {
+      "name": "RightOut1",
+      "box": {
+        "piece": "RightOut1.StaticMesh",
+        "thickness": 20
+      },
+      "rise": {
+        "bottom": -1800,
+        "top": 3700,
+        "speed": 160
+      }
+    },
+    {
+      "name": "RightOut2",
+      "box": {
+        "piece": "RightOut2.StaticMesh",
+        "thickness": 20
+      },
+      "rise": {
+        "bottom": -1800,
+        "top": 3700,
+        "speed": 160
+      }
+    },
+    {
+      "name": "RightOut3",
+      "box": {
+        "piece": "RightOut3.StaticMesh",
+        "thickness": 20
+      },
+      "rise": {
+        "bottom": -1800,
+        "top": 3700,
+        "speed": 160
+      }
+    },
+    {
+      "name": "RightOut4",
+      "box": {
+        "piece": "RightOut4.StaticMesh",
+        "thickness": 20
+      },
+      "rise": {
+        "bottom": -1800,
+        "top": 3700,
+        "speed": 160
+      }
+    }
+  ],
+  "blast": {
+    "BlastBoxJumpOutArea": {
+      "center": [
+        -255,
+        0,
+        880
+      ],
+      "halfExtent": [
+        1000,
+        5400,
+        2400
+      ],
+      "y": [
+        -5400,
+        5400
+      ],
+      "z": [
+        -1520,
+        3280
+      ]
+    },
+    "CollisionComp": {
+      "center": [
+        -255,
+        0,
+        880
+      ],
+      "halfExtent": [
+        1000,
+        5400,
+        2400
+      ],
+      "y": [
+        -5400,
+        5400
+      ],
+      "z": [
+        -1520,
+        3280
+      ]
+    },
+    "CollisionCompProjectileStopBox": {
+      "center": [
+        -255,
+        0,
+        880
+      ],
+      "halfExtent": [
+        1000,
+        5100,
+        2099.9999664
+      ],
+      "y": [
+        -5100,
+        5100
+      ],
+      "z": [
+        -1219.9999664000002,
+        2979.9999664
+      ]
+    },
+    "CollisionCompWarningBox": {
+      "center": [
+        -255,
+        0,
+        880
+      ],
+      "halfExtent": [
+        1000,
+        4200,
+        1199.9999808
+      ],
+      "y": [
+        -4200,
+        4200
+      ],
+      "z": [
+        -319.9999808,
+        2079.9999808000002
+      ]
+    }
+  },
+  "blastBoxCorners": {
+    "topLeft": [
+      5370,
+      3030
+    ],
+    "bottomRight": [
+      -5370,
+      -1520
+    ]
+  },
+  "spawns": [
+    {
+      "tag": "Player1",
+      "tags": [
+        "1v1",
+        "2v2",
+        "FreeForAll"
+      ],
+      "loc": [
+        0,
+        700,
+        1300
+      ],
+      "yaw": -90
+    },
+    {
+      "tag": "Player2",
+      "tags": [
+        "1v1",
+        "2v2",
+        "FreeForAll"
+      ],
+      "loc": [
+        0,
+        -700,
+        1300
+      ],
+      "yaw": 90
+    },
+    {
+      "tag": "Player3",
+      "tags": [
+        "1v1",
+        "2v2",
+        "FreeForAll"
+      ],
+      "loc": [
+        0,
+        1700,
+        1850
+      ],
+      "yaw": -90
+    },
+    {
+      "tag": "Player4",
+      "tags": [
+        "1v1",
+        "2v2",
+        "FreeForAll"
+      ],
+      "loc": [
+        0,
+        -1700,
+        1850
+      ],
+      "yaw": 90
+    }
+  ],
+  "respawns": [
+    {
+      "tag": "Respawn1",
+      "tags": [
+        "1v1",
+        "2v2",
+        "FreeForAll"
+      ],
+      "loc": [
+        0,
+        1900,
+        2300
+      ],
+      "yaw": -90
+    },
+    {
+      "tag": "Respawn2",
+      "tags": [
+        "1v1",
+        "2v2",
+        "FreeForAll"
+      ],
+      "loc": [
+        0,
+        -1900,
+        2300
+      ],
+      "yaw": 90
+    },
+    {
+      "tag": "Respawn3",
+      "tags": [
+        "1v1",
+        "2v2",
+        "FreeForAll"
+      ],
+      "loc": [
+        0,
+        1900,
+        2300
+      ],
+      "yaw": -90
+    },
+    {
+      "tag": "Respawn4",
+      "tags": [
+        "1v1",
+        "2v2",
+        "FreeForAll"
+      ],
+      "loc": [
+        0,
+        -1900,
+        2300
+      ],
+      "yaw": 90
+    },
+    {
+      "tag": "Respawn5",
+      "tags": [
+        "1v1",
+        "2v2",
+        "FreeForAll"
+      ],
+      "loc": [
+        0,
+        1900,
+        2300
+      ],
+      "yaw": -90
+    },
+    {
+      "tag": "Respawn6",
+      "tags": [
+        "1v1",
+        "2v2",
+        "FreeForAll"
+      ],
+      "loc": [
+        0,
+        -1900,
+        2300
+      ],
+      "yaw": 90
+    },
+    {
+      "tag": "Respawn7",
+      "tags": [
+        "1v1",
+        "2v2",
+        "FreeForAll"
+      ],
+      "loc": [
+        0,
+        1900,
+        2300
+      ],
+      "yaw": -90
+    },
+    {
+      "tag": "Respawn8",
+      "tags": [
+        "1v1",
+        "2v2",
+        "FreeForAll"
+      ],
+      "loc": [
+        0,
+        -1900,
+        2300
+      ],
+      "yaw": 90
+    }
+  ],
+  "camera": {
+    "CameraFOV": 26,
+    "DeltaTime": 3,
+    "CameraArmMin": 6000,
+    "CameraArmMax": 99999,
+    "DefaultCameraArmLength": 7000,
+    "CameraAngle": 5,
+    "CurrentPriorityLerpDecay": 0.5,
+    "HighPriorityDecay": 0.25,
+    "LowPriorityDecay": 0.5,
+    "HighPriorityLerpEaseAddition": 0.1,
+    "LowPriorityLerpEaseAddition": 0.015,
+    "PriorityZDifference": 500,
+    "EaseLerpValue": 1000,
+    "LowAlphaEase": 0.006,
+    "HighAlphaEase": 0.016,
+    "ZoomOutEasingExponent": 4.1,
+    "ZoomInEasingExponent": 1.8,
+    "LowAlphaLinear": 0.05,
+    "HighAlphaLinear": 0.1,
+    "HorizontalEdgeBuffer": 375,
+    "TopEdgeBuffer": 325,
+    "BottomEdgeBuffer": 300,
+    "UseEasedMovement": true
+  },
+  "cameraCenter": [
+    9000,
+    0,
+    1000
+  ],
+  "waypoints": [
+    {
+      "name": "Mid",
+      "loc": [
+        0,
+        0,
+        1100
+      ],
+      "position": 0,
+      "edge": false,
+      "recovery": 0
+    },
+    {
+      "name": "Left",
+      "loc": [
+        0,
+        2950,
+        1100
+      ],
+      "position": 1,
+      "edge": false,
+      "recovery": 0
+    },
+    {
+      "name": "Right",
+      "loc": [
+        0,
+        -2950,
+        1100
+      ],
+      "position": 1,
+      "edge": false,
+      "recovery": 0
+    }
+  ],
+  "items": [
+    {
+      "origin": [
+        -110,
+        0,
+        1270
+      ],
+      "extent": [
+        250,
+        3800,
+        1250
+      ],
+      "bigObjectX": [
+        0
+      ]
+    }
+  ]
+}

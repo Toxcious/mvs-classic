@@ -48,7 +48,7 @@ use crate::combat::elem::{charge_pct, instigator_charge};
 use crate::combat::hit::hurt_hit;
 use crate::combat::hits::{actor_hit_enemy, apply_projectile_hit, dealer, projectile_blocks};
 use crate::combat::packet::DataVec;
-use crate::combat::phases::{alive, give_vbuf, no_hit, victim_pose};
+use crate::combat::phases::{alive, give_vbuf, victim_pose};
 use crate::consts::DELTA_SECONDS;
 use crate::events::{Event, SoundKey};
 use crate::fighter::common::{actor_data, warn_text};
@@ -1178,7 +1178,7 @@ fn ally_hits(w: &mut World, id: ActorId) {
         let vid = w.fighter(vic).id;
         if w.fighter(vic).team.team == team
             || !alive(w, vic)
-            || no_hit(w, vic)
+            || crate::combat::phases::no_hit_by_team(w, team, vic)
             || ally_of(w, id).expect("checked").hit_set.contains(&vid)
         {
             continue;

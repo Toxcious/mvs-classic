@@ -138,6 +138,9 @@ pub struct Team {
     pub team: i32,
     pub bot_controlled: bool,
     pub ally: Ally,
+    /// The world tick this fighter last joined its teammates' Comp_Actor_Destructible.Allies (`common::allies`): 0
+    /// at the match's spawn, its respawn's tick after a knock-out.
+    pub joined: i32,
 }
 
 /// A `voLines` entry.
@@ -2612,18 +2615,9 @@ fn is_ally(w: &World, f: FighterId, o: FighterId) -> bool {
 /// ListOfAllies empty OR AllyNotWithinRange.
 // Deviation: ListOfAllies is never cleared and the condition object is the montage notify's instance, so in the
 // build a check without allies answers false once any earlier check (of any match of the session) had one; taken
-// here as empty at every check. Allies in the sim's order, one waiting for its respawn left out.
+// here as empty at every check. With two or more allies the last one of GetAllies (`common::allies`' order) answers.
 pub fn ally_not_within_range(w: &World, f: FighterId) -> bool {
-    let mut n = 0;
-    let mut far = false;
-    for &o in common::peers(w) {
-        if !is_ally(w, f, o) {
-            continue;
-        }
-        n += 1;
-        far = ally_distance(w, f, o) >= 2250.0;
-    }
-    n == 0 || far
+    common::last_ally(w, f).is_none_or(|o| ally_distance(w, f, o) >= 2250.0)
 }
 
 /// `alliesWithinDashDistance`: AlliesWithinDashDistance.Check: false without the owner's

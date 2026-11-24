@@ -4,6 +4,7 @@
 
 use std::collections::BTreeMap;
 
+use mvs_protocol::lobby_rules::{WheelOptions, wheel_rule};
 use mvs_protocol::online::{BadgeRef, CosmeticRef, PlayerCosmetics, QueueFoundMsg, QueueMode, QueuePlayer};
 use mvs_protocol::queue_rules::{QUEUE_MODES, QueueFound};
 use mvs_protocol::setup::MatchSetupWire;
@@ -11,13 +12,13 @@ use mvs_ui::bundle::MenuData;
 use mvs_ui::menu::lobby::loadout::{BotLoadout, BotPool, random_bot_loadout, simulate_perk_unlock};
 
 /// The rotation of each queue mode (the EMapRotation names as the menu data keeps
-/// them): the unranked ones, and Silly's the Casual rotation (the Casual card's queue type 3).
+/// them): the unranked ones, and Chaos's the Casual rotation (the Casual card's queue type 3).
 pub fn queue_rotation(mode: QueueMode) -> &'static str {
     match mode {
         QueueMode::OneVOne => "UnrankedSolos",
         QueueMode::TwoVTwo => "UnrankedDuos",
         QueueMode::Ffa => "UnrankedFreeForAll",
-        QueueMode::Silly => "Casual",
+        QueueMode::Chaos => "Casual",
     }
 }
 
@@ -175,20 +176,15 @@ pub fn loadout_of_cosmetics(c: &PlayerCosmetics, ring_out: &str) -> BotLoadout {
     }
 }
 
-/// (the port's own) The mutators of a queue mode's match (MatchSetup.mutators): the Silly queue's is the build's one
-/// selection rule, Mutator_RandomMutatorSelector. Deviation: the build's 2v2casual configs named their mutators from
-/// the backend (UMatchConfig GetMutatorData), which no file of the build holds.
-pub fn queue_mutators(mode: QueueMode) -> Option<&'static [&'static str]> {
-    match mode {
-        QueueMode::Silly => Some(&["Mutator_RandomMutatorSelector"]),
-        _ => None,
-    }
-}
-
-/// A queue match's set-up with its mode's mutators, whatever the server sent.
-pub fn with_mode_mutators(setup: &MatchSetupWire, mode: QueueMode) -> MatchSetupWire {
+/// (the port's own) A queue match's set-up with its mode's rules, whatever the server sent: no mutators, and the
+/// Chaos queue's Chaos Wheel at its default settings (the CHAOS WHEEL page's, every mutator in the pool).
+/// Deviation: the build's Casual card was the Silly queue, its 2v2casual configs' mutators named by the backend
+/// (UMatchConfig GetMutatorData); the port plays the wheel in its place.
+pub fn with_mode_rules(setup: &MatchSetupWire, mode: QueueMode) -> MatchSetupWire {
     let mut out = setup.clone();
-    out.mutators = queue_mutators(mode).map(|l| l.iter().map(|s| (*s).to_owned()).collect());
+    out.mutators = None;
+    out.wheel =
+        (mode == QueueMode::Chaos).then(|| wheel_rule(WheelOptions { on: true, ..WheelOptions::default() })).flatten();
     out
 }
 
@@ -237,7 +233,11 @@ mod tests {
         let (s, perks) = t.with_bot_tables(&setup, &[vec!["p".into()], vec![]], &[human, d]);
         assert!(perks[0] == ["p"] && perks[1][0] == "s");
         assert_eq!(s.players[0], setup.players[0]);
-        assert!(with_mode_mutators(&setup, QueueMode::OneVOne).mutators.is_none());
-        assert_eq!(with_mode_mutators(&setup, QueueMode::Silly).mutators.unwrap(), ["Mutator_RandomMutatorSelector"]);
+        let one = with_mode_rules(&setup, QueueMode::OneVOne);
+        assert!(one.mutators.is_none() && one.wheel.is_none());
+        let chaos = with_mode_rules(&setup, QueueMode::Chaos);
+        assert!(chaos.mutators.is_none());
+        let w = chaos.wheel.expect("the Chaos queue's wheel");
+        assert_eq!(w.pool.len(), mvs_mutators::ALL.len(), "every mutator in the pool");
     }
 }

@@ -1400,9 +1400,9 @@ fn fog_off(w: &mut World, id: ActorId) {
 }
 
 /// The zone's sphere against a fighter: his root capsule (Pawn) and his hurt shapes at the current pose (HurtBox),
-/// in the play plane.
+/// in the play plane. False for an opponent the port's own spare switch spares what the zone's owner deals (no Fog).
 fn touches(w: &mut World, o: FighterId, id: ActorId) -> bool {
-    if w.fighter(o).life.dead > 0.0 {
+    if w.fighter(o).life.dead > 0.0 || zone_owner(w, id).is_some_and(|f| crate::fighter::spared_by(w, f, o)) {
         return false;
     }
     let k = zone_k(w, id);

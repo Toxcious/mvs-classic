@@ -140,6 +140,8 @@ fn ally_buffs(w: &World, f: FighterId) -> Vec<BuffRef> {
 /// PlayerDataManager finds for both it and the owner (GetByFighter), of the owner's team (GetTeamIndex) and not the
 /// owner -> Ally; the last one found wins and Ally keeps its value when none is.
 /// Unverified: GetByFighter is taken to fail for a minion (no PlayerData: PandaGameMode's minions are not players).
+// Unverified: with two or more allies (the port's own big matches) only the last one found gets the shared shield,
+// as the build's single Ally holds; the others never do. Kept as the build's; giving it to every ally starts here.
 fn reset_ally(w: &mut World, f: FighterId) {
     if w.fighter(f).life.is_minion {
         return;

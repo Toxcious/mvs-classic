@@ -24,6 +24,7 @@ It doesn't include any of the game's files.
 - [Notes](#notes)
 - [For developers](#for-developers)
   - [Build from source](#build-from-source)
+  - [Check a release's programs](#check-a-releases-programs)
   - [Check a change](#check-a-change)
   - [Make your own fork](#make-your-own-fork)
 - [Disclaimer](#disclaimer)
@@ -187,6 +188,19 @@ cargo build --release -p mvs-app
 This builds `target\release\mvs-launcher.exe`, the launcher that builds the game from your copy of the beta, and
 `target\release\mvs.exe`, the game. A release names them `MVSC Launcher.exe` and `game\MVS Classic.exe`.
 For day-to-day work, `play.bat` builds both and opens the launcher on your dev store.
+
+### Check a release's programs
+
+The programs in a release are built on GitHub's own machines from the release's tag
+([release.yml](.github/workflows/release.yml)), which attests each one: where it was built and from which commit.
+With the [GitHub CLI](https://cli.github.com/), check a program from the zip:
+
+```
+gh attestation verify "game\MVS Classic.exe" --repo Toxcious/mvs-classic
+```
+
+The same works for `MVSC Launcher.exe` and both relays. The rest of the zip is text you can read (licences, small
+JSON files) and Epic's SDK, which Epic signs. Releases made before the workflow was added have no attestations.
 
 ### Check a change
 

@@ -27,7 +27,7 @@ use crate::Real;
 use crate::State;
 use crate::actors::{ActorId, ActorRef, WorldActorClass, WorldActorState};
 use crate::fighter::FighterId;
-use crate::fighter::common::{actor_def, latent_frames, peers};
+use crate::fighter::common::{actor_def, first_ally, latent_frames};
 use crate::fighter::control::{data_name, game_mode_cooldown_disabled, trigger_ability, trigger_ability_check};
 use crate::fighter::match_side::SpawnRequest;
 use crate::fighter::{actor_y, facing};
@@ -124,14 +124,12 @@ fn spawn(w: &mut World, f: FighterId, _r: &SpawnRequest) -> (WorldActorState, bo
     (WorldActorState::Dispenser(Dispenser::default()), false)
 }
 
-/// `activate`: the closest ally's place (the first of the other living team mates), else the owner's own.
+/// `activate`: the closest ally's place, else the owner's own. ItemDispenser_Bugs GetClosestAlly reads
+/// `Array_Get(Allies, 0)` at @5, @434 and @633, never its loop's index: always the first of the owner's GetAllies
+/// (`common::first_ally`), not the closest; kept as the build has it.
 fn activate(w: &mut World, id: ActorId) {
     let owner = w.actors.actors.get(id).expect("a live actor").owner;
-    let team = w.fighter(owner).team.team;
-    let ally = peers(w)
-        .iter()
-        .copied()
-        .find(|&o| o != owner && w.fighter(o).team.team == team && w.fighter(o).life.dead <= 0.0);
+    let ally = first_ally(w, owner);
     let at = ally.unwrap_or(owner);
     let (x, y) = (w.fighter(at).body.x, actor_y(w, at));
     trigger(w, id, owner, x, y);

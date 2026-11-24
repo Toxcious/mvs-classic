@@ -35,7 +35,7 @@ use crate::combat::hits::{
     projectile_blocks,
 };
 use crate::combat::packet::{DataVec, VacuumInfo};
-use crate::combat::phases::{alive, give_vbuf, los_blocked, no_hit, victim_pose};
+use crate::combat::phases::{alive, give_vbuf, los_blocked, victim_pose};
 use crate::combat::spawned_hits::{class_rows, hit_box_types};
 use crate::consts::DELTA_SECONDS;
 use crate::events::{Event, NotifyRef};
@@ -458,7 +458,8 @@ fn test_box(w: &mut World, id: ActorId) {
     for vic in match_fighters(w) {
         let Some(s) = dogpile_of(w, id) else { return };
         let vid = w.fighter(vic).id;
-        if vic == owner || !alive(w, vic) || no_hit(w, vic) || s.hit_set.contains(&vid) {
+        if vic == owner || !alive(w, vic) || crate::combat::phases::no_hit_by(w, owner, vic) || s.hit_set.contains(&vid)
+        {
             continue;
         }
         let ally = w.fighter(vic).team.team == team;

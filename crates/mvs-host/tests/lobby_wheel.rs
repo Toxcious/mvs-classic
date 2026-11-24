@@ -5,7 +5,6 @@ mod common;
 
 use common::{ManualClock, MemoryPeer};
 use mvs_host::{Core, HOST_TIMES, HostOptions, HostRand, SessionKind, SystemRand};
-use mvs_protocol::lobby_rules::{WHEEL_MUTATORS, WHEEL_SECONDS, WHEEL_WARN};
 use mvs_protocol::version::PROTOCOL;
 use serde_json::{Value, json};
 
@@ -56,14 +55,22 @@ fn the_option_reaches_the_state_and_the_set_up() {
     state.iter().for_each(|m| wheels(m, &mut found));
     assert!(!state.is_empty() && found.is_empty(), "a new lobby's state: {state:?}");
 
-    // a value that is no bool is refused; a bool is kept
+    // a value that is no set of choices, or one outside the lists, is refused; choices are kept
+    let on = json!({ "on": true, "seconds": 15, "warn": 5, "chaos": 3, "two": true, "off": 1 });
     say(&mut core, json!({ "t": "lobby.setOption", "key": "wheel", "value": 3 }));
     say(&mut core, json!({ "t": "lobby.setOption", "key": "wheel", "value": true }));
+    let bad = json!({ "on": true, "seconds": 17, "warn": 5, "chaos": 3, "two": true, "off": 0 });
+    say(&mut core, json!({ "t": "lobby.setOption", "key": "wheel", "value": bad }));
+    let refused = got("lobby.state");
+    let mut found = Vec::new();
+    refused.iter().for_each(|m| wheels(m, &mut found));
+    assert!(found.is_empty(), "refused values: {found:?}");
+    say(&mut core, json!({ "t": "lobby.setOption", "key": "wheel", "value": on }));
     let state = got("lobby.state");
     let last = state.last().expect("a state after the option");
     let mut found = Vec::new();
     wheels(last, &mut found);
-    assert_eq!(found, [&json!(true)], "the state after the option: {last}");
+    assert_eq!(found, [&on], "the state after the option: {last}");
 
     // a 1v1 against a bot, started and through its pre-match screen: the set-up the players get holds the rule
     say(&mut core, json!({ "t": "lobby.setTeamStyle", "style": 0 }));
@@ -82,7 +89,9 @@ fn the_option_reaches_the_state_and_the_set_up() {
     let rule = rules.iter().find(|r| r.is_object()).unwrap_or_else(|| {
         panic!("no set-up with the rule after the start: {:?}", all.iter().map(|m| m["t"].clone()).collect::<Vec<_>>())
     });
-    assert_eq!(rule["seconds"], json!(WHEEL_SECONDS));
-    assert_eq!(rule["warn"], json!(WHEEL_WARN));
-    assert_eq!(rule["pool"].as_array().map(Vec::len), Some(WHEEL_MUTATORS.len()));
+    assert_eq!((&rule["seconds"], &rule["warn"]), (&json!(15), &json!(5)));
+    assert_eq!((&rule["chaos"], &rule["two"]), (&json!("often"), &json!(true)));
+    // (the first of the list left out of the pool)
+    assert_eq!(rule["pool"].as_array().map(Vec::len), Some(mvs_mutators::ALL.len() - 1));
+    assert!(!rule["pool"].as_array().expect("a pool").contains(&json!(mvs_mutators::ALL[0].key)));
 }

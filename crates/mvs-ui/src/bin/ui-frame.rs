@@ -1,9 +1,10 @@
 //! Draws one widget class of a UI bundle to a PNG through the element batches: the class instantiated, laid out
 //! over the target at a DPI scale, one of its animations applied at a time, painted and drawn over a grey
-//! target, read back.
+//! target, read back. `--tree` prints the class's widgets instead (kind, name and text, nested), for a widget's
+//! name to find.
 //!
 //! Usage: ui-frame --class <name> [--bundle hud] [--anim <name>@<seconds> ...] [--size 1920x1080]
-//! [--scale <dpi>] [--time <seconds>] [--out <file.png>]
+//! [--scale <dpi>] [--time <seconds>] [--out <file.png>] [--tree]
 
 use std::path::PathBuf;
 
@@ -24,6 +25,7 @@ struct Args {
     time: f64,
     scale: f64,
     out: PathBuf,
+    tree: bool,
 }
 
 fn args() -> Result<Args, String> {
@@ -36,6 +38,7 @@ fn args() -> Result<Args, String> {
         // DefaultEngine.ini's UIScaleCurve at 1080 lines (ShortestSide).
         scale: 0.75,
         out: PathBuf::from("ui-frame.png"),
+        tree: false,
     };
     let mut it = std::env::args().skip(1);
     while let Some(k) = it.next() {
@@ -51,6 +54,7 @@ fn args() -> Result<Args, String> {
             "--scale" => a.scale = v()?.parse().map_err(|e| format!("--scale: {e}"))?,
             "--time" => a.time = v()?.parse().map_err(|e| format!("--time: {e}"))?,
             "--out" => a.out = PathBuf::from(v()?),
+            "--tree" => a.tree = true,
             "--size" => {
                 let s = v()?;
                 let (w, h) = s.split_once('x').ok_or("--size: WxH")?;
@@ -61,7 +65,7 @@ fn args() -> Result<Args, String> {
     }
     if a.class.is_empty() {
         return Err("usage: ui-frame --class <name> [--bundle hud] [--anim <name>@<s> ...] [--size WxH] [--scale <dpi>] [--time <s>] \
-                    [--out <png>]"
+                    [--out <png>] [--tree]"
             .into());
     }
     Ok(a)
@@ -71,6 +75,12 @@ fn run() -> Result<(), String> {
     let a = args()?;
     let e = |x: RenderError| x.to_string();
     let store = Store::open(dev_store_dir()).map_err(|x| x.to_string())?;
+    if a.tree {
+        let bundle = Bundle::load(&store, &a.bundle).map_err(|x| x.to_string())?;
+        let tree = instantiate(&bundle, &a.class, &a.class);
+        print_tree(&tree, tree.root(), 0);
+        return Ok(());
+    }
     let gpu = Gpu::new(None, false).map_err(e)?;
     let assets = Assets::open(Store::open(dev_store_dir()).map_err(|x| x.to_string())?, &gpu).map_err(e)?;
     let bundle = Bundle::load(&store, &a.bundle).map_err(|x| x.to_string())?;
@@ -110,6 +120,16 @@ fn run() -> Result<(), String> {
     write_png(&a.out, w, h, &px)?;
     println!("{} elements, {}", list.elements.len(), a.out.display());
     Ok(())
+}
+
+/// `w` and the widgets under it, one a line: kind, name and its text where it has one.
+fn print_tree(tree: &mvs_ui::slate::Tree, w: mvs_ui::slate::WidgetId, depth: usize) {
+    let x = tree.widget(w);
+    let text = if x.text.is_empty() { String::new() } else { format!(" {:?}", x.text) };
+    println!("{:width$}{} {}{text}", "", x.kind, x.name, width = depth * 2);
+    for &c in &x.children {
+        print_tree(tree, c, depth + 1);
+    }
 }
 
 fn main() {

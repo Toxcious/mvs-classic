@@ -231,7 +231,8 @@ struct LevelBanner {
 #[derive(Debug)]
 pub struct PreMatchLevel {
     pub data: Arc<PreMatchScene>,
-    /// The lobby's team style (0 1v1, 1 2v2, 2 FFA), set by `Renderer::set_menu_team_style`.
+    /// The match's team style (ETeamStyle: 0 1v1, 1 2v2, 2 FFA; a custom lobby's the one its start derives), set by
+    /// `Renderer::set_menu_team_style`.
     pub team_style: u8,
     /// UI_Cursor's MousePosNormalized (0..1), what the banners' parallax reads.
     pub cursor: [f64; 2],
@@ -522,6 +523,26 @@ impl PreMatchLevel {
         self.team_style == 2
     }
 
+    /// A player stands in preview slot `slot` (the skin data's; every slot before it comes).
+    fn held(&self, slot: usize) -> bool {
+        self.skins.as_ref().and_then(|d| d.held.get(slot).copied()).unwrap_or(true)
+    }
+
+    /// The left side (the local player's: Start_Char_1 and _2, preview slots 0 and 2) has one player: a 1v1, or a
+    /// 2v2 with no one in slot 2.
+    /// Deviation: the build never lays out a 2v2 side of one; the port's three-player Versus match places it as the
+    /// 1v1 places its player (DetermineEndLocation's outer anchor, Set1v1Positions), and leaves the empty slot's
+    /// banner and shadow out.
+    fn lone_left(&self) -> bool {
+        self.team_style == 0 || (self.team_style == 1 && !self.held(2))
+    }
+
+    /// The right side (Start_Char_3 and _4, preview slots 1 and 3) has one player: a 1v1, or a 2v2 whose side of one
+    /// stands in slot 3 as the 1v1 opponent (slot 1 empty).
+    fn lone_right(&self) -> bool {
+        self.team_style == 0 || (self.team_style == 1 && !self.held(1))
+    }
+
     /// The banner names of the preview slots (Usernames[i] and the arrays are by preview slot): [P1, P3, P2, P4]
     /// (FFA: the _FFA ones).
     fn slot_banners(&self) -> [&'static str; 4] {
@@ -658,17 +679,20 @@ impl PreMatchLevel {
     }
 
     /// DetermineEndLocation @33320: 1v1 moves the two outer face-off anchors (and their banner
-    /// movers) apart; the ends are the face-off anchors (FFA: the _FFA ones) @21134.
+    /// movers) apart; the ends are the face-off anchors (FFA: the _FFA ones) @21134. (A 2v2 side of one: its outer
+    /// anchor as the 1v1's, `lone_left` / `lone_right`.)
     fn determine_end_location(&mut self) {
-        if self.team_style == 0 {
+        if self.lone_left() {
             if let Some(a) = self.anchors.get_mut("FaceOff_Char_1") {
                 a[1] -= 175.0;
             }
-            if let Some(a) = self.anchors.get_mut("FaceOff_Char_4") {
-                a[1] += 175.0;
-            }
             if let Some(m) = self.movers.get_mut("BannerMover1") {
                 m.1[1] -= 10.0;
+            }
+        }
+        if self.lone_right() {
+            if let Some(a) = self.anchors.get_mut("FaceOff_Char_4") {
+                a[1] += 175.0;
             }
             if let Some(m) = self.movers.get_mut("BannerMover4") {
                 m.1[1] += 10.0;
@@ -696,11 +720,16 @@ impl PreMatchLevel {
                 }
             }
         } else {
+            // (a 2v2 with a side of one: not the empty slot's shadow and banner, `lone_left`)
             for slot in 0..4 {
-                p.previews.show_shadow(slot);
+                if self.held(slot) || style == 2 {
+                    p.previews.show_shadow(slot);
+                }
             }
+            let slots = self.slot_banners();
             for n in if style == 2 { BANNER_FFA } else { BANNER_P } {
-                if let Some(i) = self.banner_named(n) {
+                let held = style == 2 || slots.iter().position(|&b| b == n).is_none_or(|s| self.held(s));
+                if held && let Some(i) = self.banner_named(n) {
                     self.show_banner(i, true);
                 }
             }
@@ -730,8 +759,11 @@ impl PreMatchLevel {
     /// screen's.
     fn skin_data_received(&mut self, d: PreMatchSkinData) {
         self.skins = Some(d);
-        let style = self.team_style;
+        let (left, right) = (self.lone_left(), self.lone_right());
         for name in self.slot_banners() {
+            // (a 2v2 side of one: its outer banner takes the 1v1's positions, `lone_left`)
+            let lone = (name == BANNER_P[0] && left) || (name == BANNER_P[3] && right);
+            let style = if self.team_style == 1 && lone { 0 } else { self.team_style };
             if let Some(i) = self.banner_named(name) {
                 self.set_user_data(i, style);
             }
@@ -1409,6 +1441,8 @@ impl PreMatchLevel {
         let list: [&str; 4] = match self.team_style {
             0 => [BANNER_P[0], BANNER_P[3], BANNER_P[3], BANNER_P[3]],
             2 => BANNER_FFA,
+            // (a 2v2 side of one on the right: its player, Player Info 1, at Player4's banner as the 1v1 opponent)
+            _ if self.lone_right() => [BANNER_P[0], BANNER_P[1], BANNER_P[3], BANNER_P[3]],
             _ => BANNER_P,
         };
         for (n, name) in list.iter().enumerate() {

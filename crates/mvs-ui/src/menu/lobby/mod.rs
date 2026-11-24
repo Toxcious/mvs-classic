@@ -16,7 +16,9 @@ pub use net::{ChatKind, ChatLine, NetLobby};
 use std::cell::RefCell;
 
 use indexmap::IndexMap;
-use mvs_protocol::lobby_rules::{LobbyOptions, LobbyPlayer, LobbyRules, OptionKey, OptionValue, StartedMatch};
+use mvs_protocol::lobby_rules::{
+    LobbyOptions, LobbyPlayer, LobbyRules, LobbyStyle, OptionKey, OptionValue, StartedMatch,
+};
 use mvs_settings::HydraSettings;
 use mvs_sim::MatchSetup;
 use mvs_sim::setup::{MatchPlayer, Rules, TeamStyle};
@@ -55,7 +57,7 @@ pub struct LobbyMatch {
 pub enum LobbyEvent {
     LobbyStarted,
     TeamsUpdated,
-    TeamStyleUpdated(u8),
+    TeamStyleUpdated(LobbyStyle),
     MatchDurationUpdated(u32),
     NumRingoutsForWinUpdated(u32),
     AllowHazardsUpdated(bool),
@@ -140,6 +142,8 @@ pub struct LocalLobby {
     attached: bool,
     echoes: Vec<Echo>,
     pub(crate) starting: Option<Starting>,
+    /// (the port's own) The maps the last StartMatch may draw from (`LobbyRules::match_maps`).
+    start_maps: Vec<String>,
 }
 
 impl LocalLobby {
@@ -149,7 +153,7 @@ impl LocalLobby {
         let mut rules = LobbyRules::new();
         rules.add_player(Self::LOCAL_ID, username, "");
         rules.ready = vec![Self::LOCAL_ID.to_string()];
-        LocalLobby { rules, attached: true, echoes: Vec::new(), starting: None }
+        LocalLobby { rules, attached: true, echoes: Vec::new(), starting: None, start_maps: Vec::new() }
     }
 
     /// A kept lobby under a new widget.
@@ -196,11 +200,11 @@ impl LocalLobby {
                     // taken here: the build's start notification carries it (RematchMapPath,
                     // PGI_MatchmakingHandler @40271) and the pre-match screen shows it.
                     // Deviation: how StartMatch picks the map is the backend's; here any of the enabled maps, each as
-                    // likely.
-                    if !self.can_start_match() {
+                    // likely (a big match: of the ones that hold it).
+                    if !self.can_start_match() || self.start_maps.is_empty() {
                         out.push(LobbyEvent::StartMatchFailed);
                     } else {
-                        let map = pick_map(&self.rules.enabled_maps, random);
+                        let map = pick_map(&self.start_maps, random);
                         self.starting = Some(Starting { map, ..Starting::default() });
                         out.push(LobbyEvent::MatchStarting);
                     }
@@ -215,7 +219,7 @@ impl LocalLobby {
     pub fn my_id(&self) -> &str {
         Self::LOCAL_ID
     }
-    pub fn team_style(&self) -> u8 {
+    pub fn team_style(&self) -> LobbyStyle {
         self.rules.team_style
     }
     pub fn num_ringouts_for_win(&self) -> u32 {
@@ -282,7 +286,7 @@ impl LocalLobby {
         self.defer(Echo::Started);
     }
 
-    pub fn set_team_style(&mut self, style: u8) {
+    pub fn set_team_style(&mut self, style: LobbyStyle) {
         if style == self.rules.team_style {
             return;
         }
@@ -341,8 +345,10 @@ impl LocalLobby {
     pub fn invite(&mut self, _account_id: &str) {}
     pub fn leave(&mut self) {}
 
-    /// StartMatch: the answer comes with the next drain (a `MatchStarting` or a `StartMatchFailed`).
-    pub fn start_match(&mut self) {
+    /// StartMatch: the answer comes with the next drain (a `MatchStarting` or a `StartMatchFailed`). `maps`: the
+    /// enabled maps the match may draw from (`LobbyRules::match_maps`); none fails the start.
+    pub fn start_match(&mut self, maps: Vec<String>) {
+        self.start_maps = maps;
         self.defer(Echo::StartMatch);
     }
 
@@ -383,10 +389,14 @@ impl LocalLobby {
             players: setup
                 .players
                 .iter()
-                .map(|p| MatchPlayer {
+                .enumerate()
+                .map(|(slot, p)| MatchPlayer {
                     bot: p.bot,
                     difficulty: p.bot.then_some(mvs_sim::math::narrow(f64::from(p.difficulty))),
                     character: p.character.clone(),
+                    team: p
+                        .wire_team(slot, setup.team_style, setup.players.len())
+                        .map(|t| u8::try_from(t).expect("a lobby's team")),
                     ..MatchPlayer::default()
                 })
                 .collect(),
@@ -398,11 +408,7 @@ impl LocalLobby {
             flow: setup.flow,
             allow_hazards: setup.allow_hazards,
             mutators: setup.mutators.clone(),
-            wheel: setup.wheel.as_ref().map(|w| mvs_sim::setup::Wheel {
-                pool: w.pool.clone(),
-                seconds: mvs_sim::math::narrow(f64::from(w.seconds)),
-                warn: mvs_sim::math::narrow(f64::from(w.warn)),
-            }),
+            wheel: setup.wheel.as_ref().map(sim_wheel),
             ..MatchSetup::default()
         };
         // the perks each player locked on the pre-match screen, and their pick's fighter and skin
@@ -485,6 +491,21 @@ thread_local! {
     static CARRY: RefCell<MenuCarry> = RefCell::new(MenuCarry::default());
 }
 
+/// The sim's Chaos Wheel rule of a set-up's `wheel` (an unknown rate is the default one).
+pub fn sim_wheel(w: &mvs_protocol::setup::WheelWire) -> mvs_sim::setup::Wheel {
+    mvs_sim::setup::Wheel {
+        pool: w.pool.clone(),
+        seconds: mvs_sim::math::narrow(f64::from(w.seconds)),
+        warn: mvs_sim::math::narrow(f64::from(w.warn)),
+        chaos: w
+            .chaos
+            .as_deref()
+            .and_then(mvs_mutators::ChaosRate::from_key)
+            .unwrap_or(mvs_mutators::ChaosRate::Normal),
+        two: w.two,
+    }
+}
+
 /// `f` on the menus' carry.
 pub fn with_carry<R>(f: impl FnOnce(&mut MenuCarry) -> R) -> R {
     CARRY.with(|c| f(&mut c.borrow_mut()))
@@ -524,6 +545,31 @@ mod tests {
         SetupSource { drawable: d, hydra: h, input: &INPUT, roster: &[], bot_pool: p }
     }
 
+    /// StartMatch with the maps `holds` lets a big match draw.
+    fn start(l: &mut LocalLobby, holds: &dyn Fn(&str, LobbyStyle) -> bool) {
+        let maps = l.rules.match_maps(holds);
+        l.start_match(maps);
+    }
+
+    #[test]
+    fn a_big_lobby_starts_only_on_a_map_that_holds_it() {
+        let mut l = LocalLobby::new("Me");
+        for t in [0, 0, 1, 1, 1] {
+            l.add_bot(t, "finn", "", 3);
+        }
+        assert_eq!(l.rules.player_count(), 6);
+        l.take_events(&mut zero());
+        start(&mut l, &|_, _| false);
+        assert_eq!(l.take_events(&mut zero()), vec![LobbyEvent::StartMatchFailed]);
+        start(&mut l, &|m, s| m == "map_m011_largenoplat" && s == LobbyStyle::Versus);
+        assert!(l.take_events(&mut zero()).contains(&LobbyEvent::MatchStarting));
+        let (h, p) = (HydraSettings::default(), BotPool::default());
+        let drawable = |_: &str| true;
+        let m = l.match_setup(&src(&drawable, &h, &p), &mut zero());
+        assert_eq!((m.setup.team_style, m.setup.players.len()), (TeamStyle::TwoVsTwo, 6));
+        assert_eq!(m.map.as_deref(), Some("map_m011_largenoplat"));
+    }
+
     fn zero() -> impl FnMut() -> f64 {
         || 0.0
     }
@@ -532,15 +578,15 @@ mod tests {
     fn a_request_echoes_on_the_next_drain_with_the_values_of_then() {
         let mut l = LocalLobby::new("Me");
         l.start();
-        l.set_team_style(2);
+        l.set_team_style(LobbyStyle::FreeForAll);
         l.set_match_duration(300);
         l.set_match_duration(180);
         let ev = l.take_events(&mut zero());
         assert_eq!(ev[0], LobbyEvent::LobbyStarted);
         // the creation answer reads the rules as they are by now
-        assert_eq!(ev[1], LobbyEvent::TeamStyleUpdated(2));
+        assert_eq!(ev[1], LobbyEvent::TeamStyleUpdated(LobbyStyle::FreeForAll));
         assert_eq!(ev[2], LobbyEvent::MatchDurationUpdated(180));
-        assert_eq!(ev[7], LobbyEvent::TeamStyleUpdated(2));
+        assert_eq!(ev[7], LobbyEvent::TeamStyleUpdated(LobbyStyle::FreeForAll));
         assert_eq!(ev[9], LobbyEvent::MatchDurationUpdated(180));
         assert!(l.take_events(&mut zero()).is_empty());
         // a detached lobby echoes to nobody
@@ -549,19 +595,19 @@ mod tests {
         assert!(l.take_events(&mut zero()).is_empty());
         l.attach();
         // the same style again is no request
-        l.set_team_style(2);
+        l.set_team_style(LobbyStyle::FreeForAll);
         assert!(l.take_events(&mut zero()).is_empty());
     }
 
     #[test]
     fn a_start_fails_with_a_blocker_and_goes_when_there_is_none() {
         let mut l = LocalLobby::new("Me");
-        l.start_match();
+        start(&mut l, &|_, _| false);
         assert_eq!(l.take_events(&mut zero()), vec![LobbyEvent::StartMatchFailed]);
         l.add_bot(0, "shaggy", "", 3);
         l.add_bot(1, "finn", "", 4);
         l.add_bot(1, "batman", "", 5);
-        l.start_match();
+        start(&mut l, &|_, _| false);
         let ev = l.take_events(&mut zero());
         assert!(ev.contains(&LobbyEvent::MatchStarting));
         let drawable = |c: &str| c == "shaggy";
@@ -576,5 +622,24 @@ mod tests {
         assert_eq!(kept, vec![None, None, Some("shaggy"), None]);
         assert_eq!(m.setup.players[1].difficulty, Some(2.0));
         assert!(m.setup.flow);
+    }
+
+    #[test]
+    fn a_versus_lobby_starts_any_split_with_a_player_a_side() {
+        let (h, p) = (HydraSettings::default(), BotPool::default());
+        let drawable = |_: &str| true;
+        let mut l = LocalLobby::new("Me");
+        l.add_bot(1, "finn", "", 4);
+        let m = l.match_setup(&src(&drawable, &h, &p), &mut zero());
+        assert_eq!(m.setup.team_style, TeamStyle::OneVsOne);
+        // two against the human: the bots' team is the match's team 0, the human the odd slot
+        l.add_bot(1, "batman", "", 4);
+        start(&mut l, &|_, _| false);
+        assert!(l.take_events(&mut zero()).contains(&LobbyEvent::MatchStarting));
+        let m = l.match_setup(&src(&drawable, &h, &p), &mut zero());
+        assert_eq!(m.setup.team_style, TeamStyle::TwoVsTwo);
+        assert_eq!(m.setup.players.len(), 3);
+        assert_eq!(m.me, 1);
+        assert_eq!(m.usernames, vec!["Finn", "Me", "Batman"]);
     }
 }

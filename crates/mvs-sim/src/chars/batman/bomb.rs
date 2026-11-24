@@ -37,7 +37,7 @@ use crate::events::{Event, SoundKey};
 use crate::fighter::common::warn_once;
 use crate::fighter::control::attack_dodged;
 use crate::fighter::moves::V2;
-use crate::fighter::{DodgeState, FighterId, equip_object, invulnerable, no_hit, unequip_object};
+use crate::fighter::{DodgeState, FighterId, equip_object, invulnerable, unequip_object};
 use crate::name;
 use crate::names::Name;
 use crate::registry::entries::BuffHooks;
@@ -176,7 +176,7 @@ fn knock_up_hit(w: &mut World, f: FighterId, b: BuffRef, rev: bool) {
         // AttackingActor: the buff actor (its handler's owner).
         let tick = w.flow.tick;
         attack_dodged(w, ActorRef::Buff(b), f, attack_id, h.base_knock_back.unwrap_or(0.0), tick, None, false);
-    } else if w.fighter(f).life.dead <= 0.0 && !no_hit(w, f) {
+    } else if w.fighter(f).life.dead <= 0.0 && !crate::combat::phases::no_hit_from(w, ActorRef::Buff(b), f) {
         let mut d = dealer(w, ActorRef::Buff(b));
         d.attack_id = attack_id;
         let (x, y) = at(w, f);

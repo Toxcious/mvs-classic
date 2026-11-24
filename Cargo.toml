@@ -4,16 +4,18 @@ members = ["crates/*"]
 
 [workspace.package]
 edition = "2024"
-version = "0.1.8"
+version = "0.1.12"
 license = "MIT"
 publish = false
 
 [workspace.dependencies]
 mvs-math = { path = "crates/mvs-math" }
+mvs-mutators = { path = "crates/mvs-mutators" }
 trial-tape = { path = "crates/trial-tape" }
 mvs-store = { path = "crates/mvs-store" }
 mvs-load = { path = "crates/mvs-load" }
 mvs-data = { path = "crates/mvs-data" }
+mvs-stage = { path = "crates/mvs-stage" }
 mvs-audio = { path = "crates/mvs-audio" }
 mvs-trace = { path = "crates/mvs-trace" }
 indexmap = { version = "2", features = ["serde"] }
@@ -85,6 +87,9 @@ windows-core = "0.62.2"
 libc = "0.2"
 # SDL3 on Linux (mvs-app: the window, input and frame pacing), linked against the system libSDL3.so.0
 sdl3-sys = "0.7"
+# the stage editor's panels and fields (mvs-stage-editor only: the game never links it); the core crate alone, drawn
+# by the editor's own Direct3D 11 painter, without default_fonts (the editor hands it the launcher's faces)
+egui = { version = "=0.37.0", default-features = false }
 
 [profile.release]
 debug = "line-tables-only"

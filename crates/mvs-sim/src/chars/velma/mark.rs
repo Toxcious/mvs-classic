@@ -70,9 +70,9 @@ use crate::combat::elem::{clear_homing, set_homing};
 use crate::combat::hit::knockback::timer_ticks;
 use crate::combat::{BuffClass, BuffRef, phases};
 use crate::events::{Event, SoundKey, UiStateOp, UiStateParams};
-use crate::fighter::common::{latent_frames, peers};
+use crate::fighter::common::{last_ally, latent_frames, peers};
 use crate::fighter::match_side::post_vo;
-use crate::fighter::{FighterId, actor_y, has_equipped, no_hit};
+use crate::fighter::{FighterId, actor_y, has_equipped};
 use crate::math::to_int32;
 use crate::math::ue::size2d;
 use crate::name;
@@ -442,16 +442,8 @@ fn mark_construct(w: &World, p: &mut Projectile) {
 
 fn mark_begin(w: &mut World, id: ProjectileId) {
     let f = owner(w, id);
-    // CheckForHomingTarget: the last ally (GetAllies: the owner's team, players only, none waiting for its respawn).
-    let team = w.fighter(f).team.team;
-    let mut ally = None;
-    for &o in peers(w) {
-        let b = w.fighter(o);
-        if o != f && b.team.team == team && b.life.dead <= 0.0 && !b.life.is_minion {
-            ally = Some(o);
-        }
-    }
-    if let Some(a) = ally {
+    // CheckForHomingTarget: the last ally of GetAllies (`common::last_ally`).
+    if let Some(a) = last_ally(w, f) {
         let mag = mk(w, id).home_mag;
         set_homing(w, ActorRef::Projectile(id), ActorRef::Fighter(a), mag);
     }
@@ -695,7 +687,9 @@ fn aim_step(w: &mut World, id: ProjectileId) -> bool {
 
 /// HandleFighterOverlap @6045, at the begin of the hit box's overlap.
 fn aim_overlap(w: &mut World, id: ProjectileId, vic: FighterId) {
-    let mut on = hit_collision(pr(w, id)) && w.fighter(vic).life.dead <= 0.0 && !no_hit(w, vic);
+    let mut on = hit_collision(pr(w, id))
+        && w.fighter(vic).life.dead <= 0.0
+        && !crate::combat::phases::no_hit_from(w, ActorRef::Projectile(id), vic);
     if on {
         on = match phases::victim_pose(w, vic) {
             Some(vp) => {

@@ -39,7 +39,7 @@ use crate::combat::hit::knockback::timer_ticks;
 use crate::combat::hit::launch::bpi_set_wall_bounce_vertical_min;
 use crate::combat::hits::{actor_hit_enemy, apply_projectile_hit, dealer, direct_hit, projectile_blocks};
 use crate::combat::packet::{DataEnum, DataVec};
-use crate::combat::phases::{alive, give_vbuf, no_hit, victim_pose};
+use crate::combat::phases::{alive, give_vbuf, victim_pose};
 use crate::consts as C;
 use crate::fighter::common::{actor_data, latent_frames, warn_text};
 use crate::fighter::control::{attack_dodged, dodge_over};
@@ -769,7 +769,7 @@ fn hit_box_hits(w: &mut World, id: ActorId) {
         if vic == parent
             || w.fighter(vic).team.team == team
             || !alive(w, vic)
-            || no_hit(w, vic)
+            || crate::combat::phases::no_hit_by_team(w, team, vic)
             || s.hit_set.contains(&vid)
         {
             continue;

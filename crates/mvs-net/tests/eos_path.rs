@@ -24,7 +24,7 @@ use mvs_net::link::relay::{ClientOptions, NetFaults, RelayClient};
 use mvs_net::service::api::{NetEvent, NetRequest, SessionTarget};
 use mvs_net::service::page::PageId;
 use mvs_net::service::{NetService, ServiceConfig, ServiceOptions};
-use mvs_protocol::match_wire::{INPUT_BYTES, INPUT_HEADER, MAX_SLOTS, MSG_INPUT};
+use mvs_protocol::match_wire::{INPUT_BYTES, MSG_INPUT, input_header};
 use mvs_protocol::version::PROTOCOL;
 use mvs_relay::server::{Options, start_relay};
 
@@ -369,12 +369,14 @@ impl Side {
 }
 
 /// An input packet of `slot` at `tick` acknowledging every ruled tick (netproc_relay.rs input).
+/// (its matches are 1v1s: two slots)
 fn input(slot: u8, tick: u32, mark: u8) -> Vec<u8> {
-    let mut p = vec![0u8; INPUT_HEADER + INPUT_BYTES];
+    let n = 2;
+    let mut p = vec![0u8; input_header(n) + INPUT_BYTES];
     p[0] = MSG_INPUT;
     p[1] = slot;
     p[2..6].copy_from_slice(&tick.to_le_bytes());
-    for k in 0..MAX_SLOTS {
+    for k in 0..n {
         p[11 + 4 * k..15 + 4 * k].copy_from_slice(&0xffff_fff0u32.to_le_bytes());
     }
     p[6] = 1;

@@ -4,7 +4,7 @@
 mod common;
 
 use common::*;
-use mvs_protocol::match_wire::{INPUT_BYTES, INPUT_HEADER, MSG_INPUT, RESUME_MS};
+use mvs_protocol::match_wire::{INPUT_BYTES, MSG_INPUT, RESUME_MS, input_header};
 use mvs_protocol::p2p_frame::split_message;
 use mvs_protocol::relay_wire::QUEUE_HOST;
 use mvs_relay::core::{BAD, Core, HOST_KNOCK_WAIT_MS, HOST_RELINK_MS};
@@ -15,9 +15,9 @@ fn hosting() -> World {
     World::hosting(DEFAULT_LIMITS, true)
 }
 
-/// A one-tick input of a slot (the referee hears its human).
-fn input(slot: u8) -> Vec<u8> {
-    let mut p = vec![0u8; INPUT_HEADER + INPUT_BYTES];
+/// A one-tick input of a slot of a match of `n` slots (the referee hears its human).
+fn input(n: usize, slot: u8) -> Vec<u8> {
+    let mut p = vec![0u8; input_header(n) + INPUT_BYTES];
     p[0] = MSG_INPUT;
     p[1] = slot;
     p[2..6].copy_from_slice(&2u32.to_le_bytes());
@@ -67,6 +67,31 @@ fn a_hosted_lobby_links_its_members_by_a_knock() {
     b.f.take();
     w.say(&b, &host, "hello", json!({}));
     assert_eq!(b.f.take(), vec![peer_closed(&host)], "no longer a member");
+}
+
+#[test]
+fn a_hosted_lobby_of_eight_seats_four_a_team_and_refuses_a_ninth() {
+    let max = mvs_protocol::lobby_rules::MAX_LOBBY_PLAYERS;
+    let mut w = hosting();
+    let ps: Vec<P> = (0..=max).map(|i| w.join_at(&format!("p{i}"), &format!("10.0.0.{}", i + 1))).collect();
+    let r = w.req(&ps[0], json!({ "op": "create", "bucket": "b", "max": max, "host": true }));
+    let (lobby, host) = (r["lobby"].as_str().unwrap().to_string(), r["host"].as_str().unwrap().to_string());
+    for (i, p) in ps[..max].iter().enumerate() {
+        if i > 0 {
+            w.req(p, json!({ "op": "join", "lobby": lobby }));
+        }
+        w.knock(p, &host);
+        w.say(p, &host, "hello", json!({}));
+        let t = if i == 0 { "lobby.enter" } else { "lobby.join" };
+        w.say(p, &host, t, json!({ "lobby": lobby }));
+        let f = p.f.clone();
+        w.until("lobby.state", || f.host_has("lobby.state"));
+    }
+    let state = ps[max - 1].f.host_took("lobby.state").expect("the last one in sees the lobby");
+    let teams: Vec<usize> =
+        state["data"]["teams"].as_array().expect("teams").iter().map(|t| t.as_array().map_or(0, Vec::len)).collect();
+    assert_eq!(teams, [4, 4], "a Versus of four a team: {state}");
+    assert_eq!(w.refusal(&ps[max], json!({ "op": "join", "lobby": lobby })), mvs_relay::core::FULL, "a ninth");
 }
 
 #[test]
@@ -344,7 +369,7 @@ fn a_frozen_leader_is_gone_from_its_match_then_its_seat_and_lobby_end() {
     let (a, b) = (w.join("a"), w.join("b"));
     let (lobby, host) = w.hosted_lobby(&[&a, &b]);
     let m = w.run_to_the_go(&host, &[&a, &b]);
-    w.packet(&a, 1, &m.rid, &input(m.slots[0]));
+    w.packet(&a, 1, &m.rid, &input(m.n, m.slots[0]));
     w.cut(&a);
     let mut away_at = None;
     let mut ended_at = None;
@@ -354,7 +379,7 @@ fn a_frozen_leader_is_gone_from_its_match_then_its_seat_and_lobby_end() {
         w.later(250.0);
         w.core.expire(w.t);
         if w.core.matches() > 0 {
-            w.packet(&b, 1, &m.rid, &input(m.slots[1]));
+            w.packet(&b, 1, &m.rid, &input(m.n, m.slots[1]));
         }
         if away_at.is_none() && b.f.host_has("match.away") {
             away_at = Some(w.t - start);

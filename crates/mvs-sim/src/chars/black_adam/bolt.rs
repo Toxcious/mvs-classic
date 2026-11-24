@@ -93,7 +93,7 @@ use crate::combat::packet::{DataEnum, DataVec};
 use crate::combat::phases::damage_spawned_actor;
 use crate::combat::{BuffClass, BuffRef, HitPacket, OnHitBuffRow};
 use crate::events::Event;
-use crate::fighter::common::{actor_def, latent_frames, lookup_owner, owner_team, warn_text};
+use crate::fighter::common::{actor_def, first_ally, latent_frames, lookup_owner, owner_team, warn_text};
 use crate::fighter::control::{DodgeState, attack_dodged, dodge_over};
 use crate::fighter::match_side::SpawnRequest;
 use crate::fighter::moves::V2;
@@ -255,18 +255,14 @@ fn bolt_spawn(w: &mut World, f: FighterId, r: &SpawnRequest) -> (WorldActorState
         &mut b.blast_bounds,
         flag(&a.p, "DestroyOnExitedArena?"),
     );
-    // @8426: the Lightning perk hands the bolt to the first ally.
-    // Unverified: GetAllies' order (allies in fighter order).
-    if buff_of(w, f, name!("Buff_C021_Lightning_C")).is_some() {
-        let team = w.fighter(f).team.team;
-        let ally = match_fighters(w)
-            .into_iter()
-            .find(|&o| o != f && w.fighter(o).team.team == team && w.fighter(o).life.dead <= 0.0);
-        if let Some(ally) = ally {
-            b.trace_from = Some(ally);
-            b.x = w.fighter(ally).body.x;
-            b.y = actor_y(w, ally) + 2000.0;
-        }
+    // @8426: the Lightning perk hands the bolt to the first ally (@8942 / @9020 Array_Get(GetAllies, 0), in
+    // `common::allies`' order).
+    if buff_of(w, f, name!("Buff_C021_Lightning_C")).is_some()
+        && let Some(ally) = first_ally(w, f)
+    {
+        b.trace_from = Some(ally);
+        b.x = w.fighter(ally).body.x;
+        b.y = actor_y(w, ally) + 2000.0;
     }
     let fid = w.fighter(f).id;
     w.events.push(sound(fid, name!("sfx_cha_C021_lightning_strike_leadin_preliminary_alert")));
@@ -380,7 +376,7 @@ fn bolt_activate(w: &mut World, id: ActorId) {
         let rows = bolt_buffs();
         let (vx, vy) = (w.fighter(vic).body.x, actor_y(w, vic));
         if !same_team {
-            if !no_hit(w, vic) && !projectile_blocks(w, &dealer(w, me), vic) {
+            if !crate::combat::phases::no_hit_by(w, inst, vic) && !projectile_blocks(w, &dealer(w, me), vic) {
                 if invulnerable(w, vic) {
                     let tick = w.flow.tick;
                     attack_dodged(w, me, vic, b_attack_id(w, id), 1700.0, tick, None, false);
@@ -665,7 +661,7 @@ fn pillar_damage(w: &mut World, b: BuffRef) {
                 }
             }
             ActorRef::Fighter(vic) if is_match_fighter(w, vic) => {
-                if no_hit(w, vic) {
+                if crate::combat::phases::no_hit_by(w, inst, vic) {
                     continue;
                 }
                 if invulnerable(w, vic) {

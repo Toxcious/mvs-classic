@@ -94,26 +94,33 @@ pub fn int_text(n: i64) -> String {
 
 /// UI_EOG_StatSheet DetermineHighScores (KOs winner, damage winner): 1v1 against the other player and 2v2
 /// against the teammate, a value that is not 0 and not lower wins; free for all needs a value above all three
-/// others.
+/// others. Deviation (the port's Versus lobby's uneven sides and big matches): a Teams player with more than one
+/// teammate (the side of three in a 3v1, or a big match's) is held against every one of them, and free for all of
+/// more than four needs a value above every other player; the build's matches have four players at most and its
+/// Teams sides two.
 pub fn high_scores(eog: &EndOfGame, me: usize) -> (bool, bool) {
     let p = &eog.players[me];
     let others: Vec<&PodiumEntry> = eog.players.iter().enumerate().filter(|&(i, _)| i != me).map(|(_, o)| o).collect();
     match eog.team_style {
         0 | 1 => {
-            let o = if eog.team_style == 0 {
-                others.first().copied()
+            // Deviation: a Teams player with no teammate (a custom Versus lobby's 2v1) is held against every
+            // other player, the 1v1 rule's "not lower"; the build's Teams match always has a teammate.
+            let compared: Vec<&PodiumEntry> = if eog.team_style == 0 {
+                others.first().copied().into_iter().collect()
             } else {
-                others.iter().copied().find(|o| o.team_index == p.team_index)
+                let mates: Vec<&PodiumEntry> =
+                    others.iter().copied().filter(|o| o.team_index == p.team_index).collect();
+                if mates.is_empty() { others.clone() } else { mates }
             };
-            match o {
-                Some(o) => (
-                    p.ring_outs != 0 && p.ring_outs >= o.ring_outs,
-                    p.damage_dealt != 0.0 && p.damage_dealt >= o.damage_dealt,
-                ),
-                None => (false, false),
+            if compared.is_empty() {
+                return (false, false);
             }
+            (
+                p.ring_outs != 0 && compared.iter().all(|o| p.ring_outs >= o.ring_outs),
+                p.damage_dealt != 0.0 && compared.iter().all(|o| p.damage_dealt >= o.damage_dealt),
+            )
         }
-        2 if others.len() == 3 => {
+        2 if others.len() >= 3 => {
             let of = |x: &PodiumEntry| if eog.stocks { f64::from(x.ring_outs) } else { f64::from(x.score) };
             (others.iter().all(|o| of(p) > of(o)), others.iter().all(|o| p.damage_dealt > o.damage_dealt))
         }
@@ -207,6 +214,46 @@ mod tests {
         assert_eq!(high_scores(&eog, 1), (true, false));
         let zero = EndOfGame { players: vec![entry(0, 0, 0, 0.0, false), entry(1, 1, 0, 0.0, false)], ..eog };
         assert_eq!(high_scores(&zero, 0), (false, false));
+    }
+
+    #[test]
+    fn high_scores_two_v_one() {
+        // Slots 0 and 2 are team 0, slot 1 is alone on team 1.
+        let eog = EndOfGame {
+            team_style: 1,
+            players: vec![entry(0, 0, 1, 50.0, false), entry(1, 1, 3, 90.0, true), entry(2, 0, 2, 120.0, false)],
+            ..EndOfGame::default()
+        };
+        // The pair against each other: slot 2 has the better damage and KOs.
+        assert_eq!(high_scores(&eog, 0), (false, false));
+        assert_eq!(high_scores(&eog, 2), (true, true));
+        // The lone player against both: the most KOs, not the most damage.
+        assert_eq!(high_scores(&eog, 1), (true, false));
+    }
+
+    #[test]
+    fn high_scores_big_matches() {
+        // 3v3: slot 0's teammates are 2 and 4; it must not be lower than either.
+        let teams = EndOfGame {
+            team_style: 1,
+            players: vec![
+                entry(0, 0, 2, 100.0, true),
+                entry(1, 1, 5, 300.0, false),
+                entry(2, 0, 1, 120.0, true),
+                entry(3, 1, 0, 10.0, false),
+                entry(4, 0, 2, 90.0, true),
+                entry(5, 1, 0, 10.0, false),
+            ],
+            ..EndOfGame::default()
+        };
+        assert_eq!(high_scores(&teams, 0), (true, false));
+        assert_eq!(high_scores(&teams, 2), (false, true));
+        // free for all of eight: above all seven others.
+        let mut players: Vec<PodiumEntry> = (0..8).map(|i| entry(i, i, 1, 50.0, false)).collect();
+        players[5] = entry(5, 5, 3, 51.0, true);
+        let ffa = EndOfGame { team_style: 2, players, ..EndOfGame::default() };
+        assert_eq!(high_scores(&ffa, 5), (true, true));
+        assert_eq!(high_scores(&ffa, 0), (false, false));
     }
 
     #[test]

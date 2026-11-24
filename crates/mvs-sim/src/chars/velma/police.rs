@@ -54,7 +54,7 @@ use crate::fighter::match_side::post_vo;
 use crate::fighter::moves::{Impulse, recall_move};
 use crate::fighter::moves::{V2, set_can_walk_off_ledges};
 use crate::fighter::traces::{OBJ_PAWN, sphere_overlap_actors};
-use crate::fighter::{FighterId, actor_y, facing, in_hitstun, invulnerable, no_hit};
+use crate::fighter::{FighterId, actor_y, facing, in_hitstun, invulnerable};
 use crate::math::{max, to_int32};
 use crate::name;
 use crate::names::Name;
@@ -513,7 +513,7 @@ fn arrested_begin(w: &mut World, f: FighterId, b: BuffRef, from: Option<FighterI
     stun_begin(w, f, b, &d);
     if from.is_none() {
         warn_text(w, "Buff_Arrested without an Instigator: no hit");
-    } else if w.fighter(f).life.dead == 0.0 && !no_hit(w, f) {
+    } else if w.fighter(f).life.dead == 0.0 && !from.is_some_and(|by| crate::fighter::no_hit_by(w, by, f)) {
         let mut h = HitPacket::from_props(&w.names, obj(&d, "HitInfo").unwrap_or(&Props::new()), None);
         h.damage = Some(35.0);
         h.base_knock_back = Some(0.0);

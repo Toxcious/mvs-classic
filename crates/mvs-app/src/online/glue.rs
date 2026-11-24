@@ -525,19 +525,73 @@ fn hash53(s: &str) -> String {
 
 /// The compatibility id: what must be equal for two games to resolve the server's choices alike and
 /// run the same simulation. Deviation: its parts are the store's build id, the exe's version
-/// with the sim's numerics version, and each kind's importer version, in that order; a hash of them, 'c' and
-/// 14 hex digits.
+/// with the sim's numerics version, the version of each kind this version's importer stores and (the port's own) a
+/// hash of the shipped custom maps' layouts, in that order; a hash of them, 'c' and 14 hex digits. A kind the store
+/// holds that the importer no longer makes (an earlier importer's) is not a part: it is never read.
 pub fn compat_id(m: &mvs_store::Manifest) -> String {
-    let mut kinds: Vec<(&String, u64)> = m.kinds.iter().map(|(k, r)| (k, r.version)).collect();
+    let kinds = m.kinds.iter().filter(|(k, _)| imported(k)).map(|(k, r)| (k.as_str(), r.version));
+    compat_of(&m.build_id, kinds)
+}
+
+/// The compatibility id a store this version imports from the beta build it reads gets: the build list's id and
+/// the importer's kinds, no store read (the release's reference file must be for it).
+pub fn code_compat_id() -> Result<String, String> {
+    let build = mvs_pak::setup::build_id().map_err(|e| e.to_string())?;
+    let kinds = mvs_import::kinds::KINDS.iter().filter(|k| k.stored()).map(|k| (k.id(), k.version()));
+    Ok(compat_of(&build, kinds))
+}
+
+/// A kind this version's importer stores.
+fn imported(kind: &str) -> bool {
+    mvs_import::kinds::kind(kind).is_some_and(|k| k.stored())
+}
+
+fn compat_of<'a>(build_id: &str, kinds: impl Iterator<Item = (&'a str, u64)>) -> String {
+    let mut kinds: Vec<(&str, u64)> = kinds.collect();
     kinds.sort();
     let kinds: Vec<String> = kinds.iter().map(|(k, v)| format!("{k}{v}")).collect();
-    let parts = format!("{}|{}n{}|{}", m.build_id, mvs_release::VERSION, mvs_sim::NUMERICS_VERSION, kinds.join(","));
+    // (the shipped custom maps' layouts: two games play a custom map alike only with the same layouts)
+    let layouts = hash53(&mvs_stage::fingerprint());
+    let parts =
+        format!("{build_id}|{}n{}|{}|l{layouts}", mvs_release::VERSION, mvs_sim::NUMERICS_VERSION, kinds.join(","));
     format!("c{}", hash53(&parts))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A store holding this version's import gets the code's id, whatever kinds an earlier importer left in it;
+    /// a kind at another version is another id.
+    #[test]
+    fn the_id_counts_the_importers_kinds_alone() {
+        let Ok(code) = code_compat_id() else { return };
+        let record = |version| mvs_store::KindRecord {
+            version,
+            file: String::new(),
+            entries: 0,
+            bytes: 0,
+            failed: 0,
+            partial: false,
+            reads: Default::default(),
+        };
+        let mut m = mvs_store::Manifest {
+            format: 1,
+            build_id: mvs_pak::setup::build_id().expect("the build list"),
+            catalog: None,
+            catalog_version: None,
+            kinds: mvs_import::kinds::KINDS
+                .iter()
+                .filter(|k| k.stored())
+                .map(|k| (k.id().to_owned(), record(k.version())))
+                .collect(),
+        };
+        assert_eq!(compat_id(&m), code);
+        m.kinds.insert("tonemap".to_owned(), record(1_002_001));
+        assert_eq!(compat_id(&m), code, "an earlier importer's kind is not a part");
+        m.kinds.get_mut("fighter").expect("a stored kind").version += 1;
+        assert_ne!(compat_id(&m), code);
+    }
 
     const ID_A: &str = "r0123456789abcdef0123456789abcdef";
     const ID_B: &str = "rfedcba9876543210fedcba9876543210";
@@ -602,7 +656,10 @@ mod tests {
     #[test]
     fn a_lobbys_wheel_is_the_sims_rule() {
         let wire = mvs_protocol::setup::MatchSetupWire {
-            wheel: Some(mvs_protocol::lobby_rules::wheel_rule()),
+            wheel: mvs_protocol::lobby_rules::wheel_rule(mvs_protocol::lobby_rules::WheelOptions {
+                on: true,
+                ..Default::default()
+            }),
             ..Default::default()
         };
         assert_eq!(setup_of_wire(&wire).expect("the set-up reads").wheel, Some(crate::wheel::whole_pool()));

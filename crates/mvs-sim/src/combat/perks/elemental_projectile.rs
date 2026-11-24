@@ -293,7 +293,9 @@ fn electric_pulse(w: &mut World, a: ActorRef, i: u32, fighters: &[FighterId], ac
     // @2672-2723: on the victim's own state manager
     let give_fighters = |w: &mut World| {
         for &o in fighters {
-            if w.fighter(o).team.team != team && buff_of(w, o, SHIELD_ELECTRIC).is_none() {
+            // Deviation: the port's spare switch spares an opponent the pulse, its source fighter gone or not.
+            let spared = crate::combat::phases::spares_team(w, team, o);
+            if w.fighter(o).team.team != team && buff_of(w, o, SHIELD_ELECTRIC).is_none() && !spared {
                 spawn_buff(w, o, ELECTRIC, 0.0, Some(1), from, true, Some(o));
             }
         }

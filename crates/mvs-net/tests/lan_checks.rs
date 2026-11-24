@@ -13,6 +13,7 @@ use mvs_net::lan::announce::{
 };
 use mvs_net::lan::direct_code::{DirectCode, DirectWhy, Local, Nic, decode_direct_code, encode_direct_code};
 use mvs_protocol::lobby_listing::{LISTING_V, ListingState, LobbyListing, listing_text};
+use mvs_protocol::lobby_rules::LobbyStyle;
 
 const FP: &str = "0123456789abcdef";
 
@@ -23,7 +24,7 @@ fn info() -> String {
         icon: String::new(),
         compat: "compat1".to_owned(),
         app: "test".to_owned(),
-        style: 0,
+        style: LobbyStyle::Versus,
         maps: vec!["M001".to_owned()],
         map_count: 1,
         players: 1,

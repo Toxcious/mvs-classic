@@ -24,6 +24,15 @@ const LEVELS: [&str; 10] = [
     "Map_TrophyRoom_2platforms",
 ];
 
+/// A custom stage's name starts so (`Custom_<key>`, the port's own: `mvs-stage`): each is entered with an empty
+/// entry, its platforms, moving platforms, solids, starts and blast box its composed stage data's.
+pub const CUSTOM_PREFIX: &str = "Custom_";
+
+/// The entry of a custom stage's name: the empty one.
+pub fn custom_entry(name: &str) -> Option<StageEntry> {
+    name.starts_with(CUSTOM_PREFIX).then(StageEntry::default)
+}
+
 pub fn register(r: &mut Registry) -> Result<(), RegistryError> {
     for name in LEVELS {
         r.stages.enter(name, StageEntry::default())?;

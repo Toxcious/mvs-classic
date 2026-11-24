@@ -252,6 +252,9 @@ pub fn remove_held_fighter(w: &mut World, f: FighterId, victim: FighterId) {
 /// @40, the loop over HeldFighters: another team -> AddUnique(SpitFighter), CanAttack true; the same team with one held
 /// fighter -> DropAllyServer @877. After the loop CanAttack -> SpitClient @9515 (a client RPC, run here): PauseTimer,
 /// TimerActive false, StuggleCount -= StuggleCount / Length (integer division). Caller: JakeSpitEvent (spit.rs).
+// Unverified: two swallowed allies and no enemy (the port's own big matches; the beta's 2v2 holds one ally at most):
+// the one-held-fighter test fails, the spit drops nobody and they leave at the EatHoldTime timer; DropAllyServer drops
+// the last one found. Kept as the build's graph.
 pub fn spit_server(w: &mut World, f: FighterId) {
     if jake_of(w, f).is_none() || is_attacking(w, f) {
         return;

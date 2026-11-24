@@ -20,18 +20,20 @@ use mvs_render::menuscene::{PreMatchSkinData, SeqCmd};
 use mvs_settings::Settings;
 use serde_json::json;
 
+use super::card_row::{CardPlayer, CardRow, card_color};
 use super::child_widgets::{
     InputLabelSet, PMConfirm, PMEditEmotes, PMGameplayTips, PMModeLabel, PMPlayerInfo, PMSkinSelector, PMStateInfo,
 };
 use super::child_widgets::{ROW_DEFAULT, ROW_REMATCH};
 use super::setup::{AnnouncerLine, Exit, PreMatchCall, spec_of};
-use super::setup::{PreMatchPlayer, PreMatchSetup};
+use super::setup::{PreMatchPlayer, PreMatchSetup, SPECTATOR_TEAM, is_big};
 use crate::bundle::{RosterEntry, SkinInfo};
 use crate::menu::arcade::BOT_ID;
 use crate::menu::controller::{Controller, Cx, Handler};
 use crate::menu::lobby::PreMatchPick;
 use crate::menu::lobby::loadout::{BadgeRef, local_badges, picked_skin, same_skin_name};
 use crate::menu::manager::{DialogParams, Manager, TransitionParams};
+use crate::menu::map_tag::MapTag;
 use crate::menu::online::{NetPick, OnlineCmd, OnlineEvent, PartyRole, PreMatchCmd, PreMatchEvent, Registered};
 use crate::menu::online_text::kick_text;
 use crate::menu::own_profile::{BannerIconOf, banner_icon_texture};
@@ -87,6 +89,9 @@ pub fn set_last_chosen(prefs: &mut Settings, slug: String) {
 }
 
 // ---------- the states ----------
+
+/// UI_PM_PlayerInfo's name of a player with none ("BOT", SetUsername @1463).
+const TEXT_BOT_NAME: &str = "4831DD4241C0B5DE94EED3BE5C00E0CE";
 
 // UI_PreMatchStateEnum byte values (the enum asset's Names map)
 /// The queue path's words (Game.locres keys of their text consts): the headers "Waiting for Party Member" PM@44008,
@@ -179,6 +184,85 @@ fn revealed(team_style: u8) -> &'static [usize] {
         0 => &[1],
         1 => &[1, 3],
         _ => &[1, 2, 3],
+    }
+}
+
+/// The Player Infos (0-3) the match's players fill, read from MapPlayersToWidgets' result: what the screen lays out
+/// for a 2v2 match with a side of one (the port's own Versus lobby starts 2 against 1 as ETeamStyle 1 with three
+/// players).
+/// Deviation: the build never shows a 2v2 screen with fewer than four players; the port leaves out what the missing
+/// player would hold (its plate, card, diamond, banner and stand) and places a side of one as the build's 1v1
+/// places its player: the local side's at Player Info 0's 1v1 place, the other side's in the fourth preview slot as
+/// the 1v1 opponent. A full 2v2, a 1v1 and free for all lay out as before.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Layout {
+    style: u8,
+    filled: [bool; 4],
+    /// (the port's own big matches, `is_big`) The others are on the row of cards: no Player Info but the local
+    /// player's is filled.
+    big: bool,
+}
+
+impl Layout {
+    /// (before MapPlayersToWidgets, no players: every Player Info taken as filled, the team style's layout)
+    fn of(style: u8, sels: &[Sel]) -> Layout {
+        if sels.is_empty() {
+            return Layout { style, filled: [true; 4], big: false };
+        }
+        let mut filled = [false; 4];
+        for s in sels {
+            if let Some(f) = usize::try_from(s.widget).ok().and_then(|w| filled.get_mut(w)) {
+                *f = true;
+            }
+        }
+        Layout { style, filled, big: false }
+    }
+
+    /// A 2v2 Player Info no player fills (any a big match's others would have).
+    fn absent(&self, widget: usize) -> bool {
+        (self.style == 1 || self.big) && !self.filled.get(widget).copied().unwrap_or(false)
+    }
+
+    /// The local side has one player in a 2v2 match: no ally.
+    fn lone_own(&self) -> bool {
+        self.absent(2)
+    }
+
+    /// The other side has one player in a 2v2 match.
+    fn lone_enemy(&self) -> bool {
+        self.absent(3)
+    }
+
+    /// PlayerIndexToPreviewIndex: the 1v1 opponent uses the fourth preview slot, and so does a 2v2 side of one.
+    fn preview_index(&self, widget: i32) -> usize {
+        if widget == 1 && (self.style == 0 || self.lone_enemy()) { 3 } else { widget.max(0) as usize }
+    }
+
+    /// The reveal's loadouts: the team style's, but a Player Info no player fills.
+    fn revealed(&self) -> Vec<usize> {
+        revealed(self.style).iter().copied().filter(|&i| !self.absent(i)).collect()
+    }
+
+    /// The Player Info a level sequence's event names (BPI_SequenceEvent "1" .. "3": the preview slot ShowPlayer
+    /// showed). 1v1: the build's own swap, 1 -> 2 and 2 -> 1 (PM@86534); 2v2: the Player Info whose player stands in
+    /// that preview slot (the slot's own index in a full 2v2; none for an empty slot).
+    fn event_widget(&self, slot: usize) -> Option<usize> {
+        match self.style {
+            0 => Some(match slot {
+                2 => 1,
+                1 => 2,
+                n => n,
+            }),
+            1 => (0..4).find(|&w| self.filled[w] && self.preview_index(w as i32) == slot),
+            _ => Some(slot),
+        }
+    }
+
+    /// The stand-in point of PerkLocations[i] (P0, P2, P1, P3): a 2v2 side of one takes the 1v1 one's.
+    fn stand_in(&self, i: usize) -> [f64; 2] {
+        let lone = if i < 2 { self.lone_own() } else { self.lone_enemy() };
+        let style = if lone { 0 } else { usize::from(self.style).min(2) };
+        PERK_STAND_IN[style][i]
     }
 }
 
@@ -363,6 +447,7 @@ fn build_sels_keep(
     let queue = setup.net.as_ref().is_some_and(|n| n.queue.is_some());
     let online_rematch = setup.net.as_ref().is_some_and(|n| n.queue.is_none());
     let mine = setup.players[setup.me].team;
+    let big = is_big(setup);
     let have: Vec<&RosterEntry> = roster.iter().filter(|r| r.fighter.is_some()).collect();
     let mut next = 1;
     let mut out = Vec::new();
@@ -383,7 +468,8 @@ fn build_sels_keep(
         }
         let widget = if i == setup.me {
             0
-        } else if player.team == 4 {
+        } else if player.team == SPECTATOR_TEAM || big {
+            // (a big match's others: on the row of cards, no Player Info)
             -1
         } else if player.team == mine && setup.team_style != 2 {
             2
@@ -574,6 +660,8 @@ pub struct PreMatch {
     /// The queue's match.start perks by slot, held until state 6 (PreMatch.allPlayersLockedPerks).
     start_perks: Option<Vec<Vec<String>>>,
     map_reveal_bound: bool,
+    /// (the port's own big matches) The row of cards past four players, made at the face-off.
+    cards: Option<CardRow>,
 }
 
 impl PreMatch {
@@ -625,6 +713,7 @@ impl PreMatch {
             cancel_timer: 0,
             start_perks: None,
             map_reveal_bound: false,
+            cards: None,
         })
     }
 
@@ -855,9 +944,19 @@ impl PreMatch {
             .collect()
     }
 
-    /// The ally's Sel in 2v2.
+    /// The ally's Sel in 2v2 (None: a side of one, `Layout`).
     fn ally(&self) -> Option<usize> {
         if self.setup.team_style == 1 { self.sels.iter().position(|s| s.widget == 2) } else { None }
+    }
+
+    /// The Player Infos the players fill (a 2v2 side of one, `Layout`).
+    fn layout(&self) -> Layout {
+        Layout { big: self.big(), ..Layout::of(self.setup.team_style, &self.sels) }
+    }
+
+    /// (the port's own) More players than the scene has points: the row of cards (`card_row`).
+    fn big(&self) -> bool {
+        is_big(&self.setup)
     }
 
     // ---------- the hooks ----------
@@ -1003,7 +1102,8 @@ impl PreMatch {
         let me = cx.w;
         for (i, s) in self.sels.iter().enumerate() {
             let p = &self.setup.players[s.player];
-            if !p.is_bot || p.team == 4 || s.character.as_ref().and_then(|c| c.fighter.as_ref()).is_none() {
+            if !p.is_bot || p.team == SPECTATOR_TEAM || s.character.as_ref().and_then(|c| c.fighter.as_ref()).is_none()
+            {
                 continue;
             }
             cx.view.delay(0.2, Handler { owner: me, id: D_BOT_LOCK_A + i as u32 });
@@ -1074,16 +1174,18 @@ impl PreMatch {
     }
 
     /// UpdateHeaderLayout PM@74964. Deviation (the port's solo layout): Player Info 1, the 1v1 opponent's, is
-    /// Collapsed too; the build shows 0 and 1 in every 1v1.
+    /// Collapsed too; the build shows 0 and 1 in every 1v1. Deviation (a 2v2 side of one, `Layout`): the Player Info
+    /// no player fills is Collapsed; the build shows all four in every 2v2.
     fn update_header_layout(&self, cx: &mut Cx<'_>) {
         let solo = self.setup.team_style == 0;
+        let layout = self.layout();
         for i in 0..2 {
             let pi = Self::player_info_w(cx, i);
-            wd(cx, pi).vis = if i == 1 && self.solo() { Vis::Collapsed } else { Vis::Visible };
+            wd(cx, pi).vis = if (i == 1 && self.solo()) || layout.absent(i) { Vis::Collapsed } else { Vis::Visible };
         }
         for i in 2..4 {
             let pi = Self::player_info_w(cx, i);
-            wd(cx, pi).vis = if solo { Vis::Collapsed } else { Vis::Visible };
+            wd(cx, pi).vis = if solo || layout.absent(i) { Vis::Collapsed } else { Vis::Visible };
         }
         if solo {
             set_vis(cx, "playerInfoSoloSpacer", Vis::Visible);
@@ -1093,9 +1195,9 @@ impl PreMatch {
         }
     }
 
-    /// PlayerIndexToPreviewIndex: the 1v1 opponent uses the fourth preview slot.
+    /// PlayerIndexToPreviewIndex: the 1v1 opponent uses the fourth preview slot (and a 2v2 side of one, `Layout`).
     fn preview_index(&self, widget: i32) -> usize {
-        if widget == 1 && self.setup.team_style == 0 { 3 } else { widget.max(0) as usize }
+        self.layout().preview_index(widget)
     }
 
     /// HideAllWidgets PM@61072 -> PM@32932.
@@ -1143,13 +1245,14 @@ impl PreMatch {
     }
 
     /// SetState's equipper flags: Cancel Will Confirm in the states before the perks (but 4), Ally Mode Allowed in
-    /// 2v2.
+    /// 2v2 (Deviation: not for a side of one, `Layout`: there is no ally).
     fn apply_equipper_props(&self, cx: &mut Cx<'_>) {
         let eq = find(cx, "UI_Perks_Equipper_P0");
         let s = self.state;
+        let ally = self.setup.team_style == 1 && !self.layout().lone_own();
         let tree = cx.view.tree_mut();
         tree.set_prop(eq, "Cancel Will Confirm", json!(s <= CONFIRMING_CHARACTER || s == MATCHMAKING));
-        tree.set_prop(eq, "Ally Mode Allowed", json!(self.setup.team_style == 1));
+        tree.set_prop(eq, "Ally Mode Allowed", json!(ally));
     }
 
     /// The state switch PM@34417.
@@ -1176,7 +1279,7 @@ impl PreMatch {
                 }
                 let map = self.setup.map.as_deref().and_then(|m| cx.view.map(m));
                 if let Some(map) = map {
-                    let (name, exp) = (map.data.display_name.clone(), map.data.experimental);
+                    let (name, exp) = (map.data.display_name.clone(), MapTag::of(&map.data));
                     cx.visit::<PMStateInfo, _>(si, |s, cx| s.set_map_name(cx, &name, exp));
                     self.transition_hook(cx, &map.data.level);
                 }
@@ -1267,7 +1370,7 @@ impl PreMatch {
                             });
                         }
                         let (name, exp, level) =
-                            (map.data.display_name.clone(), map.data.experimental, map.data.level.clone());
+                            (map.data.display_name.clone(), MapTag::of(&map.data), map.data.level.clone());
                         cx.visit::<PMStateInfo, _>(si, |s, cx| s.set_map_name(cx, &name, exp));
                         self.transition_hook(cx, &level);
                     }
@@ -1280,6 +1383,10 @@ impl PreMatch {
                 }
             }
             PERKS_CONFIRMED => {
+                // (a big match: the row over the whole width again)
+                if let Some(r) = &mut self.cards {
+                    r.beside_page(cx, false);
+                }
                 // PM@39691: "Waiting for Other Players" (wrapped: not free for all), InputContainer Collapsed, the
                 // local loadout's Enter, and in 2v2 the ally preview's Exit Ally Header and ShiftAllyPerkPosition
                 let wrap = self.setup.team_style != 2 && !self.queue();
@@ -1291,7 +1398,8 @@ impl PreMatch {
                 self.refresh_loadout_stacks(cx);
                 let lo = self.loadout(cx, 0);
                 cx.visit::<PerksLoadout, _>(lo, |l, cx| l.enter(cx));
-                if self.setup.team_style == 1 {
+                // (a 2v2 side of one has no ally preview to move: `Layout`)
+                if self.ally().is_some() {
                     let ally = self.loadout(cx, 4);
                     cx.visit::<PerksLoadout, _>(ally, |l, cx| l.exit_ally_header(cx));
                     cx.view.play(me, "ShiftAllyPerkPosition", false, 1.0);
@@ -1320,9 +1428,17 @@ impl PreMatch {
                 // Refresh Loadout Stacks PM@37098 (2v2). Unverified: the build runs it before the reveal's other
                 // branches; here after the fill above, which stands for the native OnPerksDetermined.
                 self.refresh_loadout_stacks(cx);
-                // (the port's solo layout: no other card to reveal)
-                let others: &[usize] = if self.solo() { &[] } else { revealed(self.setup.team_style) };
-                for &i in others {
+                // (a big match: every other card of the row)
+                let row: Vec<usize> =
+                    self.cards.as_ref().map(|r| r.loadouts().into_iter().map(|x| x.0).collect()).unwrap_or_default();
+                for a in row {
+                    if !self.is_me(a) {
+                        self.reveal_card(cx, a);
+                    }
+                }
+                // (the port's solo layout: no other card to reveal; a 2v2 side of one: none for the missing player)
+                let others = if self.solo() { Vec::new() } else { self.layout().revealed() };
+                for i in others {
                     let lo = self.loadout(cx, i);
                     cx.visit::<PerksLoadout, _>(lo, |l, cx| l.enter(cx));
                 }
@@ -1517,12 +1633,12 @@ impl PreMatch {
     /// Deviation: a 2v2 rematch's P2 at PerkLocations[1] - (0, 20) PM@51414-51770 (every custom game here) is left
     /// out: it lifts the ally's name and level out of line with the others, under its perk icons.
     fn apply_perk_locations(&self, cx: &mut Cx<'_>) {
-        let stand = &PERK_STAND_IN[usize::from(self.setup.team_style).min(2)];
+        let layout = self.layout();
         for (i, &widget) in LOCATION_WIDGET.iter().enumerate() {
             // (the port's solo layout: the card under the fighter, not at its banner's point: no banner comes up)
             let p = match self.projected(&point_key(true, i)) {
                 _ if widget == 0 && self.solo() => PERK_STAND_IN_SOLO,
-                None => stand[i],
+                None => layout.stand_in(i),
                 Some(None) => return,
                 Some(Some(p)) => p,
             };
@@ -1792,7 +1908,7 @@ impl PreMatch {
         if self.online_rematch() {
             return;
         }
-        let waiting = self.sels.iter().any(|s| self.setup.players[s.player].team != 4 && !s.locked);
+        let waiting = self.sels.iter().any(|s| self.setup.players[s.player].team != SPECTATOR_TEAM && !s.locked);
         if self.all_characters_chosen || waiting {
             return;
         }
@@ -2244,7 +2360,7 @@ impl PreMatch {
             self.setup.map = Some(map.to_string());
             self.setup.level = map.to_string();
             if let Some(md) = cx.view.map(map) {
-                let (name, exp, level) = (md.data.display_name.clone(), md.data.experimental, md.data.level.clone());
+                let (name, exp, level) = (md.data.display_name.clone(), MapTag::of(&md.data), md.data.level.clone());
                 let si = Self::state_info(cx);
                 cx.visit::<PMStateInfo, _>(si, |s, cx| s.set_map_name(cx, &name, exp));
                 self.transition_hook(cx, &level);
@@ -2319,7 +2435,7 @@ impl PreMatch {
         if self.server() && self.start_perks.is_none() {
             return;
         }
-        if self.sels.iter().all(|x| self.setup.players[x.player].team == 4 || x.perks_locked) {
+        if self.sels.iter().all(|x| self.setup.players[x.player].team == SPECTATOR_TEAM || x.perks_locked) {
             self.on_all_players_locked_perks(cx);
         }
     }
@@ -2689,6 +2805,10 @@ impl PreMatch {
     fn opponents_revealed(&mut self, cx: &mut Cx<'_>) {
         self.map_players_to_widgets(cx, true);
         self.players_found = true;
+        if self.big() {
+            self.big_face_off(cx);
+            return;
+        }
         if self.solo() {
             self.solo_face_off(cx);
             return;
@@ -2700,6 +2820,7 @@ impl PreMatch {
                 teammates: vec![None; 4],
                 enemies: vec![None; 4],
                 usernames: vec![String::new(); 4],
+                held: vec![false; 4],
             };
             let my_team = self.team_of(self.me());
             for s in &self.sels {
@@ -2709,6 +2830,7 @@ impl PreMatch {
                 }
                 let p = &self.setup.players[s.player];
                 d.usernames[i] = p.username.clone();
+                d.held[i] = true;
                 if let Some(c) = &s.character {
                     let spec = spec_of(c, &s.skin, p.team);
                     if p.team == my_team {
@@ -2740,6 +2862,70 @@ impl PreMatch {
         self.transition_complete(cx, "FaceOff");
         let me = cx.w;
         cx.view.delay(0.0, Handler { owner: me, id: D_TO_PERKS });
+    }
+
+    /// (the port's own big matches) The face-off past four players: the row of cards (`card_row`), every player's
+    /// portrait, name and card, in place of the level's line-up. Deviation: the build's screen has four places and
+    /// sends the level PlayersFound, whose sequence shows the four fighters and their banners; here the local
+    /// fighter the character select put up leaves the scene (no fighter or banner under the row), and the screen
+    /// goes on as the sequence's ShowVS would: the mode label, then the perks after its Delay(2.0) PM@87518.
+    fn big_face_off(&mut self, cx: &mut Cx<'_>) {
+        let style = self.setup.team_style;
+        let mine = self.team_of(self.me());
+        let shown: Vec<usize> =
+            (0..self.sels.len()).filter(|&a| self.setup.players[self.sels[a].player].team != SPECTATOR_TEAM).collect();
+        let names: Vec<String> = shown
+            .iter()
+            .map(|&a| {
+                let p = &self.setup.players[self.sels[a].player];
+                if p.username.is_empty() { cx.view.game_text(TEXT_BOT_NAME).to_string() } else { p.username.clone() }
+            })
+            .collect();
+        let colors: Vec<_> =
+            shown.iter().map(|&a| card_color(cx, style, mine, self.setup.players[self.sels[a].player].team)).collect();
+        let players: Vec<CardPlayer<'_>> = shown
+            .iter()
+            .enumerate()
+            .map(|(i, &a)| CardPlayer {
+                sel: a,
+                name: &names[i],
+                character: self.sels[a].character.as_ref(),
+                color: colors[i],
+            })
+            .collect();
+        let under = find(cx, LOADOUTS[1]);
+        let row = CardRow::new(cx, under, &players);
+        row.show(cx, true);
+        for (a, lo) in row.loadouts() {
+            self.fill_loadout(cx, lo, a, false);
+            cx.visit::<PerksLoadout, _>(lo, |l, cx| {
+                l.update_character_info(cx);
+                l.toggle_perks_display(cx, false);
+            });
+        }
+        self.hold_perk_pictures(cx, &shown);
+        self.cards = Some(row);
+        // the local plate goes with the scene's line-up
+        let p0 = Self::player_info_w(cx, 0);
+        wd(cx, p0).vis = Vis::Collapsed;
+        self.diamond_once = true;
+        // the mode label's line, not its VS / FFA over the row; the local fighter goes with the line-up
+        let ml = Self::mode_label_w(cx);
+        cx.visit::<PMModeLabel, _>(ml, |m, cx| {
+            m.enter(cx);
+            set_vis_all(cx, &["UI_DetailedText_VS_PM", "FFAText"], Vis::Collapsed);
+        });
+        cx.scene(SceneCmd::Preview { slot: 0, spec: None });
+        self.transition_complete(cx, "FaceOff");
+        let me = cx.w;
+        cx.view.delay(2.0, Handler { owner: me, id: D_TO_PERKS });
+    }
+
+    /// (the port's own big matches) A row card's perks shown: the player's lock.
+    fn reveal_card(&mut self, cx: &mut Cx<'_>, a: usize) {
+        let Some(lo) = self.cards.as_ref().and_then(|r| r.loadout(a)) else { return };
+        self.fill_loadout(cx, lo, a, true);
+        cx.visit::<PerksLoadout, _>(lo, |l, cx| l.enter(cx));
     }
 
     /// bannerSlugOf: the local player's equipped banner, another's as the server handed it
@@ -2813,19 +2999,14 @@ impl PreMatch {
     /// BPI_SequenceEvent(Name) PM@85647, from the level's sequences.
     pub fn sequence_event(&mut self, cx: &mut Cx<'_>, name: &str) {
         if matches!(name, "1" | "2" | "3") {
-            // PM@86534: the index's Player Info (in 1v1: 1 -> 2, 2 -> 1), and once the local one's PM@31516
+            // PM@86534: the index's Player Info (in 1v1: 1 -> 2, 2 -> 1), and once the local one's PM@31516.
+            // Deviation (a 2v2 side of one, `Layout`): the Player Info of the player in that preview slot, none for
+            // an empty slot; the build's 2v2 takes the index as it is.
             let n: usize = name.parse().unwrap_or(0);
-            let at = if self.setup.team_style == 0 {
-                match n {
-                    2 => 1,
-                    1 => 2,
-                    n => n,
-                }
-            } else {
-                n
-            };
-            let pi = Self::player_info_w(cx, at);
-            cx.visit::<PMPlayerInfo, _>(pi, |p, cx| p.force_show_diamond(cx));
+            if let Some(at) = self.layout().event_widget(n) {
+                let pi = Self::player_info_w(cx, at);
+                cx.visit::<PMPlayerInfo, _>(pi, |p, cx| p.force_show_diamond(cx));
+            }
             if !self.diamond_once {
                 self.diamond_once = true;
                 let p0 = Self::player_info_w(cx, 0);
@@ -2860,9 +3041,14 @@ impl PreMatch {
             return;
         }
         // PM@87518 (a rematch): every Player Info's diamond, the mode label, Delay(2.0) -> SetState(6) PM@21826
+        // (a 2v2 side of one: not the Player Info no player fills, `Layout`)
+        let layout = self.layout();
         for i in 0..4 {
             if self.queue() {
                 break;
+            }
+            if layout.absent(i) {
+                continue;
             }
             let pi = Self::player_info_w(cx, i);
             cx.visit::<PMPlayerInfo, _>(pi, |p, cx| p.force_show_diamond(cx));
@@ -2881,11 +3067,13 @@ impl PreMatch {
             return;
         }
         let solo = self.setup.team_style == 0;
-        // (the port's solo layout: the local player's card alone)
+        // (the port's solo layout: the local player's card alone; a 2v2 side of one: no card for the missing player)
         let alone = self.solo();
+        let layout = self.layout();
         for i in 0..4 {
             let lo = self.loadout(cx, i);
-            let hide = (i >= 2 && solo) || (i >= 1 && alone);
+            // (a big match: none, the row of cards has every player's)
+            let hide = (i >= 2 && solo) || (i >= 1 && alone) || layout.absent(i) || self.big();
             wd(cx, lo).vis = if hide { Vis::Collapsed } else { Vis::Visible };
             let a = self.sels.iter().position(|x| x.widget == i as i32);
             let sel = a.and_then(|a| self.selection_of(cx, a));
@@ -2963,7 +3151,8 @@ impl PreMatch {
             self.hold_perk_pictures(cx, &[at]);
             self.toggle_perks_equipper(cx, true);
         }
-        if self.setup.team_style == 1 {
+        // (a 2v2 side of one: no ally preview, `Layout`)
+        if self.ally().is_some() {
             let lo = self.loadout(cx, 4);
             wd(cx, lo).vis = Vis::SelfHitTestInvisible;
             cx.visit::<PerksLoadout, _>(lo, |l, cx| l.enter(cx));
@@ -2978,11 +3167,13 @@ impl PreMatch {
 
     /// Refresh Loadout Stacks PM@117595 (2v2 alone): the local loadout (the perk page's, GetEquippedPerks(true)) is
     /// the ally preview's and P2's Ally Equipped Perks, the ally preview's those of P0 and the perk page, and the
-    /// two opponents' P1 and P3 each other's.
+    /// two opponents' P1 and P3 each other's. (A 2v2 side of one, `Layout`: that side's half is left out, its player
+    /// has no team-mate's loadout to stack.)
     fn refresh_loadout_stacks(&mut self, cx: &mut Cx<'_>) {
         if self.setup.team_style != 1 {
             return;
         }
+        let layout = self.layout();
         let ids = |l: &mut PerksLoadout, _: &mut Cx<'_>| -> Vec<String> {
             l.equipped_perks(true).into_iter().flatten().map(|p| p.id).collect()
         };
@@ -2993,14 +3184,19 @@ impl PreMatch {
         let set = |cx: &mut Cx<'_>, w: WidgetId, list: &[String]| {
             cx.visit::<PerksLoadout, _>(w, |l, cx| l.set_ally_equipped(cx, list));
         };
-        // PM@117659-117774
-        let own = cx.visit::<PerksLoadout, _>(own_lo, ids).unwrap_or_default();
-        set(cx, ally_lo, &own);
-        set(cx, p2, &own);
-        // PM@117404-117545
-        let ally = cx.visit::<PerksLoadout, _>(ally_lo, ids).unwrap_or_default();
-        set(cx, p0, &ally);
-        cx.visit::<PerksEquipper, _>(eq, |e, cx| e.set_ally_equipped(cx, &ally));
+        if !layout.lone_own() {
+            // PM@117659-117774
+            let own = cx.visit::<PerksLoadout, _>(own_lo, ids).unwrap_or_default();
+            set(cx, ally_lo, &own);
+            set(cx, p2, &own);
+            // PM@117404-117545
+            let ally = cx.visit::<PerksLoadout, _>(ally_lo, ids).unwrap_or_default();
+            set(cx, p0, &ally);
+            cx.visit::<PerksEquipper, _>(eq, |e, cx| e.set_ally_equipped(cx, &ally));
+        }
+        if layout.lone_enemy() {
+            return;
+        }
         // PM@117217-117358
         let one = cx.visit::<PerksLoadout, _>(p1, ids).unwrap_or_default();
         set(cx, p3, &one);
@@ -3014,6 +3210,9 @@ impl PreMatch {
         let v = if show { Vis::Visible } else { Vis::Collapsed };
         set_vis(cx, "perksBGDimmer", v);
         wd(cx, eq).vis = v;
+        if let Some(r) = &mut self.cards {
+            r.beside_page(cx, show);
+        }
         if show {
             cx.visit::<PerksEquipper, _>(eq, |e, cx| e.enter(cx, -1));
         }
@@ -3096,6 +3295,7 @@ impl PreMatch {
         }
         let lo = self.loadout(cx, 0);
         self.fill_loadout(cx, lo, at, true);
+        self.reveal_card(cx, at);
         self.set_state(cx, PERKS_CONFIRMED);
         self.player_locked_perks(cx, at);
     }
@@ -3109,7 +3309,8 @@ impl PreMatch {
         let me = cx.w;
         for (i, s) in self.sels.iter().enumerate() {
             let p = &self.setup.players[s.player];
-            if !p.is_bot || p.team == 4 || s.character.as_ref().and_then(|c| c.fighter.as_ref()).is_none() {
+            if !p.is_bot || p.team == SPECTATOR_TEAM || s.character.as_ref().and_then(|c| c.fighter.as_ref()).is_none()
+            {
                 continue;
             }
             cx.view.delay(BOT_PERKS_S, Handler { owner: me, id: D_BOT_PERKS + i as u32 });
@@ -3126,8 +3327,11 @@ impl PreMatch {
         }
         self.sels[a].perks_locked = true;
         let w = self.sels[a].widget;
-        if (0..=3).contains(&w) {
+        if (0..=3).contains(&w) && !self.big() {
             let lo = self.loadout(cx, w as usize);
+            cx.visit::<PerksLoadout, _>(lo, |l, cx| l.set_status(cx, true, false));
+        }
+        if let Some(lo) = self.cards.as_ref().and_then(|r| r.loadout(a)) {
             cx.visit::<PerksLoadout, _>(lo, |l, cx| l.set_status(cx, true, false));
         }
         if self.ally() == Some(a) {
@@ -3357,7 +3561,7 @@ impl PreMatch {
     /// and sends it to the level at the rematch's entry and at the first lock.
     fn show_arcade_map(&mut self, cx: &mut Cx<'_>) {
         let Some(md) = self.setup.map.as_deref().and_then(|m| cx.view.map(m)) else { return };
-        let (name, exp) = (md.data.display_name.clone(), md.data.experimental);
+        let (name, exp) = (md.data.display_name.clone(), MapTag::of(&md.data));
         let si = Self::state_info(cx);
         cx.visit::<PMStateInfo, _>(si, |s, cx| s.set_map_name(cx, &name, exp));
         self.transition_hook(cx, &md.data.level);
@@ -3371,7 +3575,8 @@ impl PreMatch {
             .sels
             .iter()
             .filter(|s| {
-                self.setup.players[s.player].team != 4 && s.character.as_ref().is_some_and(|c| c.fighter.is_some())
+                self.setup.players[s.player].team != SPECTATOR_TEAM
+                    && s.character.as_ref().is_some_and(|c| c.fighter.is_some())
             })
             .map(|s| PreMatchPick {
                 account_id: self.setup.players[s.player].account_id.clone(),
@@ -3787,11 +3992,84 @@ mod tests {
                 player("e1", 1, true, None),
                 player("ally", 0, true, None),
                 player("e2", 1, true, None),
-                player("spec", 4, false, None),
+                player("spec", SPECTATOR_TEAM, false, None),
             ],
         );
         let sels = build_sels(&s, &[entry("a", Some("a"))], &mut || 0.5);
         assert_eq!(sels.iter().map(|s| s.widget).collect::<Vec<_>>(), vec![0, 1, 2, 3, -1]);
+    }
+
+    /// Past four players (the port's big matches) only the local player has a Player Info; the others are on the
+    /// row of cards. A spectator does not count.
+    #[test]
+    fn widgets_big_only_self_has_a_player_info() {
+        let teams = [0, 1, 0, 1, 0, 1];
+        let players = teams.iter().enumerate().map(|(i, &t)| player(&format!("p{i}"), t, i != 0, None)).collect();
+        let s = setup(1, players);
+        assert!(is_big(&s));
+        let sels = build_sels(&s, &[entry("a", Some("a"))], &mut || 0.5);
+        assert_eq!(sels.iter().map(|s| s.widget).collect::<Vec<_>>(), vec![0, -1, -1, -1, -1, -1]);
+        let mut s = setup(2, (0..4).map(|i| player(&format!("p{i}"), i, i != 0, None)).collect());
+        s.players.push(player("spec", SPECTATOR_TEAM, false, None));
+        assert!(!is_big(&s));
+        let l = Layout::of(2, &build_sels(&s, &[entry("a", Some("a"))], &mut || 0.5));
+        assert!(!l.big);
+    }
+
+    /// A custom Versus lobby's 2v1: three players, team = slot % 2.
+    fn two_v_one(me: usize) -> (Vec<Sel>, Layout) {
+        let mut s =
+            setup(1, vec![player("p0", 0, me != 0, None), player("p1", 1, me != 1, None), player("p2", 0, true, None)]);
+        s.me = me;
+        let sels = build_sels(&s, &[entry("a", Some("a"))], &mut || 0.5);
+        let layout = Layout::of(1, &sels);
+        (sels, layout)
+    }
+
+    #[test]
+    fn two_v_one_local_on_the_pair() {
+        let (sels, l) = two_v_one(0);
+        // Self 0, the lone enemy 1, the ally 2; no fourth player.
+        assert_eq!(sels.iter().map(|s| s.widget).collect::<Vec<_>>(), vec![0, 1, 2]);
+        assert!(!l.lone_own() && l.lone_enemy());
+        assert!(l.absent(3) && !l.absent(0) && !l.absent(1) && !l.absent(2));
+        // The lone enemy stands in the 1v1 opponent's preview slot.
+        assert_eq!(l.preview_index(1), 3);
+        assert_eq!(l.preview_index(2), 2);
+        assert_eq!(l.revealed(), vec![1]);
+        assert_eq!([0, 1, 2, 3].map(|s| l.event_widget(s)), [Some(0), None, Some(2), Some(1)]);
+        // P0 and P2 keep the 2v2 points, P1 and P3 take the 1v1 one's.
+        assert_eq!(l.stand_in(0), PERK_STAND_IN[1][0]);
+        assert_eq!(l.stand_in(1), PERK_STAND_IN[1][1]);
+        assert_eq!(l.stand_in(2), PERK_STAND_IN[0][2]);
+    }
+
+    #[test]
+    fn two_v_one_local_alone() {
+        let (sels, l) = two_v_one(1);
+        // Slot 0 and 2 are the enemies (1 and 3), the local player 0; no ally.
+        assert_eq!(sels.iter().map(|s| s.widget).collect::<Vec<_>>(), vec![1, 0, 3]);
+        assert!(l.lone_own() && !l.lone_enemy());
+        assert!(l.absent(2) && !l.absent(3));
+        assert_eq!(l.preview_index(1), 1);
+        assert_eq!(l.preview_index(3), 3);
+        assert_eq!(l.revealed(), vec![1, 3]);
+        assert_eq!([0, 1, 2, 3].map(|s| l.event_widget(s)), [Some(0), Some(1), None, Some(3)]);
+        assert_eq!(l.stand_in(0), PERK_STAND_IN[0][0]);
+        assert_eq!(l.stand_in(2), PERK_STAND_IN[1][2]);
+    }
+
+    #[test]
+    fn full_and_one_v_one_layouts_as_before() {
+        let full = Layout { style: 1, filled: [true; 4], big: false };
+        assert_eq!(full.revealed(), vec![1, 3]);
+        assert_eq!([0, 1, 2, 3].map(|s| full.event_widget(s)), [Some(0), Some(1), Some(2), Some(3)]);
+        assert_eq!((0..4).map(|i| full.stand_in(i)).collect::<Vec<_>>(), PERK_STAND_IN[1].to_vec());
+        let duel = Layout { style: 0, filled: [true, true, false, false], big: false };
+        assert_eq!(duel.preview_index(1), 3);
+        assert_eq!(duel.revealed(), vec![1]);
+        assert!(!duel.absent(2) && !duel.lone_own());
+        assert_eq!([0, 1, 2, 3].map(|s| duel.event_widget(s)), [Some(0), Some(2), Some(1), Some(3)]);
     }
 
     #[test]

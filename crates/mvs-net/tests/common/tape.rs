@@ -15,6 +15,13 @@
 //! (the port's is a ClosedWhy's JSON, the oracle's the text: an oracle bye fed in is turned into the port's code where
 //! the table has it). The page events are compared in order among themselves, the backend calls in order among
 //! themselves (the oracle posts an event inside the step, the port hands the page's events over after it).
+//!
+//! A hosting service's referee packets (`MSG_RULED`, to its own page and to each peer) are taken out of both streams
+//! and compared by the ruled ticks they carry (`ruled_apart`): the oracle's referee sent a peer every tick it had not
+//! acknowledged at every pump, the port's sends a ruled tick once and again only past the peer's resend timeout. Each
+//! ruled tick a destination is sent carries the oracle's input or substitution, and goes to it no later than the
+//! oracle sent it first; the stream ends are the oracle's and go to it no later than the oracle's did; a ruled packet's clock, stamp and held echo those of one
+//! of the oracle's packets to the same destination in the same ms.
 #![allow(dead_code, reason = "each test binary uses a part")]
 
 use std::collections::{HashMap, VecDeque};
@@ -33,6 +40,7 @@ use mvs_net::service::api::{
 };
 use mvs_net::service::session::Via;
 use mvs_net::service::{NetService, PageId, ServiceConfig, ServiceOptions};
+use mvs_protocol::match_wire::{MSG_RULED, NO_END, RuledHeader, WireInput, runs};
 use serde_json::{Value, json};
 
 // ---------- the tape ----------
@@ -58,6 +66,8 @@ pub struct SvcReport {
     pub calls_equal: usize,
     pub calls_tape: usize,
     pub calls_port: usize,
+    /// The ruled ticks of the referee's packets the tape sent that the port sent the same (`ruled_apart`).
+    pub ruled: usize,
     /// Equal events or calls at another time than the tape's.
     pub late: usize,
     /// Where both streams are compared up to, and why: the ms of the port's first match.away, where the oracle's
@@ -141,7 +151,7 @@ pub fn check(name: &str, reports: &[SvcReport], known: &[Known]) {
         ca += r.calls_equal;
         can += r.calls_tape;
         eprintln!(
-            "{name} world {} service {}: events {}/{} (port {}), calls {}/{} (port {}), late {}{}{}",
+            "{name} world {} service {}: events {}/{} (port {}), calls {}/{} (port {}), ruled ticks {}, late {}{}{}",
             r.world,
             r.service,
             r.events_equal,
@@ -150,6 +160,7 @@ pub fn check(name: &str, reports: &[SvcReport], known: &[Known]) {
             r.calls_equal,
             r.calls_tape,
             r.calls_port,
+            r.ruled,
             r.late,
             r.cut.map_or(String::new(), |(t, why)| format!(", up to {why} at {t}")),
             if r.misses.is_empty() { String::new() } else { format!(", misses {}", r.misses.len()) }
@@ -588,7 +599,7 @@ fn calls_cmp(calls: &[(f64, String, Value)], tape: bool) -> Vec<(f64, Value)> {
         let ch = args[1].as_u64().unwrap_or(0);
         let b = bytes_of(&args[2]);
         if ch != 0 {
-            out.push((*t, json!({ "send": to, "ch": ch, "bytes": hex(&b) })));
+            out.push((*t, json!({ "send": to, "ch": ch, "bytes": hex(&if tape { b } else { seq_cleared(b) }) })));
             continue;
         }
         match b.first() {
@@ -613,6 +624,162 @@ fn calls_cmp(calls: &[(f64, String, Value)], tape: bool) -> Vec<(f64, Value)> {
         }
     }
     out
+}
+
+/// A ruled tick a referee packet carries: its stream, its tick (u32::MAX: a run of none, its end only), the input
+/// (None: substituted) and the stream's end.
+type Ticked = (u64, u32, Option<WireInput>, u32);
+
+/// The ruled ticks of a referee packet.
+fn ticked(b: &[u8]) -> Vec<Ticked> {
+    let mut out = Vec::new();
+    for run in runs(b) {
+        let mut at = 0;
+        for k in 0..u32::from(run.head.count) {
+            let i = if (run.head.mask >> k) & 1 == 1 {
+                None
+            } else {
+                at += 1;
+                Some(run.inputs[at - 1])
+            };
+            out.push((u64::from(run.head.slot), run.head.first + k, i, run.head.end));
+        }
+        if run.head.count == 0 {
+            out.push((u64::from(run.head.slot), u32::MAX, None, run.head.end));
+        }
+    }
+    out
+}
+
+/// The referee packets taken out of a service's page events and calls: (ms, destination, bytes).
+fn take_ruled(events: &mut Vec<(f64, Value)>, calls: &mut Vec<(f64, Value)>) -> Vec<(f64, String, Vec<u8>)> {
+    let mut out = Vec::new();
+    for (t, v) in events.iter_mut() {
+        if v["ev"]["t"] != "packets" {
+            continue;
+        }
+        let to = format!("page {} from {}", v["page"], v["ev"]["from"]);
+        let Some(packets) = v["ev"]["packets"].as_array_mut() else { continue };
+        packets.retain(|p| {
+            let b = bytes_of(p);
+            let ruled = b.first() == Some(&MSG_RULED);
+            if ruled {
+                out.push((*t, to.clone(), b));
+            }
+            !ruled
+        });
+    }
+    events.retain(|(_, v)| v["ev"]["t"] != "packets" || v["ev"]["packets"].as_array().is_some_and(|p| !p.is_empty()));
+    calls.retain(|(t, v)| {
+        let Some(h) = v["bytes"].as_str().filter(|_| v["ch"] == channel_n(Channel::Match)) else { return true };
+        let b = bytes_of(&json!({ "$bytes": h }));
+        let ruled = b.first() == Some(&MSG_RULED);
+        if ruled {
+            out.push((*t, format!("send {}", v["send"]), b));
+        }
+        !ruled
+    });
+    out
+}
+
+/// A service's page events and calls, by the ms each came at.
+type Streams<'a> = (&'a mut Vec<(f64, Value)>, &'a mut Vec<(f64, Value)>);
+
+/// The referee's packets of the tape and of the port taken out of both streams and compared by the ruled ticks they
+/// carry (the module's note); what differs goes to `misses`. The ruled ticks of the tape's the port sent the same.
+fn ruled_apart(tape: Streams<'_>, port: Streams<'_>, misses: &mut Vec<String>) -> usize {
+    let (want, got) = (take_ruled(tape.0, tape.1), take_ruled(port.0, port.1));
+    // (the tape's ruled streams: by stream and tick the input, by stream the end, by destination, stream and tick
+    // when it first went)
+    let mut ruled: IndexMap<(u64, u32), Option<WireInput>> = IndexMap::new();
+    let mut ends: IndexMap<u64, u32> = IndexMap::new();
+    let mut first: IndexMap<(String, u64, u32), f64> = IndexMap::new();
+    // (by destination and stream when the stream's end first went)
+    let mut end_first: IndexMap<(String, u64), f64> = IndexMap::new();
+    for (t, to, b) in &want {
+        for (y, k, i, end) in ticked(b) {
+            if end != NO_END {
+                if *ends.entry(y).or_insert(end) != end {
+                    misses.push(format!("t {t}: the tape's two ends of slot {y}"));
+                }
+                end_first.entry((to.clone(), y)).or_insert(*t);
+            }
+            if k != u32::MAX {
+                if *ruled.entry((y, k)).or_insert(i) != i {
+                    misses.push(format!("t {t}: the tape's slot {y} tick {k} twice"));
+                }
+                first.entry((to.clone(), y, k)).or_insert(*t);
+            }
+        }
+    }
+    let mut same = 0;
+    let mut got_first: IndexMap<(String, u64, u32), f64> = IndexMap::new();
+    let mut got_end: IndexMap<(String, u64), f64> = IndexMap::new();
+    for (t, to, b) in &got {
+        let Some(h) = RuledHeader::read(b) else {
+            misses.push(format!("t {t}: a referee packet to {to} the port cannot read"));
+            continue;
+        };
+        // (several pumps can fall in one ms: the header of one of the tape's packets to it in that ms)
+        let heads: Vec<(i32, u32, u16)> = want
+            .iter()
+            .filter(|w| w.0 == *t && w.1 == *to)
+            .filter_map(|w| RuledHeader::read(&w.2))
+            .map(|o| (o.clock, o.stamp, o.held))
+            .collect();
+        if !heads.is_empty() && !heads.contains(&(h.clock, h.stamp, h.held)) {
+            misses.push(format!(
+                "t {t}: a referee packet's header to {to}: {:?}, the tape's {heads:?}",
+                (h.clock, h.stamp, h.held)
+            ));
+        }
+        for (y, k, i, end) in ticked(b) {
+            if end != NO_END {
+                if ends.get(&y) != Some(&end) {
+                    misses.push(format!("t {t}: slot {y}'s end {end} to {to}, the tape's {:?}", ends.get(&y)));
+                }
+                got_end.entry((to.clone(), y)).or_insert(*t);
+            }
+            if k == u32::MAX {
+                continue;
+            }
+            // (a tick the tape sent nobody is not known: the port may send it sooner)
+            if let Some(w) = ruled.get(&(y, k)) {
+                if i == *w {
+                    same += 1;
+                } else {
+                    misses.push(format!("t {t}: slot {y} tick {k} to {to}: the port's {i:?}, the tape's {w:?}"));
+                }
+            }
+            got_first.entry((to.clone(), y, k)).or_insert(*t);
+        }
+    }
+    for ((to, y, k), t) in &first {
+        match got_first.get(&(to.clone(), *y, *k)) {
+            Some(g) if g <= t => {}
+            g => misses.push(format!("t {t}: slot {y} tick {k} to {to}: the port's first at {g:?}")),
+        }
+    }
+    for ((to, y), t) in &end_first {
+        match got_end.get(&(to.clone(), *y)) {
+            Some(g) if g <= t => {}
+            g => misses.push(format!("t {t}: slot {y}'s end to {to}: the port's first at {g:?}")),
+        }
+    }
+    same
+}
+
+/// An input packet of the port's with its sequence byte 0, as the tape's read (the oracle's had none); any other as
+/// it is.
+fn seq_cleared(mut b: Vec<u8>) -> Vec<u8> {
+    use mvs_protocol::match_wire::{INPUT_BYTES, MSG_INPUT, input_header};
+    if b.first() == Some(&MSG_INPUT) && b.len() > 6 {
+        let inputs = usize::from(b[6]) * INPUT_BYTES;
+        if let Some(n) = (1..=8).find(|&n| input_header(n) + inputs == b.len()) {
+            b[input_header(n) - 1] = 0;
+        }
+    }
+    b
 }
 
 /// A party packet of the port's with its bye's why (a ClosedWhy) as the oracle's text; any other as it is.
@@ -1005,6 +1172,7 @@ fn replay_service(s: &Value, rand: &Draws, world: usize) -> SvcReport {
         }
         r.cut = Some((cut, "the local lobby"));
     }
+    r.ruled = ruled_apart((&mut tape_events, &mut tape_calls), (&mut port_events, &mut port_calls), &mut r.misses);
     // (MVS_TAPE_DUMP=<world>.<service>: both streams of that service on stderr)
     if std::env::var("MVS_TAPE_DUMP").ok() == Some(format!("{world}.{svc_n}")) {
         for (name, a, b) in [("event", &tape_events, &port_events), ("call", &tape_calls, &port_calls)] {

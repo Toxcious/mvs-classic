@@ -47,7 +47,7 @@ impl Core {
         set: Option<PmId>,
     ) -> MatchId {
         let local = peers.len() == 1;
-        let count = if setup.team_style == 2 { 4 } else { 2 };
+        let count = mvs_protocol::setup::team_count(setup.team_style, setup.players.len());
         let teams = setup
             .players
             .iter()
@@ -375,6 +375,8 @@ impl Core {
         }
         // (the referee's clock is the core's: tick 0 START_AHEAD_MS after the go; it names the id the peers send to)
         let mut referee = self.host.clone();
+        // (the set-up's slots, its bots' among them: one team each)
+        let slots = u32::try_from(self.match_ref(m).teams.len()).expect("a match's slot count");
         if let Some(chosen) = by {
             let b = chosen.key;
             let mt = self.match_mut(m);
@@ -391,13 +393,13 @@ impl Core {
             let in_ms = START_AHEAD_MS as u32;
             let line = format!("match go refereed by {}", self.c(b).name);
             self.log(&line);
-            self.send(b, &ServerMessage::RefGo { r#match: m, in_ms, humans });
+            self.send(b, &ServerMessage::RefGo { r#match: m, in_ms, humans, slots });
             referee = chosen.epic;
         } else if self.referee.is_some() {
             self.match_mut(m).refereed = true;
             let humans =
                 peers.iter().map(|&p| RefereeHuman { slot: slot_u32(self.c(p).slot), id: self.c(p).id.clone() });
-            let start = RefereeStart { match_id: m, humans: humans.collect(), tick0: now + START_AHEAD_MS };
+            let start = RefereeStart { match_id: m, slots, humans: humans.collect(), tick0: now + START_AHEAD_MS };
             referee = self.referee.as_mut().expect("checked").start(&start, now);
         }
         #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]

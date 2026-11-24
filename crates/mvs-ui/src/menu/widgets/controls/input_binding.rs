@@ -568,14 +568,8 @@ impl InputBindingSet {
             r.is_keyboard = kb;
             r.init(cx, player, play_anim);
         });
-        let exclusive: Vec<String> = prop(cx, "KeyboardExclusive")
-            .as_array()
-            .map(|a| a.iter().map(|v| enum_name(Some(v))).collect())
-            .unwrap_or_default();
-        let action = enum_name(cx.view.tree().props(row).get("InputAction"));
-        if exclusive.contains(&action) {
-            wd(cx, row).vis = if kb { Vis::Visible } else { Vis::Collapsed };
-        }
+        // Deviation: the build collapses its KeyboardExclusive rows (the directional attacks and specials) on the
+        // gamepad page; the port shows every row on both pages, so a pad button may bind them too.
         let name = cx.view.tree().props(row).get("Action Name").and_then(Value::as_str) == Some(LAB_TOOLS_ACTION);
         if name {
             wd(cx, row).vis = if player == 0 { Vis::Visible } else { Vis::Collapsed };

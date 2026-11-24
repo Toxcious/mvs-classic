@@ -123,7 +123,7 @@ use crate::combat::{BuffClass, BuffRef};
 use crate::consts::DELTA_SECONDS;
 use crate::events::{Event, SoundKey};
 use crate::fighter::body::{PlatformRef, plat};
-use crate::fighter::common::{actor_data, buff_def, latent_frames, peers, warn_text};
+use crate::fighter::common::{actor_data, buff_def, last_ally, latent_frames, warn_text};
 use crate::fighter::match_side::{SpawnRequest, post_vo};
 use crate::fighter::moves::V2;
 use crate::fighter::traces::{TRACE_PROJECTILE_GROUND, box_trace_single};
@@ -626,13 +626,8 @@ fn book_construct(w: &World, p: &mut Projectile) {
 fn book_begin(w: &mut World, id: ProjectileId) {
     let (f, fighter, key) = (pr(w, id).owner.expect("a book has an owner"), pr(w, id).owner_id, book_loop(w, id));
     w.events.push(Event::SoundStart { fighter, ev: name!("sfx_cha_velma_throw_book_loop"), key });
-    // CheckForHomingTarget: the last ally (GetAllies: the owner's team, a fighter waiting for its respawn left out).
-    let mut to = None;
-    for &o in peers(w) {
-        if o != f && w.fighter(o).team.team == w.fighter(f).team.team && w.fighter(o).life.dead <= 0.0 {
-            to = Some(o);
-        }
-    }
+    // CheckForHomingTarget: the last ally of GetAllies (`common::last_ally`).
+    let to = last_ally(w, f);
     if to.is_some()
         && let ProjectileExt::VelmaBook(b) = &mut pr_mut(w, id).ext
     {

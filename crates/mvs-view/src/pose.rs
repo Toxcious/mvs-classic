@@ -611,6 +611,8 @@ pub struct ViewPoser {
     priority: Vec<i32>,
     /// The load's players (setupMaterials' pawns), by pawn id.
     players: Vec<i32>,
+    /// A match of more than four players (the port's own big matches).
+    big: bool,
     /// The store the views' data is read from (a mode's pawn is made at the step that first finds it, `sync_pawns`).
     store: mvs_store::Store,
     /// Pawn ids `sync_pawns` could not make a view for (warned once; asked again when the id leaves the world).
@@ -676,6 +678,7 @@ impl ViewPoser {
             flash_frames: f64::from(latent(0.15)),
             priority: Vec::new(),
             players: Vec::new(),
+            big: world.setup.players.len() > 4,
             store: store.clone(),
             refused: Vec::new(),
             me,
@@ -1296,16 +1299,25 @@ impl ViewPoser {
 
     /// SetOpacityMaskTextures for stack indexes 0..3: OpacityToggle 1 at index 0, else 0 and LocalPlayerSceneDepth
     /// the camera's capture of index - 1 (never taken off).
+    // Deviation: the build's loop stops at index 3 (four players at most); in a big match (more than four players)
+    // every index past it takes index 3's capture, so each fighter there is masked behind the stack's first three as
+    // the fourth is (left unset, one would keep the far-depth stand-in, or the capture of the index it was pushed
+    // down from). A match of four or fewer keeps the build's loop (a mode's pawns past index 3 stay unset).
     fn set_opacity_masks(&mut self) {
-        for index in 0..self.priority.len().min(4) {
+        let end = if self.big { self.priority.len() } else { self.priority.len().min(4) };
+        for index in 0..end {
             let id = self.priority[index];
             if let Some(r) = self.rec_of(id) {
-                r.priority = Some(index as u8);
+                r.priority = Some(u8::try_from(index).unwrap_or(u8::MAX));
                 let v = if index == 0 { 1.0 } else { 0.0 };
                 r.each_instance(|m| {
                     set_scalar(m, "OpacityToggle", v);
                     if index > 0 {
-                        set_texture(m, "LocalPlayerSceneDepth", PRIORITY_CAPTURES[index - 1]);
+                        set_texture(
+                            m,
+                            "LocalPlayerSceneDepth",
+                            PRIORITY_CAPTURES[index.min(PRIORITY_CAPTURES.len()) - 1],
+                        );
                     }
                 });
             }
@@ -1515,12 +1527,19 @@ impl ViewPoser {
     // ---- placing and presenting the views -------------------------------------------------------------------
 
     fn place_views(&mut self, w: &World) {
-        let ViewPoser { clips, recs, .. } = self;
+        let ViewPoser { clips, recs, colours, .. } = self;
         for r in recs.iter_mut() {
             let clips = clips.get_mut(&r.key).expect("the view's clips");
             if r.minion.is_some() {
                 place_minion(r, clips, w);
             } else {
+                // (the port's own Chaos Wheel's Body Swap: the outline is the driving player's)
+                let slot =
+                    usize::try_from(mvs_sim::world::pawns::slot_of(w, r.fid)).ok().filter(|&s| s < w.players.len());
+                if let Some(c) = slot.and_then(|s| colours.get(mvs_sim::world::wheel_events::input_slot(w, s))) {
+                    r.colour.stencil = c.stencil;
+                    r.colour.outline = c.outline;
+                }
                 place_view(r, clips, w);
             }
         }
@@ -1717,7 +1736,8 @@ fn place_view(r: &mut Rec, clips: &mut Clips, w: &World) {
         fi.vis.always_visible.as_ref()
     };
     let parts_only = kept.is_some_and(|k| !k.is_empty());
-    r.visible = !dead && (shown || parts_only);
+    // (the port's own Ghosts hides a fighter between its attacks, hits and flashes: `own_rules::ghost_hidden`)
+    r.visible = !dead && (shown || parts_only) && !mvs_sim::world::own_rules::ghost_hidden(w, f);
     r.view.parts_only = parts_only;
     r.view.size_scale = f64::from(fi.body.size_scale);
     // (a skin's own intro over the sim's default one: skin_intro.rs; once a tick, its clock)
@@ -1885,10 +1905,22 @@ fn place_view(r: &mut Rec, clips: &mut Clips, w: &World) {
             None => (None, 0.0, 0.0),
         };
         let anim = r.pose.as_ref().and_then(|p| p.anim(w, f)).unwrap_or(fi.anim.anim);
-        let (clip, time) = match nav {
+        let (mut clip, mut time) = match nav {
             Some(n) if sm.is_none() => (clips.get(n), 0.0),
             _ => (clips.get(w.names.str(anim)), f64::from(fi.anim.anim_time)),
         };
+        // A montage whose track is an additive slot's (Iron Giant's MissileLaunchMode in FullBodyAdditive) has no
+        // DefaultSlot track: that slot passes the state machines' pose on and the additive is the AnimBP's own slot
+        // node's (`PoseHook::main_additive`), or, with none, applied over the whole pose. An additive clip drawn as
+        // the pose would put every bone's scale at 0.
+        let mut add = add;
+        if let Some(c) = clip.filter(|&c| sm.is_some() && clips.clips[c].additive) {
+            let (la, lt) = mvs_sim::fighter::anim::loco_clip(w, f);
+            if !r.pose.as_ref().is_some_and(|p| p.main_additive()) {
+                add = add.or(Some((c, time)));
+            }
+            (clip, time) = (clips.get(w.names.str(la)), f64::from(lt));
+        }
         let rules = r.pose.as_deref_mut().map(|p| p as &mut dyn crate::view::PoseRules);
         v.pose(clips, clip, time, name, blend_in, blend_out, STEP, hold, &loco, add, mix, rules);
     }

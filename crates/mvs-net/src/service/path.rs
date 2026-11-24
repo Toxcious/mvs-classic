@@ -22,7 +22,9 @@
 use indexmap::IndexMap;
 use serde_json::Value;
 
-use mvs_protocol::match_wire::{MSG_PATH_PING, MSG_PATH_PONG, RESUME_MS, packet_fits, path_ping, read_path_ping};
+use mvs_protocol::match_wire::{
+    MAX_SLOTS, MSG_PATH_PING, MSG_PATH_PONG, RESUME_MS, packet_fits, path_ping, read_path_ping,
+};
 use mvs_protocol::messages::{ClientMessage, PathLink, PathPeer, RefNewsWire, ServerMessage};
 use mvs_protocol::path::{PATH_PING_MS, PATH_PINGS, PATH_WAIT_MS};
 use mvs_protocol::referee::{Referee, SlotNews};
@@ -214,7 +216,8 @@ impl PathSide {
         if !is_referee {
             return self.peers.iter().any(|p| p.epic == from);
         }
-        if packet_fits(bytes) {
+        // (the referee's packets, of a match this player's session checks them against)
+        if packet_fits(bytes, MAX_SLOTS) {
             match self.watch.as_mut() {
                 Some(w) if w.referee == from => w.last = now,
                 _ => self.watch = Some(Watch { referee: from.to_string(), last: now, told: false }),
@@ -256,7 +259,7 @@ impl PathSide {
     /// nothing, and the others' ref.lost or the leaver rule ends the match.
     pub fn ref_told(&mut self, svc: &mut NetService, base: &SessionBase, m: &ServerMessage, now: f64) {
         match m {
-            ServerMessage::RefGo { r#match, in_ms, humans } => {
+            ServerMessage::RefGo { r#match, in_ms, humans, slots: match_slots } => {
                 self.end_referee();
                 let forced = !self.direct && svc.epic_relay_mode() != Some(RelayMode::Force);
                 let twice = humans.iter().enumerate().any(|(i, h)| humans[..i].iter().any(|o| o.epic == h.epic));
@@ -271,7 +274,7 @@ impl PathSide {
                 let tick0 = now + f64::from(*in_ms) - rtt.unwrap_or(0.0) / 2.0;
                 let slots: Vec<usize> = humans.iter().map(|h| h.slot as usize).collect();
                 let r = Refereed {
-                    referee: Referee::new(&slots, tick0),
+                    referee: Referee::new(usize::try_from(*match_slots).unwrap_or(0), &slots, tick0),
                     ids: humans.iter().map(|h| (h.slot, h.epic.clone())).collect(),
                     slots: humans.iter().map(|h| (h.epic.clone(), h.slot)).collect::<IndexMap<_, _>>(),
                 };
@@ -323,7 +326,7 @@ impl PathSide {
         let from = if from_epic == base.me { self.me_epic.as_str() } else { from_epic };
         let Some((_, r)) = self.refereed.as_mut() else { return false };
         let Some(slot) = r.slots.get(from).copied() else { return false };
-        if !packet_fits(bytes) {
+        if !packet_fits(bytes, r.referee.match_slots()) {
             return true;
         }
         let mut outs = Outs::default();
@@ -767,7 +770,7 @@ mod tests {
         let told = peers(&[(0, "ea"), (1, "eb")]);
         a.path.peers_told(&mut a.svc, &a.base, &told, false, 0.0);
         a.path.chose(&mut a.svc, 0, 10.0);
-        let go = ServerMessage::RefGo { r#match: 4, in_ms: 250, humans: told.clone() };
+        let go = ServerMessage::RefGo { r#match: 4, in_ms: 250, humans: told.clone(), slots: 2 };
         a.path.ref_told(&mut a.svc, &a.base, &go, 10.0);
         assert_eq!(a.path.open_as(), Some(false), "the referee keeps its links");
         assert!(!a.path.referee_take(&mut a.svc, &a.base, "ex", &[1, 2, 3], 11.0), "no human of the match");

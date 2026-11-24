@@ -63,6 +63,9 @@ fn is_until(until: &serde_json::Value, e: &mvs_trace::EventRecord) -> bool {
 
 /// The header of a match recorded from `store`: its definition, set-up and seed, and the store's kinds.
 fn header_of(spec: &serde_json::Value, store: &mvs_store::Store) -> Result<Header, String> {
+    if spec.get("flow").is_some() {
+        return Err("\"flow\" goes inside \"setup\": beside it nothing reads it".to_owned());
+    }
     let m = store.manifest();
     let kinds: serde_json::Map<_, _> = m.kinds.iter().map(|(k, r)| (k.clone(), serde_json::json!(r.version))).collect();
     let calls = match spec.get("calls") {

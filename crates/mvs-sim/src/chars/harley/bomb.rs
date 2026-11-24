@@ -563,7 +563,7 @@ fn detonate(w: &mut World, id: ActorId) {
     let team = w.fighter(f).team.team;
     let all = all_list(w);
     for &o in &all {
-        if !touches(w, o, bx, by, r, false) {
+        if !touches(w, f, o, bx, by, r, false) {
             continue;
         }
         let carried = attached && Some(o) == carrier;
@@ -1082,7 +1082,7 @@ fn step(w: &mut World, id: ActorId) {
         let Some(b) = bomb_of(w, id) else { return };
         let (bx, by, r) = (b.x, b.y, b.attach_r * k);
         let at = b.inside.iter().position(|&i| i == oid);
-        if !touches(w, o, bx, by, r, true) {
+        if !touches(w, f, o, bx, by, r, true) {
             if let (Some(at), Some(b)) = (at, bomb_mut(w, id)) {
                 b.inside.remove(at);
             }

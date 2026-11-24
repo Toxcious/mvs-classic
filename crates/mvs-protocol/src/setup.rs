@@ -7,6 +7,16 @@ use serde_json::Value;
 
 /// GetTeamStyle: 0 "1v1", 1 "2v2", 2 "FreeForAll".
 pub type TeamStyle = u8;
+pub const ONE_VS_ONE: TeamStyle = 0;
+pub const TWO_VS_TWO: TeamStyle = 1;
+pub const FREE_FOR_ALL: TeamStyle = 2;
+
+/// The match's team count for `players` players (`mvs-sim` `setup::team_count`, which the match plays by): a
+/// player's team is its index modulo it. 2 in 1v1 and 2v2; 4 in Free For All, or one team per player past four (the
+/// port's own big matches).
+pub fn team_count(style: TeamStyle, players: usize) -> u32 {
+    if style == FREE_FOR_ALL { u32::try_from(players.clamp(4, crate::match_wire::MAX_SLOTS)).unwrap_or(4) } else { 2 }
+}
 
 /// A player of the match. `difficulty`: a bot's lobby choice, 0 VeryEasy .. 3 Hard (MatchPlayerData BotBehavior
 /// 2..5), 4 the port's own Expert; `character` a roster name (absent: the default one); `team`, `start` and `starting_damage` the Lab's slots'
@@ -121,6 +131,12 @@ pub struct WheelWire {
     pub pool: Vec<String>,
     pub seconds: u32,
     pub warn: u32,
+    /// The rate of Chaos mutators (`mvs_mutators::ChaosRate::key`); absent: normal.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chaos: Option<String>,
+    /// Two at once late in the match; absent: off.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub two: bool,
 }
 
 /// The match set-up: `players` in player-index order; `rules` absent for the Lab (TrainGameMode); `flow` the world

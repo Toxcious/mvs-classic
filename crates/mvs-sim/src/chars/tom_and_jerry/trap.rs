@@ -48,7 +48,7 @@ use crate::combat::elem::charge_pct;
 use crate::combat::hits::{
     HitShape, actor_hit_enemy, apply_projectile_hit, dealer, hit_box_actor_hits, projectile_blocks,
 };
-use crate::combat::phases::{alive, no_hit};
+use crate::combat::phases::alive;
 use crate::combat::spawned_hits::{class_rows, hit_box_types};
 use crate::events::{Event, SoundKey};
 use crate::fighter::body::{PlatformRef, plat};
@@ -566,10 +566,14 @@ fn hits(w: &mut World, id: ActorId) {
     };
     for vic in all_fighters(w) {
         let vid = w.fighter(vic).id;
-        if w.fighter(vic).team.team == team || !alive(w, vic) || no_hit(w, vic) || state(w, id).hit_set.contains(&vid) {
+        if w.fighter(vic).team.team == team
+            || !alive(w, vic)
+            || crate::combat::phases::no_hit_by_team(w, team, vic)
+            || state(w, id).hit_set.contains(&vid)
+        {
             continue;
         }
-        if !crate::chars::harley::actors::touches(w, vic, x, y, r, true) {
+        if !crate::chars::harley::actors::touches(w, own, vic, x, y, r, true) {
             continue;
         }
         if projectile_blocks(w, &dealer(w, me), vic) {

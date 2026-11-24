@@ -15,6 +15,7 @@ pub mod catch_up;
 pub mod flow;
 pub mod items;
 pub mod mutators;
+pub mod own_rules;
 pub mod pawns;
 pub mod profiles;
 pub mod reset;
@@ -24,8 +25,10 @@ pub mod spawning;
 pub mod stage;
 pub mod stage_actors;
 pub mod stage_query;
+pub mod starts;
 pub mod wall_bp;
 pub mod wheel;
+pub mod wheel_events;
 
 pub use blast::{BlastBounds, KoBox, Shrunk};
 pub use flow::{BonusTracker, MatchState, Timer, TimerCmd, VoShared};
@@ -468,7 +471,7 @@ impl World {
         Ok(w)
     }
 
-    /// `step(inputs)`: one tick, in the order of the step.
+    /// One tick, in the order of the step.
     pub fn step(&mut self, inputs: &[InputState]) {
         let w = self;
         w.scratch.inputs.clear();

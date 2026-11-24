@@ -234,6 +234,8 @@ pub enum BuffExt {
     ItemCarBuff(crate::items::car::ItemCarBuffExt),
     /// `Mutator_InstantKill_C`: `{ left }` (`combat::mutator_buffs`).
     InstantKill(crate::combat::mutator_buffs::InstantKillExt),
+    /// The port's reworked mutators (Freeze Touch, Shields Up): `ChaosExt` (`combat::mutator_buffs`).
+    Chaos(crate::combat::mutator_buffs::ChaosExt),
     /// `Mutator_GrowWithDamage_C`: `{ dealt }` (`combat::grow_with_damage`).
     GrowWithDamage(crate::combat::grow_with_damage::GrowExt),
 }
@@ -959,9 +961,29 @@ fn new_buff_entry(w: &mut World, f: FighterId, cls: Name, frames: Real, stacks: 
 /// `caller`: the fighter whose Comp_State_Manager makes the call and broadcasts NewBuffSpawned (@1427) and
 /// BuffStacksAdded (SweepBuffState @1671); none: the buff owner's own.
 /// Unverified: a call site that names no caller is taken as the owner's own manager.
+/// The port's own spare switch: no buff on an opponent of its Instigator (else of its caller); the hit of an item
+/// the stage dropped gives its rows through [`spawn_buff_unspared`].
+#[allow(clippy::too_many_arguments, reason = "the call's inputs")]
+pub fn spawn_buff(
+    w: &mut World,
+    f: FighterId,
+    cls: Name,
+    duration: Real,
+    stack_count: Option<i32>,
+    instigator: Option<FighterId>,
+    break_if_blocked: bool,
+    caller: Option<FighterId>,
+) -> Option<BuffRef> {
+    if instigator.or(caller).is_some_and(|by| crate::combat::phases::spares(w, by, f)) {
+        return None;
+    }
+    spawn_buff_unspared(w, f, cls, duration, stack_count, instigator, break_if_blocked, caller)
+}
+
+/// [`spawn_buff`] with no test of the port's own spare switch: the rows of a hit by an item the stage dropped.
 #[allow(clippy::too_many_arguments, reason = "the call's inputs")]
 #[allow(clippy::too_many_lines, reason = "SpawnBuffActor and the BeginPlay, in their own order")]
-pub fn spawn_buff(
+pub(crate) fn spawn_buff_unspared(
     w: &mut World,
     f: FighterId,
     cls: Name,
@@ -3012,6 +3034,12 @@ pub fn apply_knock_back_multipliers(w: &World, f: FighterId, vx: Real, vy: Real,
         if v < 0.0 {
             v = apply_mod(v, m.v[DOWN_KB], m.t[DOWN_KB], true);
         }
+    }
+    if taken {
+        // the port's own Featherweight and Heavyweight (`own_rules`)
+        let k = crate::world::own_rules::taken_knockback(w);
+        h *= k;
+        v *= k;
     }
     (if h == 0.0 { 0.0 } else { -h }, v)
 }

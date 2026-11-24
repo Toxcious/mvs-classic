@@ -30,7 +30,7 @@ use crate::fighter::control::{actor_spawn_ability, attack_dodged, dodge_over};
 use crate::fighter::match_side::SpawnRequest;
 use crate::fighter::moves::reset_jump_counts;
 use crate::fighter::traces::{OBJ_DAMAGE_DESTRUCTIBLE, OBJ_PAWN, sphere_overlap_actors};
-use crate::fighter::{FighterId, actor_y, facing, in_air, in_hitstun, invulnerable, no_hit};
+use crate::fighter::{FighterId, actor_y, facing, in_air, in_hitstun, invulnerable};
 use crate::math::ue::size2d;
 use crate::math::{max, to_int32};
 use crate::name;
@@ -255,7 +255,10 @@ pub fn create_bomb_explosion(w: &mut World, f: FighterId) {
             warn_text(w, "stripe bomb: CreateBombExplosion met an actor that is no fighter (not hit)");
             continue;
         };
-        if w.fighter(vic).team.team == w.fighter(f).team.team || w.fighter(vic).life.dead > 0.0 || no_hit(w, vic) {
+        if w.fighter(vic).team.team == w.fighter(f).team.team
+            || w.fighter(vic).life.dead > 0.0
+            || crate::combat::phases::no_hit_by(w, f, vic)
+        {
             continue;
         }
         // @1103-1188: UE Y = -x, so the owner's Y >= the actor's is f.x <= vic.x.

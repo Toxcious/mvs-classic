@@ -1104,7 +1104,6 @@ impl AttachedBottom {
     ) -> AttachedBottom {
         let mut t = proto.clone();
         let t = &mut t;
-        let r = t.root();
         // Construct: tempCustom.RemoveFromParent.
         let temp = t.find("tempCustom");
         t.remove(temp);
@@ -1157,7 +1156,29 @@ impl AttachedBottom {
             armor_unavailable: 0,
             meter_empty: -1.0,
         };
-        h.color_parts(t, b);
+        h.bind(t, b, ui, ctx5, names);
+
+        // SetupInitialValues: OnPercent(0), OnEvadeDecay(1).
+        for p in &mut h.percentages {
+            p.set_percentage(t, 0, 0.0, 0.0);
+        }
+        h.flame.on_percentage(t, 0);
+        for m in &mut h.meters {
+            m.on_evade_decay(t, 1.0, -1.0);
+        }
+        h.t = std::mem::take(t);
+        h
+    }
+
+    /// What of the widgets is the player's (its colours, username, marker and locality), at the construction and
+    /// again for another player (`rebind`).
+    fn bind(&mut self, t: &mut Tree, b: &BrokerPlayer, ui: &Prefs, ctx5: bool, names: &PlayerNumbers) {
+        let marker = self.marker;
+        let username = t.find("UI_IGv3_Username");
+        let own_meter = t.find("UI_IGv3_DodgeMeter");
+        let own_pct = t.find("UI_IGv3_Percentage");
+        let r = t.root();
+        self.color_parts(t, b);
 
         // Username
         let nl = t.find_in(username, "nameLabel");
@@ -1175,10 +1196,10 @@ impl AttachedBottom {
         let large = t.find_in(marker, "playerNumberLabelLarge");
         let name = names.local_play_username(b.index);
         t.widget_mut(large).text = name.short.clone();
-        for m in &h.meters {
+        for m in &self.meters {
             m.set_player(t, &name);
         }
-        h.marker_prefs(t, b, ui, ctx5, marker);
+        self.marker_prefs(t, b, ui, ctx5, marker);
 
         // AttachedBottom RespondToLocality (@1570): Should Show Percentage? and the bottom container's height.
         let show_own_pct = if ctx5 && !b.is_me {
@@ -1214,17 +1235,14 @@ impl AttachedBottom {
         let root = t.widget_mut(r);
         root.transform.translation[1] = 0.0;
         root.vis = Vis::SelfHitTestInvisible;
+    }
 
-        // SetupInitialValues: OnPercent(0), OnEvadeDecay(1).
-        for p in &mut h.percentages {
-            p.set_percentage(t, 0, 0.0, 0.0);
-        }
-        h.flame.on_percentage(t, 0);
-        for m in &mut h.meters {
-            m.on_evade_decay(t, 1.0, -1.0);
-        }
-        h.t = std::mem::take(t);
-        h
+    /// (the port's own) The Chaos Wheel's Body Swap: the widgets bound to the player driving the fighter (its
+    /// colours, username, marker and locality; the fighter's own percentage, meters and cooldowns stay).
+    pub fn rebind(&mut self, b: &BrokerPlayer, ui: &Prefs, ctx5: bool, names: &PlayerNumbers) {
+        let mut t = std::mem::take(&mut self.t);
+        self.bind(&mut t, b, ui, ctx5, names);
+        self.t = t;
     }
 
     /// UI_IGv3_PlayerMarker RespondToPreferences (@4159 -> @3650) and its RespondToLocality (@782).

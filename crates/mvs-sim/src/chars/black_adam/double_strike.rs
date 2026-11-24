@@ -34,7 +34,7 @@ use crate::fighter::common::warn_text;
 use crate::fighter::control::attack_dodged;
 use crate::fighter::moves::V2;
 use crate::fighter::traces::{OBJ_PAWN, TraceHit, sphere_trace_multi_for_objects};
-use crate::fighter::{actor_y, invulnerable, no_hit};
+use crate::fighter::{actor_y, invulnerable};
 use crate::math::ue::size2d;
 use crate::name;
 use crate::registry::entries::{ActorEntry, ActorHooks, ProjectileHooks};
@@ -181,7 +181,7 @@ fn explode(w: &mut World, id: ProjectileId) {
             }
             None => continue,
         };
-        if done.contains(&vic) || w.fighter(vic).life.dead > 0.0 || no_hit(w, vic) {
+        if done.contains(&vic) || w.fighter(vic).life.dead > 0.0 || crate::combat::phases::no_hit_by(w, f, vic) {
             continue;
         }
         if w.fighter(vic).team.team == w.fighter(f).team.team {

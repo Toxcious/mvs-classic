@@ -22,7 +22,7 @@ named_enum!(PopKind, "pop text kind", [
     PopKind::FinnHighFive => "finnHighFive", PopKind::FinnBoots => "finnBoots", PopKind::FinnSale => "finnSale",
     PopKind::NotifyText => "notifyText", PopKind::TjCheese => "tjCheese",
     PopKind::GizmoForceDance => "gizmoForceDance", PopKind::GizmoAttach => "gizmoAttach",
-    PopKind::Transferred => "transferred",
+    PopKind::Transferred => "transferred", PopKind::HotPotato => "hotPotato",
 ]);
 named_enum!(KnifeKind, "knife kind", [KnifeKind::Stick => "stick", KnifeKind::Ground => "ground", KnifeKind::Dash => "dash"]);
 named_enum!(ElectricKind, "electric kind", [

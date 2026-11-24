@@ -789,6 +789,9 @@ impl Svc for BotDetectEnemy {
         self.cached = cx.w.all_ids();
         let cached = self.cached.clone();
         let self_i = cached.iter().position(|&t| t == me);
+        // Unverified: AllyActor is the last live teammate, and the 30 s shift below is against that one alone: in a
+        // team of three (the port's own big matches) the first two bots both shift 0 and prefer the same enemy. Kept
+        // as the build's graph.
         let mut ally: Option<usize> = None;
         for (i, &t) in cached.iter().enumerate() {
             if t == me || is_dead(cx.w, t) || team(cx.w, t) != team(cx.w, me) {

@@ -25,7 +25,9 @@ pub enum SceneCmd {
     /// UI_Homescreen_v2 VO_Clickable's OnClick on the Player1 preview: its `clickable` voice line, posted by the
     /// program when one plays.
     ClickVo,
-    /// The lobby's team style the pre-match level and previews read (`Renderer::set_menu_team_style`: 0 1v1, 1 2v2,
-    /// 2 FFA; None no config). Sent when the pre-match opens and when the style changes.
+    /// The match's team style (ETeamStyle) the pre-match level and previews read (`Renderer::set_menu_team_style`:
+    /// 0 1v1, 1 2v2, 2 FFA; None no config): a custom lobby's is the one its start derives
+    /// (`lobby_rules::LobbyRules::match_setup`), not the lobby's own style. Sent when the pre-match opens and when the
+    /// style changes.
     TeamStyle(Option<u8>),
 }

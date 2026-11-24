@@ -1,16 +1,17 @@
 //! The port's own Chaos Wheel rule (`mvs_sim::world::wheel`) where the trace match `wheel-combat` cannot show it:
-//! each pool mutator on then off leaves a fighter as it found it, a Giant grown against a wall and under a ceiling,
+//! each pool mutator on then off leaves a fighter as it found it, the reworks (Air Show, Freeze Touch, Shields Up), two at once late in a match, a Giant grown against a wall and under a ceiling,
 //! the clock's start with and without a flow, a stage with no item area, and the rule on four fighters (2v2 and
 //! Free For All).
 
 use mvs_sim::fighter::FighterId;
+use mvs_sim::registry::signals::{BuffSignal, BuffSignalArg};
 use mvs_sim::setup::{MatchPlayer, MatchSetup, Rules, TeamStyle, Wheel};
 use mvs_sim::world::stage::{RuntimeSolidSpec, add_runtime_solid};
 use mvs_sim::world::wheel::{change_to, status};
 use mvs_sim::{Event, InputState, Real, World};
 use mvs_sim_trace::harness::{self, Harness};
 
-/// `mvs_protocol::lobby_rules::WHEEL_MUTATORS`, the pool the app passes.
+/// `mvs_mutators::ALL`, the pool the app passes.
 const POOL: [&str; 13] = [
     "Mutator_Giant",
     "Mutator_Miniature",
@@ -37,7 +38,7 @@ fn setup(pool: &[&str], seconds: Real, flow: bool) -> MatchSetup {
         players: vec![player("superman"), player("shaggy")],
         rules: Some(Rules { knockouts_to_win: 99.0, duration: 420.0, stocks: false }),
         flow,
-        wheel: Some(Wheel { pool: pool.iter().map(|&s| s.to_owned()).collect(), seconds, warn: 1.0 }),
+        wheel: Some(Wheel { seconds, warn: 1.0, ..Wheel::of(pool.iter().map(|&s| s.to_owned()).collect()) }),
         ..MatchSetup::default()
     }
 }
@@ -131,36 +132,53 @@ fn each_pool_mutator_on_then_off_leaves_a_fighter_as_it_found_it() {
 }
 
 #[test]
-fn extra_air_special_comes_back_after_a_respawn_inside_its_window() {
+fn air_show_comes_back_after_a_respawn_inside_its_window() {
     let Some(mut h) = landed() else { return };
     let f = h.fighter(0);
     let air = POOL.iter().position(|&k| k == "Mutator_Boost_AdditionalAirSpecial").expect("in the pool");
     let before = h.w.fighter(f).air.air_special_max_set;
     change_to(&mut h.w, Some(air));
-    assert_eq!(mvs_sim::fighter::control::air_special_max(&h.w, f), 3.0);
-    // a ring-out and the respawn inside the window: the build's each-life +1 on a reset pawn
+    assert_eq!(mvs_sim::fighter::control::air_special_max(&h.w, f), 99.0);
+    // a ring-out and the respawn inside the window: the new life's mutator sets it again
     mvs_sim::combat::buffs::defeat_buffs(&mut h.w, f);
     mvs_sim::world::flow::respawn(&mut h.w, f);
-    assert_eq!(mvs_sim::fighter::control::air_special_max(&h.w, f), 3.0);
+    assert_eq!(mvs_sim::fighter::control::air_special_max(&h.w, f), 99.0);
     change_to(&mut h.w, None);
     assert_eq!(h.w.fighter(f).air.air_special_max_set, before);
 }
 
 #[test]
-fn the_ice_gauntlets_window_ends_its_own_gauntlet_only() {
+fn freeze_touch_ices_every_third_hit() {
     let Some(mut h) = landed() else { return };
     let (sup, sh) = (h.fighter(0), h.fighter(1));
     let ice = POOL.iter().position(|&k| k == "Mutator_Boost_IceGauntlets").expect("in the pool");
-    let gauntlet = h.w.lit("Buff_SupermanAllyIceGauntlet_C");
+    let cls = h.w.lit("Buff_Ice_C");
     change_to(&mut h.w, Some(ice));
-    let live = |w: &World, f: FighterId| {
-        w.fighter(f).buffs.buffs.iter().filter(|b| b.cls == gauntlet && b.frames > 0.0).count()
+    let iced = |w: &World, f: FighterId| w.fighter(f).buffs.buffs.iter().any(|b| b.cls == cls && b.frames > 0.0);
+    let hit = |w: &mut World| {
+        let arg = BuffSignalArg { victim: Some(sh), ..BuffSignalArg::default() };
+        mvs_sim::combat::buffs::buff_signal(w, sup, BuffSignal::HitEnemy, arg);
     };
-    assert_eq!(live(&h.w, sup), 1);
-    assert_eq!(live(&h.w, sh), 1);
-    change_to(&mut h.w, None);
-    assert_eq!(live(&h.w, sup), 0);
-    assert_eq!(live(&h.w, sh), 0);
+    hit(&mut h.w);
+    hit(&mut h.w);
+    assert!(!iced(&h.w, sh), "two hits give no Ice");
+    hit(&mut h.w);
+    assert!(iced(&h.w, sh), "the third hit gives Ice");
+}
+
+#[test]
+fn shields_up_refills_after_a_quiet_spell() {
+    let Some(mut h) = landed() else { return };
+    let f = h.fighter(0);
+    let grey = POOL.iter().position(|&k| k == "Mutator_GreyHealth").expect("in the pool");
+    change_to(&mut h.w, Some(grey));
+    let shield = |w: &World| w.fighter(f).stats.temp_health.iter().map(|p| p.amount).sum::<Real>();
+    assert_eq!(shield(&h.w), 50.0);
+    h.w.fighter_mut(f).stats.temp_health.iter_mut().for_each(|p| p.amount = 10.0);
+    idle(&mut h, 120);
+    assert_eq!(shield(&h.w), 10.0, "no refill within the quiet spell");
+    idle(&mut h, 130);
+    assert_eq!(shield(&h.w), 50.0, "given again whole after 4 s");
 }
 
 /// A Floor box of the play plane with its sim left, right, bottom and top (sim x = -UE Y, sim y = UE Z).
@@ -172,6 +190,7 @@ fn wall(w: &mut World, spec: i32, l: Real, r: Real, b: Real, t: Real) {
         half_extent: [500.0, (r - l) / 2.0, (t - b) / 2.0],
         rot: None,
         component: mvs_sim::names::Name::NONE,
+        flags: None,
     };
     assert!(add_runtime_solid(w, spec, &d), "the box is made");
 }
@@ -303,6 +322,21 @@ fn a_stage_with_no_item_area_never_rolls_random_items() {
 }
 
 #[test]
+fn the_draw_goes_through_the_whole_pool_before_a_mutator_comes_back() {
+    let Some(mut h) = harness::fresh(&setup(&POOL, 0.5, false), 5) else { return };
+    let c = changes(&mut h, 30 * 120);
+    assert!(c.len() > 100, "{} changes", c.len());
+    // each round of the bag is the whole pool once
+    for round in c.as_chunks::<{ POOL.len() }>().0 {
+        let mut r = round.to_vec();
+        r.sort_unstable();
+        assert_eq!(r, (0..13).collect::<Vec<i32>>(), "{c:?}");
+    }
+    // and across a refill the last three are held back: no mutator within four changes of its last
+    assert!(c.windows(4).all(|p| (1..4).all(|i| p[i] != p[0])), "{c:?}");
+}
+
+#[test]
 fn the_draw_never_gives_a_mutator_the_set_up_lists() {
     let mut s = setup(&POOL, 0.5, false);
     s.mutators = vec!["Mutator_Giant".to_owned(), "Mutator_RandomItemSpawns".to_owned()];
@@ -406,4 +440,31 @@ fn a_fighter_rung_out_before_the_change_has_the_mutator_from_its_respawn() {
     idle(&mut h, 5);
     assert_eq!(h.w.fighter(out).body.size_scale, plain);
     assert_eq!(h.w.fighter(mate).body.size_scale, plain);
+}
+
+#[test]
+fn two_at_once_adds_a_second_mutator_only_late_in_the_match() {
+    // a match under a minute long is late from its start: each change gives two, never the same one
+    let mut s = setup(&POOL, 0.5, true);
+    s.rules = Some(Rules { knockouts_to_win: 99.0, duration: 50.0, stocks: false });
+    s.wheel.as_mut().expect("a wheel").two = true;
+    let Some(mut h) = harness::fresh(&s, 5) else { return };
+    let mut seen = 0;
+    for _ in 0..30 * 60 {
+        if !changes(&mut h, 1).is_empty() {
+            let st = status(&h.w).expect("a status");
+            let (Some(a), Some(b)) = (st.current, st.also) else { panic!("one mutator late: {st:?}") };
+            assert_ne!(a, b);
+            seen += 1;
+        }
+    }
+    assert!(seen > 10, "{seen} changes");
+    // a long match is not late: one at a time
+    let mut s = setup(&POOL, 0.5, true);
+    s.wheel.as_mut().expect("a wheel").two = true;
+    let Some(mut h) = harness::fresh(&s, 5) else { return };
+    for _ in 0..30 * 60 {
+        h.step_recorded();
+        assert_eq!(status(&h.w).and_then(|s| s.also), None);
+    }
 }

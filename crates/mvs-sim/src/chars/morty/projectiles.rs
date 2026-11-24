@@ -52,7 +52,7 @@ use crate::fighter::control::{actor_spawn_ability, attack_dodged, dodge_over};
 use crate::fighter::match_side::{SpawnRequest, TutorialEvent};
 use crate::fighter::moves::V2;
 use crate::fighter::traces::sphere_overlap_actors;
-use crate::fighter::{FighterId, actor_y, cap_radius, capsule_half, invulnerable, no_hit};
+use crate::fighter::{FighterId, actor_y, cap_radius, capsule_half, invulnerable};
 use crate::math::ue::{KINDA_SMALL_NUMBER, SMALL_NUMBER, normal, safe_normal, size2d};
 use crate::math::{max, min};
 use crate::name;
@@ -148,7 +148,11 @@ pub fn detonate(w: &mut World, id: ProjectileId, bomb: i32, ignore: Option<Actor
             break; // (not in the Lab reset's pass: an old pawn there)
         }
         let v = w.fighter(vic);
-        if v.team.team == team || v.life.dead > 0.0 || no_hit(w, vic) || ignore == Some(ActorRef::Fighter(vic)) {
+        if v.team.team == team
+            || v.life.dead > 0.0
+            || crate::combat::phases::no_hit_by_team(w, team, vic)
+            || ignore == Some(ActorRef::Fighter(vic))
+        {
             continue;
         }
         let (vx, vy) = (v.body.x, actor_y(w, vic));
@@ -829,7 +833,7 @@ pub fn whip_tipper(w: &mut World, id: ProjectileId) {
     let hit = HitPacket::from_props(&w.names, &lasso, None);
     for vic in match_fighters(w) {
         let v = w.fighter(vic);
-        if v.team.team == team || v.life.dead > 0.0 || no_hit(w, vic) {
+        if v.team.team == team || v.life.dead > 0.0 || crate::combat::phases::no_hit_by_team(w, team, vic) {
             continue;
         }
         let (vx, vy) = (v.body.x, actor_y(w, vic));

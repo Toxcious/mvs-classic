@@ -37,6 +37,31 @@ pub fn peers(w: &World) -> &[FighterId] {
     w.pawns.as_deref().unwrap_or(&w.players)
 }
 
+/// Comp_Actor_Destructible.GetAllies of fighter `f`: its Allies, kept as the component keeps it. BeginPlay fills it
+/// with every other player of its team (UpdateAllyListServer over GetAllPlayers @132-558); a knocked-out ally leaves
+/// it (OnPlayerKnockedOut -> RemoveItem @2338) and comes back last at its respawn (OnPlayerRespawned -> AddUnique
+/// @2269). Players only: a minion is never in it. Here: the live players of its team, by the tick each last joined
+/// (`Team::joined`), then in player order.
+/// Unverified: GetAllPlayers' order (the first fill) is taken as the player order; it is not decoded. With one ally
+/// (the beta's 2v2) the order never shows. The list's ends are [`first_ally`] and [`last_ally`].
+pub fn allies(w: &World, f: FighterId) -> impl Iterator<Item = FighterId> + '_ {
+    let team = w.fighter(f).team.team;
+    peers(w).iter().copied().filter(move |&o| {
+        let x = w.fighter(o);
+        o != f && x.team.team == team && x.life.dead <= 0.0 && !x.life.is_minion
+    })
+}
+
+/// The first of fighter `f`'s Allies ([`allies`]): Array_Get(Allies, 0). Of equal ticks, the first in player order.
+pub fn first_ally(w: &World, f: FighterId) -> Option<FighterId> {
+    allies(w, f).min_by_key(|&o| w.fighter(o).team.joined)
+}
+
+/// The last of fighter `f`'s Allies ([`allies`]): the one that joined last; of equal ticks, the last in player order.
+pub fn last_ally(w: &World, f: FighterId) -> Option<FighterId> {
+    allies(w, f).max_by_key(|&o| w.fighter(o).team.joined)
+}
+
 /// The character data of fighter `f` (`f.data`).
 pub fn data_of(w: &World, f: FighterId) -> &CharData {
     char_data(w, w.fighter(f).ch)

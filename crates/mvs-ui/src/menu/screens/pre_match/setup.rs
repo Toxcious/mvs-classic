@@ -16,12 +16,26 @@ use crate::menu::arcade::ArcadeRun;
 use crate::menu::lobby::loadout::BotLoadout;
 use crate::menu::lobby::{LocalLobby, PreMatchPick, SetupSource};
 
+/// The team of a spectator (TeamIndex 4 in the build: no widget, not waited for).
+/// Deviation: the port's big matches have a player on team 4, so a spectator takes a team no player has; the port
+/// makes no spectator.
+pub const SPECTATOR_TEAM: u8 = u8::MAX;
+
+/// The scene's fighter points (CheckMark1-4, PerkInfo1-4): the players the build's screen lays out.
+pub const SCENE_PLAYERS: usize = 4;
+
+/// (the port's own big matches) More players than the scene has points: the screen shows its row of cards
+/// (`card_row`) and no line-up.
+pub fn is_big(setup: &PreMatchSetup) -> bool {
+    setup.players.iter().filter(|p| p.team != SPECTATOR_TEAM).count() > SCENE_PLAYERS
+}
+
 /// A player of the pre-match screen.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct PreMatchPlayer {
     pub account_id: String,
     pub username: String,
-    /// TeamIndex (4: a spectator, no widget, not waited for).
+    /// TeamIndex (`SPECTATOR_TEAM`: a spectator).
     pub team: u8,
     pub is_bot: bool,
     /// A bot's lobby row: its roster key (None: a human's, or a bot with none) and SkinData name ("" the default),
@@ -119,12 +133,11 @@ pub fn spec_of(c: &RosterEntry, skin: &str, team: u8) -> Option<PreviewSpec> {
 }
 
 impl LocalLobby {
-    /// The started match's players with their teams (PlayerIndex % team count), a
+    /// The started match's players with their teams (the match's own: the lobby's columns, `SetupPlayer::team`), a
     /// bot's row and cosmetics, the team style and the map. A human's row carries no character (the pick is made on
     /// the screen); a bot's carries its own. The local account is the leader of a local lobby.
     pub fn pre_match_setup(&mut self, src: &SetupSource<'_>, random: &mut dyn FnMut() -> f64) -> PreMatchSetup {
         let started = self.rules.match_setup();
-        let teams = if started.setup.team_style == 2 { 4 } else { 2 };
         let mut players = Vec::new();
         for (i, id) in started.ids.iter().enumerate() {
             let row = self.rules.players().into_iter().find(|p| &p.account_id == id).cloned();
@@ -133,7 +146,7 @@ impl LocalLobby {
             players.push(PreMatchPlayer {
                 account_id: id.clone(),
                 username: started.usernames[i].clone(),
-                team: u8::try_from(i % teams).unwrap_or(0),
+                team: u8::try_from(started.setup.players[i].team).unwrap_or(0),
                 is_bot,
                 character: row.as_ref().filter(|_| is_bot).map(|p| p.character.clone()).filter(|c| !c.is_empty()),
                 skin: row.as_ref().filter(|_| is_bot).map(|p| p.skin.clone()).unwrap_or_default(),

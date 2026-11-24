@@ -289,6 +289,7 @@ pub fn record_damage(w: &mut World, f: FighterId, damage: Real, dealer: Option<F
     if damage != 0.0 {
         signal_bound(w, f, FighterSignal::TakeAnyDamage, false, damage, Name::NONE, dealer);
     }
+    crate::world::own_rules::damage_dealt(w, f, damage, dealer); // the port's own Vampire
 }
 
 /// A direct GameplayStatics ApplyDamage(f, amount, ..., causer) on a fighter, outside DamageAndLaunch (no hit, no

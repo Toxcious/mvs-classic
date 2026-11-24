@@ -55,7 +55,7 @@ use crate::combat::elem::charge_pct;
 use crate::combat::hit::hurt_hit;
 use crate::combat::hits::{actor_hit_enemy, apply_projectile_hit, dealer, projectile_blocks};
 use crate::combat::packet::DataVec;
-use crate::combat::phases::{alive, give_vbuf, no_hit, victim_pose};
+use crate::combat::phases::{alive, give_vbuf, victim_pose};
 use crate::consts as C;
 use crate::events::Event;
 use crate::fighter::anim::{add_invisibility, remove_invisibility};
@@ -526,7 +526,7 @@ fn overlap_pass(w: &mut World, id: ActorId, hit: bool, all: bool) {
         if !hit || (!all && was.is_some()) {
             continue;
         }
-        if w.fighter(vic).team.team == w.fighter(o).team.team || no_hit(w, vic) {
+        if w.fighter(vic).team.team == w.fighter(o).team.team || crate::combat::phases::no_hit_by(w, o, vic) {
             continue;
         }
         try_hit(w, id, vic, &spheres[2]);

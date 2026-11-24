@@ -5,7 +5,7 @@
 
 use crate::bundle::{Bundle, Rgba};
 use crate::element::ElementList;
-use crate::slate::{Geometry, HAlign, Margin, Tree, VAlign, Vis, WidgetId, layout, paint};
+use crate::slate::{Geometry, HAlign, Margin, Stretch, Tree, VAlign, Vis, WidgetId, layout, paint};
 use crate::text::Fonts;
 
 use super::attached::{Cooldowns, DodgeMeter, Flame, HudAbility, HudAbilityOp, Percentage};
@@ -593,6 +593,31 @@ pub struct ScoreboardSetup {
     pub mode_label: String,
     /// An arcade round's modeLabel text ("Stage N of M"), shown in contexts 1 to 3.
     pub stage_label: Option<String>,
+    /// Each player's team, by player index.
+    pub teams: Vec<u8>,
+}
+
+/// (the port's own) Whether a match takes the big matches' scoreboard (`big_sides`): more than four players, or a
+/// Versus match whose teams are not the build's alternation (team = player index % 2: an uneven 3v1).
+fn big_layout(mode: u8, teams: &[u8]) -> bool {
+    (mode == 2 || mode == 3)
+        && (teams.len() > 4 || (mode == 2 && teams.iter().enumerate().any(|(i, &t)| usize::from(t) != i % 2)))
+}
+
+/// (the port's own) The big matches' scoreboard sides, player indexes left to right: Versus team 0 on the left and
+/// team 1 on the right, Free For All the even indexes on the left and the odd on the right (the build's 2v2 and Free
+/// For All put players 0 and 2 left, 1 and 3 right).
+fn big_sides(mode: u8, teams: &[u8]) -> [Vec<usize>; 2] {
+    let side = |i: usize| if mode == 3 { i % 2 } else { usize::from(teams[i] != 0) };
+    [0, 1].map(|k| (0..teams.len()).filter(|&i| side(i) == k).collect())
+}
+
+/// (the port's own) The scale of every big-match slot: a side of `per_side` slots as wide as the build's side of two.
+/// `portrait_only`: the slots show no percentage and no cooldowns (the default preferences), so their infoContainer
+/// is collapsed and a slot is its portrait alone: a side of four at the build's size of a portrait.
+fn big_scale(per_side: usize, portrait_only: bool) -> f64 {
+    let fit = if portrait_only { 4.0 } else { 2.0 };
+    (fit / per_side.max(1) as f64).min(1.0)
 }
 
 /// UI_IGv3_Scoreboard.
@@ -610,8 +635,8 @@ pub struct Scoreboard {
     clock: Clock,
     /// UI_IGv3_MatchInfo's modeLabel.
     mode_label: WidgetId,
-    /// By Player Index.
-    slots: [Option<Fixed>; 4],
+    /// By Player Index (at least four: the build's slots without a player).
+    slots: Vec<Option<Fixed>>,
     /// UI_IGv3_PauseHold: its widget, Meter and its Pause Hold Value.
     pause_hold_w: WidgetId,
     pause_hold_meter: WidgetId,
@@ -683,7 +708,54 @@ impl Scoreboard {
         let many = occupied.len() > 2;
         let by_slot = if many { [fa, fb, fc, fd] } else { [fa, fc, fb, fd] };
         let slot_w = |k: usize| occupied.get(k).and_then(|&s| by_slot.get(s).copied());
-        if mode == 4 {
+        // Deviation: a 2v2 match of three (the port's Versus lobby plays 2 against 1 as a 2v2) leaves out the slot of
+        // the player index no player has: the side of one shows its one slot, as a 1v1's side. The build's 2v2
+        // always adds all four (below).
+        let held = |i: usize| mode != 2 || i < players.len();
+        // Deviation: a match of more than four (the port's big matches) or an uneven Versus split has no layout in
+        // the build: each side's slots in one row, every slot the build's widget in a ScaleBox of `big_scale`, so a
+        // side of three or four is as wide as the build's side of two. Free For All keeps the build's gap of 40
+        // between a side's slots (FixedA's and FixedD's padding), scaled. A slot that shows no percentage and no
+        // cooldowns there collapses its infoContainer (the build keeps its width empty), so the portraits stay large.
+        let big = big_layout(mode, &setup.teams);
+        let mut big_place = Vec::new();
+        if big {
+            let sides = big_sides(mode, &setup.teams);
+            let portrait_only = !ui.hud_show_percentage && !ui.hud_show_cooldowns;
+            let k = big_scale(sides[0].len().max(sides[1].len()), portrait_only);
+            for (side, list) in sides.iter().enumerate() {
+                let (c, o) = if side == 0 { (left, 1) } else { (right, 2) };
+                for (j, &i) in list.iter().enumerate() {
+                    let fixed = match i {
+                        0 => fa,
+                        1 => fc,
+                        2 => fb,
+                        3 => fd,
+                        _ => t_.instantiate_in(b, c, "UI_IGv3_Fixed", &format!("UI_IGv3_Fixed{i}")),
+                    };
+                    if portrait_only {
+                        let info = t_.find_in(fixed, "infoContainer");
+                        t_.widget_mut(info).vis = Vis::Collapsed;
+                    }
+                    let sb = t_.create_plain(b, "ScaleBox", &format!("BigSlot{i}"));
+                    readd(t_, c, sb);
+                    readd(t_, sb, fixed);
+                    let w = t_.widget_mut(sb);
+                    w.stretch = Stretch::UserSpecified;
+                    w.user_scale = k;
+                    // (Automatic: each slot at its scaled width and the gap exact; the side is never wider than its
+                    // container)
+                    w.v_align = VAlign::Center;
+                    let gap = 40.0 * k;
+                    if mode == 3 && side == 0 && j + 1 < list.len() {
+                        w.pad.r = gap;
+                    } else if mode == 3 && side == 1 && j > 0 {
+                        w.pad.l = gap;
+                    }
+                    big_place.push((fixed, i, o));
+                }
+            }
+        } else if mode == 4 {
             put(t_, left, slot_w(0), 1);
             if many {
                 put(t_, left, slot_w(1), 1);
@@ -691,7 +763,7 @@ impl Scoreboard {
         } else if mode != 5 {
             // (the port's own Waves context: the player's slot alone, FixedA on the left, as the Lab's one player)
             put(t_, left, Some(fa), 1);
-            if four {
+            if four && held(2) {
                 put(t_, left, Some(fb), 1);
             }
         }
@@ -701,7 +773,9 @@ impl Scoreboard {
             readd(t_, center, info);
             readd(t_, center, pips_r);
         }
-        if mode == 4 {
+        if big {
+            // (placed above)
+        } else if mode == 4 {
             if many {
                 put(t_, right, slot_w(2), 2);
                 put(t_, right, slot_w(3), 2);
@@ -710,11 +784,11 @@ impl Scoreboard {
             }
         } else if mode != 5 && mode != MODE_WAVES {
             put(t_, right, Some(fc), 2);
-            if four {
+            if four && held(3) {
                 put(t_, right, Some(fd), 2);
             }
         }
-        if mode == 3 {
+        if mode == 3 && !big {
             t_.widget_mut(fa).pad = Margin { l: 0.0, t: 0.0, r: 40.0, b: 0.0 };
             t_.widget_mut(fd).pad = Margin { l: 40.0, t: 0.0, r: 0.0, b: 0.0 };
         }
@@ -724,15 +798,17 @@ impl Scoreboard {
         }
         // The centre / fill loop runs after the mode's block (@2873 pushes the block first, then @1418), so the
         // block's own HAlign Right / Left on FixedA, FixedC and FixedD does not survive it.
-        for c in [fa, fb, fc, fd, pips_l, pips_r, info] {
+        let all = [fa, fb, fc, fd, pips_l, pips_r, info];
+        for &c in &all[if big { 4 } else { 0 }..] {
             let w = t_.widget_mut(c);
             w.h_align = HAlign::Center;
             w.v_align = VAlign::Center;
             w.fill = 1.0;
         }
-        let mut slots: [Option<Fixed>; 4] = [None, None, None, None];
+        place.append(&mut big_place);
+        let mut slots: Vec<Option<Fixed>> = (0..players.len().max(4)).map(|_| None).collect();
         for (w, i, o) in place {
-            // A slot without a player (2v2 or Free For All with fewer than four) keeps its place in the row and is
+            // A slot without a player (Free For All with fewer than four) keeps its place in the row and is
             // initialised like any other: LayoutUIForMode adds all four, Init(Broker, Player Index) runs on each
             // (Scoreboard @57-285) and no widget of the slot tests IsActive or the player count.
             let p = players.get(i).cloned().unwrap_or_else(|| no_player(i));
@@ -911,7 +987,24 @@ impl Scoreboard {
         s.score.score(&mut self.t, left, false, false);
         if left <= 0 {
             self.t.widget_mut(s.w).opacity = OUT_OPACITY;
+        } else {
+            // (the port's own Chaos Wheel's Body Swap hands a slot lives again)
+            self.t.widget_mut(s.w).opacity = 1.0;
         }
+    }
+
+    /// (the port's own) The Chaos Wheel's Body Swap: a fighter's slot shows the player driving it (the colours,
+    /// username and number; the fighter's portrait, percentage and cooldowns stay).
+    pub fn rebind(&mut self, player: usize, b: &BrokerPlayer, names: &PlayerNumbers) {
+        let Some(s) = self.slots.get_mut(player).and_then(Option::as_mut) else { return };
+        let t = &mut self.t;
+        s.portrait.on_color(t, b);
+        let u = t.find_in(s.portrait.w, "usernameLabel");
+        t.widget_mut(u).text = b.username.clone();
+        s.score.on_color(t, b);
+        s.percentage.on_color(t, b.team, b.focus, b.is_me);
+        s.meter.on_color(t, b.team);
+        s.meter.set_player(t, &names.local_play_username(b.index));
     }
 
     /// The broker's percentage, grey percentage and evade calls for a player's slot.
@@ -1016,7 +1109,26 @@ impl Scoreboard {
 
 #[cfg(test)]
 mod tests {
-    use super::clock_text;
+    use super::{big_layout, big_scale, big_sides, clock_text};
+
+    #[test]
+    fn big_scoreboard_sides() {
+        // the build's shapes keep its layout: a 1v1, a 2v2, the port's 2v1, a Free For All of four
+        assert!(!big_layout(1, &[0, 1]));
+        assert!(!big_layout(2, &[0, 1, 0, 1]));
+        assert!(!big_layout(2, &[0, 1, 0]));
+        assert!(!big_layout(3, &[0, 1, 2, 3]));
+        // the lobby's 3v1, 4v2, 4v3 (the larger team 0, the sides alternating while both have players)
+        assert!(big_layout(2, &[0, 1, 0, 0]));
+        assert_eq!(big_sides(2, &[0, 1, 0, 0]), [vec![0, 2, 3], vec![1]]);
+        assert_eq!(big_sides(2, &[0, 1, 0, 1, 0, 0]), [vec![0, 2, 4, 5], vec![1, 3]]);
+        assert_eq!(big_sides(2, &[0, 1, 0, 1, 0, 1, 0]), [vec![0, 2, 4, 6], vec![1, 3, 5]]);
+        assert!(big_layout(3, &[0, 1, 2, 3, 4]));
+        assert_eq!(big_sides(3, &[0, 1, 2, 3, 4]), [vec![0, 2, 4], vec![1, 3]]);
+        assert_eq!(big_sides(3, &[0, 1, 2, 3, 4, 5, 6, 7]), [vec![0, 2, 4, 6], vec![1, 3, 5, 7]]);
+        assert_eq!([1, 2, 3, 4].map(|n| big_scale(n, false)), [1.0, 1.0, 2.0 / 3.0, 0.5]);
+        assert_eq!([1, 4, 5].map(|n| big_scale(n, true)), [1.0, 1.0, 0.8]);
+    }
 
     #[test]
     fn clock() {

@@ -132,7 +132,7 @@ pub struct LabSettings {
 }
 
 /// LocalPlaySettingsFromPlayer's fields: one slot of the Local Play screen.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct LocalPlayPlayer {
     pub character_slug: String,
     pub skin_slug: String,
@@ -146,7 +146,40 @@ pub struct LocalPlayPlayer {
     pub taunts: [String; 4],
     /// "" = none (GetLocalPlayUsername: "Player n").
     pub username: String,
+    /// (the port's own) A seat past the four pads' (`LOCAL_PLAY_PADS`) is a bot: its EBotDifficulty, as a custom
+    /// lobby's (2 Very Easy .. 5 Hard, 6 Expert); Medium (4) by default. The seats of the pads do not read it.
+    pub bot_difficulty: u8,
 }
+
+impl Default for LocalPlayPlayer {
+    fn default() -> LocalPlayPlayer {
+        LocalPlayPlayer {
+            character_slug: String::new(),
+            skin_slug: String::new(),
+            skin_reference: String::new(),
+            team_index: 0,
+            perk_slugs: Default::default(),
+            ringout_slug: String::new(),
+            banner_slug: String::new(),
+            taunts: Default::default(),
+            username: String::new(),
+            bot_difficulty: 4,
+        }
+    }
+}
+
+impl LocalPlayPlayer {
+    /// (the port's own big matches) A new seat `i`: the defaults on the alternating team `i % 2`, so seats added past
+    /// the pads split evenly in Teams.
+    pub fn seat(i: usize) -> LocalPlayPlayer {
+        LocalPlayPlayer { team_index: u8::try_from(i % 2).unwrap_or(0), ..LocalPlayPlayer::default() }
+    }
+}
+
+/// The Local Play seats the pads hold (the build's four local players); a seat past them is a bot.
+pub const LOCAL_PLAY_PADS: usize = crate::input::LOCAL_PLAYERS;
+/// (the port's own big matches) The most Local Play seats: the pads' four, then bots.
+pub const LOCAL_PLAY_MAX: usize = 8;
 
 /// The LocalPlay preferences (PreferencesManager LocalPreferences.LocalPlayPreferences).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -159,8 +192,9 @@ pub struct LocalPlaySettings {
     pub hazards: bool,
     /// The map selector's slugs (Set-LocalPlay-Maps).
     pub maps: Vec<String>,
-    /// By slot (Player Index) 0..3.
-    pub players: [LocalPlayPlayer; 4],
+    /// By slot (Player Index): the four of the pads, then (the port's own big matches) up to four bots'
+    /// (`LOCAL_PLAY_MAX`). Never fewer than `LOCAL_PLAY_PADS`.
+    pub players: Vec<LocalPlayPlayer>,
 }
 
 impl Default for LocalPlaySettings {
@@ -174,17 +208,38 @@ impl Default for LocalPlaySettings {
             time: 420,
             hazards: true,
             maps: Vec::new(),
-            players: Default::default(),
+            players: vec![LocalPlayPlayer::default(); LOCAL_PLAY_PADS],
         }
     }
 }
 
 impl LocalPlaySettings {
+    /// The match's team count for the style and the seats (`mvs-sim` `setup::team_count`): Free For All one per
+    /// seat, at least four; every other style two.
+    pub fn team_count(&self) -> usize {
+        if self.team_style == 2 { self.players.len().clamp(LOCAL_PLAY_PADS, LOCAL_PLAY_MAX) } else { 2 }
+    }
+
+    /// (the port's own big matches) The team of seat `i`: a bot seat's own index in Free For All; else its saved
+    /// `team_index` where it is below the style's team count, or the alternating default `i % 2` (so the bots past the
+    /// pads split evenly in Teams).
+    pub fn seat_team(&self, i: usize) -> u8 {
+        let own = u8::try_from(i).unwrap_or(u8::MAX);
+        if self.team_style == 2 && i >= LOCAL_PLAY_PADS {
+            return own;
+        }
+        match self.players.get(i) {
+            Some(p) if usize::from(p.team_index) < self.team_count() => p.team_index,
+            _ => own % 2,
+        }
+    }
+
     /// InitLocalPlayPreferences (PreferencesManager @3477): every slot's character cleared; and OnResourcesLoaded
     /// (@10792): every slot's username cleared, so a name lasts one run of the game. Done once when the file is
-    /// read.
+    /// read. (the port's own big matches) The bot seats past the pads keep their fighters: their seat has no step
+    /// that picks one again.
     pub fn start_of_run(&mut self) {
-        for p in &mut self.players {
+        for p in self.players.iter_mut().take(LOCAL_PLAY_PADS) {
             p.character_slug.clear();
             p.username.clear();
         }
@@ -247,21 +302,40 @@ pub(crate) fn local_play_from(root: &Map<String, Value>, empty: &Map<String, Val
         players: d.players,
     };
     if let Some(a) = s.get("players").and_then(Value::as_array) {
-        for (i, v) in a.iter().take(4).enumerate() {
-            let Some(o) = v.as_object() else { continue };
-            let p = &mut lp.players[i];
-            let d = LocalPlayPlayer::default();
+        // (a pad seat that is no seat object keeps its default; one past the pads is dropped)
+        let mut i = 0;
+        for v in a.iter().take(LOCAL_PLAY_MAX) {
+            let o = v.as_object();
+            if i >= LOCAL_PLAY_PADS && o.is_none() {
+                continue;
+            }
+            let at = i;
+            i += 1;
+            if at >= lp.players.len() {
+                lp.players.push(LocalPlayPlayer::seat(at));
+            }
+            let Some(o) = o else { continue };
+            let p = &mut lp.players[at];
+            let d = p.clone();
             *p = LocalPlayPlayer {
                 character_slug: take(o, "character_slug", d.character_slug, any),
                 skin_slug: take(o, "skin_slug", d.skin_slug, any),
                 skin_reference: take(o, "skin_reference", d.skin_reference, any),
-                team_index: take(o, "team_index", d.team_index, |v| *v < 4),
+                team_index: take(o, "team_index", d.team_index, |v| usize::from(*v) < LOCAL_PLAY_MAX),
                 perk_slugs: take(o, "perk_slugs", d.perk_slugs, any),
                 ringout_slug: take(o, "ringout_slug", d.ringout_slug, any),
                 banner_slug: take(o, "banner_slug", d.banner_slug, any),
                 taunts: take(o, "taunts", d.taunts, any),
                 username: take(o, "username", d.username, any),
+                bot_difficulty: take(o, "bot_difficulty", d.bot_difficulty, |v| (2..=6).contains(v)),
             };
+        }
+    }
+    // (a seat's team below the style's team count, else the alternating default)
+    for at in 0..lp.players.len() {
+        let team = lp.seat_team(at);
+        if lp.team_style != 2 || at < LOCAL_PLAY_PADS {
+            lp.players[at].team_index = team;
         }
     }
     lp.start_of_run();
@@ -314,6 +388,31 @@ mod tests {
         assert_eq!(back.local_play.ringouts, 3);
         assert_eq!(back.local_play.players[1].perk_slugs[2], "x");
         assert_eq!(back.local_play.players[0].username, "");
+        assert_eq!(back.local_play.players.len(), LOCAL_PLAY_PADS);
+        // (a big Local Play's bots' seats read back; an older file's four entries load with their defaults)
+        s.local_play
+            .players
+            .extend((0..5).map(|i| LocalPlayPlayer { bot_difficulty: 2 + i, ..LocalPlayPlayer::default() }));
+        let back = Settings::from_value(&serde_json::to_value(&s).unwrap());
+        assert_eq!(back.local_play.players.len(), LOCAL_PLAY_MAX, "eight seats at the most");
+        assert_eq!(back.local_play.players[4].bot_difficulty, 2);
+        assert_eq!(back.local_play.players[7].bot_difficulty, 5);
+        let old = Settings::from_value(&json!({ "local_play": { "players": [{ "username": "x", "team_index": 1 }] } }));
+        assert_eq!(old.local_play.players.len(), LOCAL_PLAY_PADS);
+        assert_eq!((old.local_play.players[0].team_index, old.local_play.players[0].bot_difficulty), (1, 4));
+        // (Teams: a pad seat's team past the two is the alternating default; an entry past the pads that is no seat
+        // is dropped; the bots' seats alternate)
+        let seats = json!({ "local_play": { "team_style": 1, "players": [
+            { "team_index": 1 }, { "team_index": 3 }, {}, {}, "junk", {}, { "bot_difficulty": 6 }, 5
+        ] } });
+        let lp = Settings::from_value(&seats).local_play;
+        assert_eq!(lp.players.len(), 6, "the junk entries past the pads dropped");
+        let teams: Vec<u8> = lp.players.iter().map(|p| p.team_index).collect();
+        assert_eq!(teams, [1, 1, 0, 0, 0, 1]);
+        assert_eq!(lp.players[5].bot_difficulty, 6);
+        assert_eq!((0..6).map(|i| lp.seat_team(i)).collect::<Vec<_>>(), [1, 1, 0, 0, 0, 1]);
+        let ffa = LocalPlaySettings { team_style: 2, ..lp };
+        assert_eq!((ffa.team_count(), ffa.seat_team(1), ffa.seat_team(5)), (6, 1, 5));
         // (an older file's Lab Tools keys are not read)
         let old = Settings::from_value(&json!({ "lab": { "tools_on": true, "page": 2, "show": { "hit": true } } }));
         assert_eq!(old.lab, LabSettings::default());

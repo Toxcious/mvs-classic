@@ -35,7 +35,7 @@ use crate::combat::elem::end_actor_children;
 use crate::combat::hits::{
     actor_hit_enemy, apply_projectile_hit, dealer, projectile_blocks, reflecting_projectiles, refused_ally_hit,
 };
-use crate::combat::phases::{give_vbuf, no_hit, victim_pose};
+use crate::combat::phases::{give_vbuf, victim_pose};
 use crate::combat::spawned_hits::{
     can_be_hit_by_d, comp, damage_actor, damage_spawned_actor, projectile_hits_projectile, world_hooks,
 };
@@ -455,7 +455,7 @@ fn area_loop(w: &mut World, id: ProjectileId) {
                 if invulnerable(w, vic) || w.fighter(vic).invuln.damage_disabled || w.fighter(vic).team.team == team {
                     continue;
                 }
-                if w.fighter(vic).life.dead > 0.0 || no_hit(w, vic) {
+                if w.fighter(vic).life.dead > 0.0 || crate::combat::phases::no_hit_by(w, f, vic) {
                     continue;
                 }
                 if projectile_blocks(w, &dealer(w, me), vic) {

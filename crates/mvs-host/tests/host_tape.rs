@@ -13,6 +13,10 @@
 //! line (the oracle's holds a stack), a lobby row's empty icon is left out (the oracle keeps an `icon: ''`). The core's
 //! events are compared in order among themselves (the oracle calls them inside the step, the port hands them over after
 //! it); onListing is on for no host of the tape.
+//!
+//! The lobby's style is the port's own (`LobbyStyle`: Versus and Free For All), the tape's the build's ETeamStyle:
+//! `vectors::read_tape` moves the tape's to this build's (1v1 and 2v2 are Versus). A host whose lobby the port's
+//! Versus answers otherwise (`VERSUS_DEPARTS`) is replayed up to the first input it answers otherwise.
 
 mod common;
 
@@ -469,6 +473,22 @@ fn run_host(h: &Value, away_back: bool) -> HostRun {
     run
 }
 
+/// The tape's hosts whose lobby the port's Versus answers otherwise than the oracle's styles: the host's index, its
+/// first event the port answers otherwise (an input), and why.
+const VERSUS_DEPARTS: [(u64, usize, &str); 1] =
+    [(3, 23, "its 2v2 lobby of 2 + 1 is refused (Teams are unbalanced): Versus starts it as a 2v1")];
+
+/// A host of the tape as replayed: one of VERSUS_DEPARTS up to its departing input, the rest whole.
+fn up_to_departure(h: &Value) -> Value {
+    let mut h = h.clone();
+    if let Some(&(_, at, _)) = VERSUS_DEPARTS.iter().find(|(i, ..)| h["index"].as_u64() == Some(*i))
+        && let Some(e) = h["events"].as_array_mut()
+    {
+        e.truncate(at);
+    }
+    h
+}
+
 #[test]
 fn the_core_replays_the_ts_tape() {
     let Some(tape) = mvs_protocol::vectors::read_tape("host-tape.json") else {
@@ -478,8 +498,8 @@ fn the_core_replays_the_ts_tape() {
     let hosts = tape["hosts"].as_array().expect("hosts");
     let (mut equal_hosts, mut events, mut equal_events, mut groups, mut equal_groups) = (0, 0, 0, 0, 0);
     let mut diffs: Vec<String> = Vec::new();
-    for h in hosts {
-        let r = run_host(h, false);
+    for h in hosts.iter().map(up_to_departure) {
+        let r = run_host(&h, false);
         if r.diffs.is_empty() {
             equal_hosts += 1;
         }
@@ -490,8 +510,10 @@ fn the_core_replays_the_ts_tape() {
         diffs.extend(r.diffs);
     }
     eprintln!(
-        "host_tape: {equal_hosts} / {} hosts equal, {equal_events} / {events} events, {equal_groups} / {groups} inputs",
-        hosts.len()
+        "host_tape: {equal_hosts} / {} hosts equal ({} up to where the port's Versus answers otherwise), \
+         {equal_events} / {events} events, {equal_groups} / {groups} inputs",
+        hosts.len(),
+        VERSUS_DEPARTS.len()
     );
     for d in diffs.iter().take(40) {
         eprintln!("{d}");
@@ -508,11 +530,11 @@ fn away_and_back_tell_the_others() {
         return;
     };
     let (mut told, mut diffs) = (0, Vec::new());
-    for h in tape["hosts"].as_array().expect("hosts") {
+    for h in tape["hosts"].as_array().expect("hosts").iter().map(up_to_departure) {
         if !h["events"].as_array().expect("events").iter().any(|e| e["ev"] == "silent") {
             continue;
         }
-        let r = run_host(h, true);
+        let r = run_host(&h, true);
         told += r.told;
         diffs.extend(r.diffs);
     }

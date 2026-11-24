@@ -94,7 +94,7 @@ pub struct FighterPose {
     pub fighter: u32,
     pub meshes: Vec<MeshPose>,
     /// Its index in PFGCamera's priority stack as SetOpacityMaskTextures last set it (0: OpacityToggle 1; k > 0: its
-    /// materials read priority capture k); None for a fighter never in the stack's first four.
+    /// materials read priority capture min(k, 3)); None for a fighter never in the stack.
     pub priority: Option<u8>,
     /// The view is posed but not drawn (every placed view is posed; the root of
     /// one whose fighter is invisible whole is hidden): its bones are the effects' and the actors' sockets, the

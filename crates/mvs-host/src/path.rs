@@ -15,7 +15,7 @@ use crate::timers::TimerId;
 
 /// The most characters of an Epic id a hello may carry (a product user id is 32).
 const EPIC_MAX: usize = 64;
-/// The most links a path.report is read for (a match has at most 4 humans).
+/// The most links a path.report is read for (a match has at most 8 humans, each with a link to the 7 others).
 const REPORT_LINKS: usize = 8;
 
 /// A pre-match's path: the humans measured, by human index (their slot's order), and what they reported.

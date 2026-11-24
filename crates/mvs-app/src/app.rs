@@ -421,6 +421,8 @@ pub struct MatchStart {
     pub prepared: Option<Box<crate::prepare::Prepared>>,
     /// A new Lab's menu built on the loading screen (`crate::lab_host::LabAhead`).
     pub lab_ahead: Option<Box<crate::lab_host::LabAhead>>,
+    /// (the port's own, dev) A custom stage's layout over `stage`, its base: `--stage-layout`.
+    pub layout: Option<Arc<mvs_stage::Layout>>,
 }
 
 impl MatchStart {
@@ -437,6 +439,7 @@ impl MatchStart {
             humans: None,
             prepared: None,
             lab_ahead: None,
+            layout: None,
         }
     }
 

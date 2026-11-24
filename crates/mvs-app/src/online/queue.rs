@@ -18,7 +18,7 @@ use mvs_protocol::setup::MatchSetupWire;
 use mvs_ui::menu::online::{KickNote, NetPick, PreMatchEvent, Registered};
 use mvs_ui::menu::screens::pre_match::setup::PreMatchPlayer;
 
-use super::tables::{Tables, loadout_of_cosmetics, with_mode_mutators};
+use super::tables::{Tables, loadout_of_cosmetics, with_mode_rules};
 
 /// Unverified: (the port's own) how long an unasked off 'party' waits for the other member's 'cancel' say, which
 /// comes another way (the party's, not the queue's) and may come second: then it is the other's cancel, not a lost
@@ -255,7 +255,7 @@ impl QueueSession {
                 // (the bots' ring-out, banner and perks, and the mode's mutators, which the server leaves to the games)
                 let (setup, perks) = tables.with_bot_tables(&s.setup, &s.perks.clone().unwrap_or_default(), &f.players);
                 let m = QueueMatch {
-                    setup: with_mode_mutators(&setup, f.mode),
+                    setup: with_mode_rules(&setup, f.mode),
                     perks,
                     me: s.slot,
                     usernames: s.usernames.clone(),

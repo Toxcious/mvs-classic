@@ -63,6 +63,8 @@ pub enum PopKind {
     GizmoForceDance,
     GizmoAttach,
     Transferred,
+    /// (the port's own) The Chaos Wheel's Hot Potato over its holder (`world::wheel_events`).
+    HotPotato,
 }
 
 /// `popText`'s `params`: a notify's own, or the few a caller builds.

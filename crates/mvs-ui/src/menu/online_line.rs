@@ -21,25 +21,33 @@ pub enum LineTone {
     Bad,
 }
 
-/// The line's headline: "Online", "Online, but matches may lag", a check or a sign-in under way, else "Offline: " and
-/// why (online play turned off says so alone).
+/// Why online play is off, in three words at most: the one wording of the menus' line and the custom lobby's
+/// connection line.
+pub fn reason(why: &OfflineWhy) -> &'static str {
+    match why {
+        OfflineWhy::Checking => t::WHY_CHECKING,
+        OfflineWhy::SigningIn => t::WHY_SIGNING_IN,
+        OfflineWhy::Update { .. } => t::WHY_UPDATE,
+        OfflineWhy::Import => t::WHY_IMPORT,
+        OfflineWhy::SelfCheck => t::WHY_SELF_CHECK,
+        OfflineWhy::TurnedOff => t::WHY_TURNED_OFF,
+        OfflineWhy::NotReached => t::WHY_NOT_REACHED,
+        OfflineWhy::Other => t::WHY_OTHER,
+    }
+}
+
+/// The line's headline: "Online", "Online, but matches may lag", a check or a sign-in under way (the reason alone:
+/// online play is on its way), else "Offline: " and why.
 pub fn headline(l: &OnlineLine) -> String {
     let why = match l {
         OnlineLine::Online => return t::LINE_ONLINE.to_owned(),
         OnlineLine::Slower => return t::LINE_SLOWER.to_owned(),
         OnlineLine::Offline(why) => why,
     };
-    let reason = match why {
-        OfflineWhy::Checking => return t::LINE_CHECKING.to_owned(),
-        OfflineWhy::SigningIn => return t::LINE_SIGNING_IN.to_owned(),
-        OfflineWhy::TurnedOff => return t::LINE_TURNED_OFF.to_owned(),
-        OfflineWhy::Update { .. } => t::LINE_UPDATE,
-        OfflineWhy::Import => t::LINE_IMPORT,
-        OfflineWhy::SelfCheck => t::LINE_SELF_CHECK,
-        OfflineWhy::NotReached => t::LINE_NOT_REACHED,
-        OfflineWhy::Other => t::LINE_OTHER,
-    };
-    format!("{}: {reason}", t::LINE_OFFLINE)
+    match why {
+        OfflineWhy::Checking | OfflineWhy::SigningIn => reason(why).to_owned(),
+        _ => format!("{}: {}", t::LINE_OFFLINE, reason(why)),
+    }
 }
 
 /// What the player can do about the line (None: online).
@@ -209,6 +217,16 @@ mod tests {
         assert_eq!(headline(&OnlineLine::Online), t::LINE_ONLINE);
         assert_eq!(advice(&OnlineLine::Online), None);
         assert_eq!(headline(&OnlineLine::Offline(OfflineWhy::NotReached)), "Offline: Server not reached");
+        assert_eq!(headline(&OnlineLine::Offline(OfflineWhy::TurnedOff)), "Offline: Turned off");
+        assert_eq!(headline(&OnlineLine::Offline(OfflineWhy::SigningIn)), "Connecting");
+        // (no reason repeats the state before it)
+        for l in &lines {
+            if let OnlineLine::Offline(why) = l {
+                let r = reason(why).to_lowercase();
+                assert!(!r.contains("online") && !r.contains("offline"), "{r}");
+                assert!(r.split(' ').count() <= 3, "{r}");
+            }
+        }
         let update = OnlineLine::Offline(OfflineWhy::Update { version: "1.2.3".into() });
         assert!(advice(&update).is_some_and(|a| a.contains("1.2.3") && !a.contains('{')));
         assert_eq!(tone(&OnlineLine::Slower), LineTone::Plain);

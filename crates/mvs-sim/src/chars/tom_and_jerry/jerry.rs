@@ -28,7 +28,7 @@ use crate::combat::hits::{
     projectile_blocks,
 };
 use crate::combat::packet::DataVec;
-use crate::combat::phases::{alive, give_vbuf, no_hit, victim_pose};
+use crate::combat::phases::{alive, give_vbuf, victim_pose};
 use crate::combat::spawned_hits::{class_rows, hit_box_types};
 use crate::combat::{BuffClass, HitPacket};
 use crate::consts::{DELTA_SECONDS, DT, GRAVITY_Z};
@@ -1235,7 +1235,11 @@ fn hits(w: &mut World, id: ActorId) {
     for vic in match_fighters(w) {
         let vid = w.fighter(vic).id;
         let Some(j) = jerry_of(w, id) else { return };
-        if w.fighter(vic).team.team == team || !alive(w, vic) || no_hit(w, vic) || j.hit_set.contains(&vid) {
+        if w.fighter(vic).team.team == team
+            || !alive(w, vic)
+            || crate::combat::phases::no_hit_by_team(w, team, vic)
+            || j.hit_set.contains(&vid)
+        {
             continue;
         }
         let Some(vp) = victim_pose(w, vic) else { continue };

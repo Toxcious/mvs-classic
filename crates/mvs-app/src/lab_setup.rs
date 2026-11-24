@@ -247,9 +247,13 @@ pub fn lab_default_perks(s: &Settings, character: &str) -> Vec<Option<String>> {
 
 // ---------- the setups ----------
 
-/// The config's occupied slots as the match's players.
+/// The config's occupied slots as the match's players: the first four (the Lab's panels hold four; a config of more,
+/// which no Lab menu makes, plays its first four rather than a match whose map may not hold it).
 pub fn lab_slots(c: &LabConfig) -> Vec<usize> {
-    (0..c.players.len()).filter(|&n| !c.players[n].account_id.is_empty()).collect()
+    (0..c.players.len())
+        .filter(|&n| !c.players[n].account_id.is_empty())
+        .take(mvs_protocol::lobby_rules::BUILD_MAX_PLAYERS)
+        .collect()
 }
 
 /// The Lab's first match when it opens from the menus: the owner is the fighter locked on
@@ -342,7 +346,8 @@ pub fn lab_setup(i: &mut LabInputs<'_>, c: &LabConfig, rolled: &LabRoll) -> Matc
         }
         with_cosmetics(p, taunts, &ring_out, &banner);
     }
-    MatchSetup { team_style, players, mutators: c.mutators.names(), ..MatchSetup::default() }
+    let wheel = mvs_protocol::lobby_rules::wheel_rule(c.wheel).as_ref().map(mvs_ui::menu::lobby::sim_wheel);
+    MatchSetup { team_style, players, mutators: c.mutators.names(), wheel, ..MatchSetup::default() }
 }
 
 /// The config's random fighters rolled: a Random slot of an occupied account takes a random
@@ -403,6 +408,10 @@ pub fn lab_roster_skins(i: &LabInputs<'_>, c: &LabConfig, rolled: &LabRoll) -> S
     // (the port's own) the mutators: another set restarts the match as another roster does
     if !c.mutators.is_empty() {
         s.push_str(&format!("m{}", c.mutators.0));
+    }
+    if c.wheel.on {
+        let w = c.wheel;
+        s.push_str(&format!("w{}.{}.{}.{}.{}", w.seconds, w.warn, w.chaos, u8::from(w.two), w.off));
     }
     s
 }
@@ -560,6 +569,7 @@ pub fn first_config(
         instant_cooldowns: false,
         same_attack_penalty: same_attack,
         mutators: setup_mutators(setup),
+        wheel: mvs_protocol::lobby_rules::WheelOptions::default(),
     }
 }
 

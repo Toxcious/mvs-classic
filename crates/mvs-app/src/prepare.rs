@@ -109,9 +109,14 @@ struct HudJob {
     assets: Option<Arc<mvs_render::assets::Assets>>,
 }
 
-/// The key `start` loads with on this shell (None: a replay, which loads its trace on the frame thread).
+/// The key `start` loads with on this shell (None: a replay, which loads its trace on the frame thread, or a custom
+/// stage's match).
 fn key_of(sh: &Shell, start: &MatchStart, level_kept: bool) -> Option<PrepKey> {
     if matches!(start.kind, MatchKind::Replay { .. }) {
+        return None;
+    }
+    // (a custom stage's match is loaded on the frame thread, its parts with the layout: `MatchLoop::new`)
+    if start.layout.is_some() || start.map.as_deref().is_some_and(mvs_stage::is_custom_map) {
         return None;
     }
     let stage = match &start.map {

@@ -28,7 +28,7 @@ use crate::fighter::common::{actor_data, latent_frames, peers};
 use crate::fighter::control::{attack_dodged, dodge_over, trigger_ability, trigger_ability_check, update_ability_ammo};
 use crate::fighter::match_side::{Foreign, SpawnRequest};
 use crate::fighter::moves::{Impulse, V2};
-use crate::fighter::{FighterId, actor_y, facing, grounded, in_hitstun, invulnerable, no_hit, percent_charged};
+use crate::fighter::{FighterId, actor_y, facing, grounded, in_hitstun, invulnerable, percent_charged};
 use crate::math::ue::{SMALL_NUMBER, safe_normal};
 use crate::math::{max, min, to_int32};
 use crate::name;
@@ -111,7 +111,11 @@ fn enemies(w: &World, owner: FighterId) -> Vec<FighterId> {
     let team = w.fighter(owner).team.team;
     match_fighters(w)
         .into_iter()
-        .filter(|&v| w.fighter(v).team.team != team && w.fighter(v).life.dead == 0.0 && !no_hit(w, v))
+        .filter(|&v| {
+            w.fighter(v).team.team != team
+                && w.fighter(v).life.dead == 0.0
+                && !crate::combat::phases::no_hit_by(w, owner, v)
+        })
         .collect()
 }
 
@@ -242,7 +246,7 @@ fn bolts_burst(w: &mut World, id: ActorId) {
     emitter(w, cls, f, name!("PS_C017_Burst"), x, y, 1.75, [0.0; 3]);
     let team = w.fighter(f).team.team;
     for vic in w.sphere_trace_multi(x, y, 500.0) {
-        if w.fighter(vic).team.team == team || no_hit(w, vic) {
+        if w.fighter(vic).team.team == team || crate::combat::phases::no_hit_by_team(w, team, vic) {
             continue;
         }
         if projectile_blocks(w, &dealer(w, me), vic) {
@@ -446,7 +450,8 @@ fn burst_tick(w: &mut World, f: FighterId, b: BuffRef) -> bool {
     let all = peers(w).to_vec();
     let by_team = w.fighter(by).team.team;
     for vic in crate::world::capsules_in_sphere(w, &all, fx, fy, 400.0) {
-        if vic == f || vic == by || w.fighter(vic).team.team == by_team || no_hit(w, vic) {
+        if vic == f || vic == by || w.fighter(vic).team.team == by_team || crate::combat::phases::no_hit_by(w, by, vic)
+        {
             continue;
         }
         let bkb = stacks * 50.0 + base_kb;

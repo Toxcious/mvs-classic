@@ -296,6 +296,21 @@ pub fn add_perks(w: &mut World, f: FighterId, first: bool) {
     for id in perks_of(w, fid) {
         give_perk(w, f, id, f, false);
     }
+    teammate_perks(w, f, fid, team, first);
+}
+
+/// The most copies of one perk a fighter takes from itself and its teammates (`teammate_perks`).
+pub const PERK_COPIES: usize = 2;
+
+/// `addPerks`' teammate pass: every other player of the owner's team in player order gives its SpawnOnAllies perks,
+/// in a team of more than two a perk the owner already has [`PERK_COPIES`] copies of (its own included) left out.
+// Deviation: the build's pass gives one copy per teammate, so in the port's own big matches a perk the same on three
+// or four players of a team would stack three or four times on each. The port gives at most two copies of a perk, as a
+// 2v2 reaches: a team does better picking different perks (the user's decision, 2026-11-23). A team of two keeps the
+// build's rule (an owner that holds a perk twice still takes its teammate's copy).
+fn teammate_perks(w: &mut World, f: FighterId, fid: i32, team: i32, first: bool) {
+    let big_team = w.players.iter().filter(|&&o| w.fighter(o).team.team == team).count() > 2;
+    let mut taken: Vec<Name> = perks_of(w, fid);
     // `for (const o of w.fighters)`: by place, as a perk's begin may write the World.
     for i in 0..w.players.len() {
         let o = w.players[i];
@@ -305,6 +320,10 @@ pub fn add_perks(w: &mut World, f: FighterId, first: bool) {
         }
         let inst = if first && oid > fid { f } else { o };
         for id in perks_of(w, oid) {
+            if big_team && taken.iter().filter(|&&t| t == id).count() >= PERK_COPIES {
+                continue;
+            }
+            taken.push(id);
             give_perk(w, f, id, inst, true);
         }
     }

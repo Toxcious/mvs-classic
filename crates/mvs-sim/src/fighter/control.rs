@@ -13,8 +13,8 @@ use crate::combat::hits::set_hold_charge_multiplier;
 use crate::consts::AIR_SPECIAL_MAX;
 use crate::consts::DELTA_SECONDS;
 use crate::consts::DT;
-use crate::consts::{AIR_EVADE_MAX, EVADE_BLINK_FRESNEL, EVADE_METER_COST, EVADE_RECHARGE_AMOUNT, MAX_EVADE_COUNT};
 use crate::consts::{ATTACK_SPAM_WINDOW, RECENT_ATTACK_QUEUE};
+use crate::consts::{EVADE_BLINK_FRESNEL, EVADE_METER_COST, EVADE_RECHARGE_AMOUNT, MAX_EVADE_COUNT};
 use crate::events::Event;
 use crate::events::Fid;
 use crate::events::NotifyRef;
@@ -71,6 +71,7 @@ use crate::registry::signals::{BuffSignal, BuffSignalArg};
 use crate::setup::InputPrefs;
 use crate::world::World;
 use crate::world::flow::{DelegateCall, DelegateList, PawnList, broadcast_bound};
+use crate::world::own_rules::air_evade_max;
 use crate::world::spawned_platform::platform_can_pass_through;
 use indexmap::IndexMap;
 use mvs_anim::montage::{
@@ -1432,7 +1433,7 @@ fn press_turn(w: &mut World, f: FighterId, b: Btn, many: bool) -> bool {
     if has_attack_inst(w, f) {
         let done = window_press(w, f, b, false);
         if b == Btn::Dodge && w.fighter(f).evade.evading {
-            if was_evading && in_air(w, f) && crate::real(w.fighter(f).air.air_evades) == AIR_EVADE_MAX {
+            if was_evading && in_air(w, f) && crate::real(w.fighter(f).air.air_evades) == air_evade_max(w) {
                 sfx(w, f, Some(crate::name!("ui_ability_cooldown_alt")));
             }
             return done;
@@ -1658,7 +1659,7 @@ pub fn free_action(w: &mut World, f: FighterId, b: Btn) -> bool {
                 return false;
             }
             let ok = try_dodge(w, f, neutral);
-            if !ok && in_air(w, f) && crate::real(w.fighter(f).air.air_evades) == AIR_EVADE_MAX {
+            if !ok && in_air(w, f) && crate::real(w.fighter(f).air.air_evades) == air_evade_max(w) {
                 sfx(w, f, Some(crate::name!("ui_ability_cooldown_alt")));
             }
             ok
@@ -1862,7 +1863,7 @@ pub fn execute_branch(
             // EvadeFromBranch all the same, so the evade's Get8WayDirection reads the turned facing (`try_dodge`,
             // whose own turn to MoveX @116642-116729 then finds him turned). With every air evade used nothing past
             // the count test @75 runs: no stop, no EndJump.
-            if in_air(w, f) && crate::real(w.fighter(f).air.air_evades) >= AIR_EVADE_MAX {
+            if in_air(w, f) && crate::real(w.fighter(f).air.air_evades) >= air_evade_max(w) {
                 return false;
             }
             let (bx, by) = {
@@ -2418,7 +2419,7 @@ pub fn try_dodge(w: &mut World, f: FighterId, neutral: bool) -> bool {
         let s = if matches!(d, Dir::Neutral | Dir::Up | Dir::Down) { &nav.spot_dodge } else { &nav.fwd_evade };
         name = s.as_deref().filter(|s| !s.is_empty()).map(|s| data_name(w, s));
     } else {
-        if crate::real(w.fighter(f).air.air_evades) >= AIR_EVADE_MAX {
+        if crate::real(w.fighter(f).air.air_evades) >= air_evade_max(w) {
             return false;
         }
         // the air evade's StopAnimMontage(null), BaseFighter @39420
@@ -2608,7 +2609,7 @@ pub fn drop_base(w: &World, f: FighterId) -> bool {
 /// test is the unblocked one's (dropBase: the same @44160-44309 / @47620-47873).
 /// Unverified: the blocked drop runs without the Evades entry the port's unblocked drop needs.
 fn blocked_evade(w: &mut World, f: FighterId, on_ground: bool, g_stop: bool, d: Dir, neutral: bool) -> bool {
-    if !on_ground && crate::real(w.fighter(f).air.air_evades) >= AIR_EVADE_MAX {
+    if !on_ground && crate::real(w.fighter(f).air.air_evades) >= air_evade_max(w) {
         return false;
     }
     let me = w.fighter_mut(f);
@@ -2670,8 +2671,11 @@ pub fn clear_invuln(w: &mut World, f: FighterId) {
 
 /// `updateEvadeValues`: UpdateEvadeValues (also IncrementEvadeCount).
 pub fn update_evade_values(w: &mut World, f: FighterId) {
+    let spends = crate::world::own_rules::evade_spends(w); // the port's own Dodge Frenzy spends none
     let e = &mut w.fighter_mut(f).evade;
-    if e.evade_count < MAX_EVADE_COUNT {
+    if !spends {
+        e.last_evade_spent_meter = true;
+    } else if e.evade_count < MAX_EVADE_COUNT {
         e.last_evade_spent_meter = true;
         e.evade_count = js::min(e.evade_count + EVADE_METER_COST, MAX_EVADE_COUNT);
     } else {
@@ -2821,6 +2825,17 @@ pub fn attack_dodged(
     if w.fighter(vic).invuln.damage_disabled {
         return;
     }
+    // The port's own spare switch: an opponent spared the hit has nothing to dodge (an item the stage dropped is
+    // not spared: the host's own dealing fighter, before the attacker the caller names).
+    let spared = if matches!(host, ActorRef::Item(_)) {
+        crate::combat::phases::spared_from(w, host, vic)
+    } else {
+        attacker.is_some_and(|a| crate::combat::phases::spares(w, a, vic))
+            || crate::combat::phases::spared_from(w, host, vic)
+    };
+    if spared {
+        return;
+    }
     let vid = w.fighter(vic).id;
     let Some(d) = dodge_slot(w, host) else { return };
     if !dodge_entry(d, vid, attack_id, tick, can_mark || base_knock_back > 0.0) {
@@ -2849,8 +2864,8 @@ pub fn dealer_dodged(
     base_knock_back: Real,
     tick: i32,
 ) {
-    if w.fighter(vic).invuln.damage_disabled {
-        return;
+    if w.fighter(vic).invuln.damage_disabled || crate::combat::phases::spares(w, d.owner, vic) {
+        return; // (and the port's own spare switch: an opponent spared the hit has nothing to dodge)
     }
     let vid = w.fighter(vic).id;
     if !dodge_entry(&mut d.dodge.borrow_mut(), vid, attack_id, tick, base_knock_back > 0.0) {

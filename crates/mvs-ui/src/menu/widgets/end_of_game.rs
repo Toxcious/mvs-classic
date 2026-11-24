@@ -191,7 +191,13 @@ impl Controller for EOGMatchResults {
         set_text(cx, "ModeLabel_1", &mode);
         // Deviation: the build's QueueLabel is the queue config's display name (ParseMatchData of "1v1" / "2v2" /
         // "ffa", GameModes spec 06); the port types its own three texts, which no Game.locres key holds as such.
-        let q = ["1 vs 1", "Teams", "Free For All"].get(usize::from(d.team_style)).copied().unwrap_or("");
+        let mut q = ["1 vs 1", "Teams", "Free For All"].get(usize::from(d.team_style)).copied().unwrap_or("");
+        // Deviation: a Teams match whose sides differ in size (a custom Versus lobby's 2v1) is named "Versus", the
+        // lobby's own name for it; the build has no such match.
+        let side = |t: i32| d.players.iter().filter(|p| p.team_index == t).count();
+        if d.team_style == 1 && side(0) != side(1) {
+            q = crate::menu::custom_text::VERSUS;
+        }
         set_text(cx, "QueueLabel", q);
     }
 }
@@ -494,6 +500,13 @@ const GREEN: Rgba = [0.008023, 0.693872, 0.258183, 1.0];
 const REMATCH_LIMIT: f64 = 12.0;
 /// GetVoteResults: the votes needed by the team style (0 -> 2, 1..3 -> 4).
 const VOTES_NEEDED: [usize; 4] = [2, 4, 4, 4];
+
+/// The votes a rematch needs: the team style's (`VOTES_NEEDED`), every player of the match. Deviation (the port's
+/// big matches): a match of more than four needs every one of its players' votes; the build's table stops at four,
+/// every player of its largest match.
+fn votes_needed(team_style: usize, players: usize) -> usize {
+    VOTES_NEEDED.get(team_style).copied().unwrap_or(4).max(players)
+}
 const RS_DECLINED: &str = "DB9EB7BD42CA912FC3669BB4F06053FA";
 const RS_FINAL_ROUND: &str = "B5A1EC854483F6512C6838B06C3E65CE";
 const RS_ROUND: &str = "A304F86046D31CC30EEFBFA80895DF75";
@@ -571,7 +584,7 @@ impl EOGRematchStatus {
     /// BPI Start.
     pub fn start(&mut self, cx: &mut Cx<'_>) {
         let (yours, theirs) = cx.view.session.eog.set_scores();
-        // (the port's own) the set's wins by its queue: a Free For All or Silly set is one game
+        // (the port's own) the set's wins by its queue: a Free For All or Chaos set is one game
         let wins = cx.view.session.eog.queue.as_ref().map_or(2, |q| q.set_wins);
         if yours.max(theirs) >= wins {
             cx.emit(self, |c| &c.on_complete, &());
@@ -675,7 +688,8 @@ impl EOGRematchStatus {
             return;
         }
         let ts = cx.view.session.eog.queue.as_ref().map_or(0, |q| q.team_style);
-        let needed = VOTES_NEEDED.get(ts).copied().unwrap_or(4);
+        let players = cx.view.session.eog.data.as_ref().map_or(0, |d| d.players.len());
+        let needed = votes_needed(ts, players);
         if self.votes.len() < needed {
             return;
         }

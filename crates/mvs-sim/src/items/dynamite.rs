@@ -185,7 +185,7 @@ fn explode(w: &mut World, it: ItemId, vx: Real, vy: Real) {
 /// One fighter of the blast: pfgDoDamage's order (as `World.itemHits`): the reflect / IsInvulnerableToProjectiles
 /// gate (@4032-4598) and the dodge pop (@4608) ahead of NotifyAllyOfHit (an invulnerable ally: nothing).
 fn hit_fighter(w: &mut World, it: ItemId, vic: FighterId, team: i32, attack_id: i32, hit: &HitPacket) {
-    if w.fighter(vic).life.dead > 0.0 || fighter::no_hit(w, vic) {
+    if w.fighter(vic).life.dead > 0.0 || fighter::no_hit_from(w, ActorRef::Item(it), vic) {
         return;
     }
     let me = ActorRef::Item(it);

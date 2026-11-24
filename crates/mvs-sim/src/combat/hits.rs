@@ -1089,6 +1089,20 @@ pub fn apply_dealer_hit(w: &mut World, d: &PerkDealer, vic: FighterId, p: &HitPa
     spawned_hit(w, &pr, Some(d), vic, p, &[], at, Some(dir), &[], pct)
 }
 
+/// The dealer is an item the stage dropped (`Item::spawner` none), whoever threw it.
+fn stage_item(w: &World, pr: &Dealer) -> bool {
+    match pr.a {
+        Some(ActorRef::Item(id)) => w.actors.items.get(id).is_some_and(|i| i.spawner.is_none()),
+        _ => false,
+    }
+}
+
+/// The port's own spare switch spares `vic` what the dealer deals: its owner's opponent, unless the dealer is an item
+/// the stage dropped.
+fn dealer_spares(w: &World, pr: &Dealer, vic: FighterId) -> bool {
+    w.setup.spare_opponents && !stage_item(w, pr) && pr.owner.is_some_and(|o| crate::combat::phases::spares(w, o, vic))
+}
+
 /// The body of `applyProjectileHit`, for a dealer of a list (`lit` none) or one no list holds.
 #[allow(clippy::too_many_arguments, reason = "the call's inputs")]
 fn spawned_hit(
@@ -1103,6 +1117,10 @@ fn spawned_hit(
     elementals: &[Name],
     charge_percent: Real,
 ) -> bool {
+    // The port's own spare switch, behind the tests that pick the victim: no hit, so a projectile is not spent.
+    if dealer_spares(w, pr, vic) {
+        return false;
+    }
     // Not ported: the Lab reset's pass (its end paths act on the old pawns) has no World flag;
     // no match of the sim's reaches it.
     // HitOnlyOneFighter (@3236-3288), ahead of the projectile block (HasHitAFighter, set on the Hit @16069-16144).
@@ -1330,7 +1348,7 @@ fn spawned_hit(
     }
     // HitBoxHandler OnHitBuffs (after the hitpause), then the rows that go to the Instigator on a hit.
     let mult = held.map_or(1.0, |c| c.buff);
-    hit_buffs_hit(w, att, vic, buffs, mult);
+    hit_buffs_hit(w, att, vic, buffs, mult, stage_item(w, pr));
     if !light {
         charge_hit_sound(w, vic, charge_percent);
     }
@@ -2081,13 +2099,15 @@ pub fn hit_buffs_ally(w: &mut World, src: FighterId, vic: FighterId, rows: &[OnH
 /// `hitBuffsHit`: after DamageAndLaunch returned Hit and the hit pause, the teams
 /// differing: every row with ApplyBuffHit? and ApplyBuffEnemy? goes to the hit actor (@18293-19121); then every row
 /// with ApplyBuffHit?, ApplyBuffSelf? and RequireHitToApplyBuffToSelf goes to the Instigator (@23297-24169).
-fn hit_buffs_hit(w: &mut World, src: FighterId, vic: FighterId, rows: &[OnHitBuffRow], mult: Real) {
+/// `stage_item`: the dealer is an item the stage dropped, whose rows the port's own spare switch does not spare.
+fn hit_buffs_hit(w: &mut World, src: FighterId, vic: FighterId, rows: &[OnHitBuffRow], mult: Real, stage_item: bool) {
     if w.fighter(vic).team.team == w.fighter(src).team.team {
         return;
     }
+    let spawn = if stage_item { buff::spawn_buff_unspared } else { buff::spawn_buff };
     for e in rows {
         if e.apply_buff_hit && e.apply_buff_enemy {
-            buff::spawn_buff(
+            spawn(
                 w,
                 vic,
                 e.applied_buffs,
@@ -2536,6 +2556,10 @@ pub fn apply_hit(
     hit_box: bool,
     open: Option<&OpenPose>,
 ) {
+    // The port's own spare switch, behind the tests that pick the victim: a fighter's hit on an opponent is no hit.
+    if crate::combat::phases::spares(w, att, vic) {
+        return;
+    }
     if !p.on_hit_buffs.is_empty() {
         hit_buffs_call(w, att, &p.on_hit_buffs);
     }
@@ -2558,6 +2582,9 @@ pub fn apply_hit_behind_entry(
     hit_box: bool,
     open: Option<&OpenPose>,
 ) {
+    if crate::combat::phases::spares(w, att, vic) {
+        return; // the port's own spare switch (as apply_hit)
+    }
     // pfgDoDamage @5617-5904: the dealer's State Manager rewrites the hit (ApplyBuffDamageMods, DamageTaken false).
     let mut p = buff::apply_dealt_damage_mods(w, att, ActorRef::Fighter(vic), p, hit_box);
     // pfgDoDamage ahead of DamageAndLaunch: the legacy vacuum rewrites the packet's knockback.
@@ -2719,7 +2746,7 @@ pub fn apply_hit_behind_entry(
     crate::combat::defense::dealt_rage(w, att, vic, hp.damage);
     // HitBoxHandler OnHitBuffs (after the hitpause): round(StackCount x GetChargeBuffStackMultiplier).
     if !p.on_hit_buffs.is_empty() {
-        hit_buffs_hit(w, att, vic, &p.on_hit_buffs, charge_buff_mult);
+        hit_buffs_hit(w, att, vic, &p.on_hit_buffs, charge_buff_mult, false);
     }
     // The dealer's handler's HitEnemyPlayer(HitActor, owner) @22770: the attacker's Comp_Actor_VO, then the
     // attacker's buffs that answer it.

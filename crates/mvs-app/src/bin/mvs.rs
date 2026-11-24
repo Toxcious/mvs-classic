@@ -8,7 +8,7 @@
 //!   to the launcher beside it, which plays at once when the game is ready)
 //! mvs [--data <dir>] [--store <dir>] [--size 1920x1080] [--full-screen] [--adapter <text>] [--seed <n>] [--no-ui]
 //!   [--replay <trace match> [--trace-out <file>]] [--real-pace] [--shot <tick>[,..]] [--out <dir>] [--throttle <rate>]
-//!   [--bench <secs>] [--stage <key>] [--shot-results <secs>] [--press-results <secs>] [--no-audio] [--input-script <jsonl>] [--menu-tape <out>]
+//!   [--bench <secs>] [--stage <key>] [--stage-layout <file>] [--bots <level>] [--shot-results <secs>] [--press-results <secs>] [--no-audio] [--input-script <jsonl>] [--menu-tape <out>]
 //!   [--shot-frames <frame>[,..]] [--live-loads] [--audio-tape <file>]
 //!   [--waves endless|100 [--character <key>] [--waves-bot <level>]]   (a Waves run on `--stage`, cast from `--seed`)
 //!   [--wheel [--wheel-seconds <n>]]   (with `--play` too: the Chaos Wheel rule in the command line's match, a Lab and Local Play;
@@ -56,11 +56,11 @@ use mvs_net::link::relay::NetFaults;
 /// `--net-cut` starts this long after the online match's go unless `--net-cut-at` says (s).
 const NET_CUT_AT_S: f64 = 10.0;
 
-const USAGE: &str = "mvs --version\nmvs --self-test [--data <dir>] [--store <dir>] [--check-out <file>]\nmvs --net-test [--data <dir>] [--online-defaults <file>] [--relay-only] [--direct-loopback]\nmvs --load-bench [--store <dir>] [--adapter <text>]\n\
+const USAGE: &str = "mvs --version\nmvs --compat-id\nmvs --self-test [--data <dir>] [--store <dir>] [--check-out <file>]\nmvs --net-test [--data <dir>] [--online-defaults <file>] [--relay-only] [--direct-loopback]\nmvs --load-bench [--store <dir>] [--adapter <text>]\n\
 mvs --play --store <dir> [--data <dir>] [--size 1920x1080] [--full-screen] [--adapter <text>] [--no-audio] [--mute | --sound] [--background | --foreground] [--online-defaults <file>]\n\
 mvs [--data <dir>] [--store <dir>] [--size 1920x1080] [--full-screen] [--adapter <text>] [--seed <n>] [--no-ui] \
 [--replay <trace match> [--trace-out <file>]] [--real-pace] [--shot <tick>[,..]] [--out <dir>] [--throttle <rate>] \
-[--bench <secs>] [--shot-results <secs>] [--no-audio] [--input-script <jsonl>] [--menu-tape <out>] [--shot-frames <frame>[,..]] \
+[--bench <secs>] [--stage <key>] [--stage-layout <file>] [--bots <level>] [--shot-results <secs>] [--no-audio] [--input-script <jsonl>] [--menu-tape <out>] [--shot-frames <frame>[,..]] \
 [--live-loads] [--audio-tape <file>] [--waves endless|100 [--character <key>] [--waves-bot <level>]] [--wheel [--wheel-seconds <n>]]\n[--relay <addr> (--host | --join <lobby>) [--key <file>] [--feed <trace match>]]\n\
 [--online-config <file> [--direct-loopback] [--online-open host|join:<code>|queue:<mode>[,..]] [--online-lag <ms>] \
 [--online-desync-at <tick>] [--feed <trace match>]]
@@ -79,6 +79,9 @@ struct Args {
     seed: i32,
     /// `--stage`: the stage key of the command line's match (an online host's too; the guest takes the host's).
     stage: String,
+    /// (the port's own, dev) `--stage-layout <file>`: the command line's match on a custom stage, its layout's base
+    /// the stage.
+    layout: Option<std::sync::Arc<mvs_stage::Layout>>,
     replay: Option<String>,
     run: RunOptions,
     /// `--size` or `--full-screen` given: the window opens as they say, not as the settings saved it.
@@ -125,6 +128,9 @@ struct Args {
     character: Option<String>,
     /// (dev) `--waves-bot <level>`: a match bot of that level in the Waves run's player seat (a run that lasts).
     waves_bot: Option<u8>,
+    /// (dev) `--bots <level>`: every player of the command line's match a match bot of that level (a match that
+    /// plays itself, on a custom stage's layout say).
+    bots: Option<u8>,
     /// (the port's own, dev) `--wheel`: the Chaos Wheel rule in the matches of `mvs_app::wheel::switched`.
     wheel: bool,
     /// (dev) `--wheel-seconds <n>`: `--wheel` with a window of that many seconds (a picture of a change needs no
@@ -212,6 +218,7 @@ fn parse(mut it: impl Iterator<Item = String>) -> Result<Args, String> {
         online_defaults_given: None,
         seed: 1,
         stage: mvs_sim_trace::TRACE_STAGE.to_owned(),
+        layout: None,
         replay: None,
         run: RunOptions {
             first: MatchOptions::default(),
@@ -240,6 +247,7 @@ fn parse(mut it: impl Iterator<Item = String>) -> Result<Args, String> {
         waves: None,
         character: None,
         waves_bot: None,
+        bots: None,
         wheel: false,
         wheel_seconds: None,
     };
@@ -292,6 +300,13 @@ fn parse(mut it: impl Iterator<Item = String>) -> Result<Args, String> {
             "--no-ui" => a.shell.ui = false,
             "--no-audio" => a.shell.audio = false,
             "--stage" => a.stage = it.next().ok_or("--stage: no value")?,
+            "--stage-layout" => {
+                let path = it.next().ok_or("--stage-layout: no value")?;
+                let text = std::fs::read_to_string(&path).map_err(|e| format!("--stage-layout {path}: {e}"))?;
+                let l = mvs_stage::Layout::read(&text).map_err(|e| format!("--stage-layout {path}: {e}"))?;
+                mvs_stage::check(&l).map_err(|e| format!("--stage-layout {path}: {e}"))?;
+                a.layout = Some(std::sync::Arc::new(l));
+            }
             "--replay" => a.replay = Some(it.next().ok_or("--replay: no value")?),
             "--waves" => {
                 let v = it.next().ok_or("--waves: no value")?;
@@ -303,6 +318,10 @@ fn parse(mut it: impl Iterator<Item = String>) -> Result<Args, String> {
                     return Err(format!("--character: {v} is not a roster key"));
                 }
                 a.character = Some(v);
+            }
+            "--bots" => {
+                let v = it.next().ok_or("--bots: no value")?;
+                a.bots = Some(v.parse().map_err(|_| format!("--bots: {v} is not a bot level"))?);
             }
             "--waves-bot" => {
                 let v = it.next().ok_or("--waves-bot: no value")?;
@@ -387,6 +406,13 @@ fn parse(mut it: impl Iterator<Item = String>) -> Result<Args, String> {
     if a.play && a.stage != mvs_sim_trace::TRACE_STAGE {
         return Err("--stage: not with --play (the menus pick the stage from the map)".to_owned());
     }
+    if a.layout.is_some() && (a.play || a.replay.is_some() || a.waves.is_some() || relay.is_some()) {
+        return Err("--stage-layout: not with --play, --replay, --waves or --relay".to_owned());
+    }
+    if let Some(l) = &a.layout {
+        // (the layout names its base: the stage loaded under it)
+        a.stage.clone_from(&l.base);
+    }
     if a.replay.is_some() && a.stage != mvs_sim_trace::TRACE_STAGE {
         return Err("--stage: not with --replay (the trace's header names the stage)".to_owned());
     }
@@ -395,6 +421,9 @@ fn parse(mut it: impl Iterator<Item = String>) -> Result<Args, String> {
     }
     if a.wheel && (a.waves.is_some() || a.replay.is_some()) {
         return Err("--wheel: not with --waves or --replay".to_owned());
+    }
+    if a.bots.is_some() && (a.play || a.replay.is_some() || a.waves.is_some() || relay.is_some()) {
+        return Err("--bots: not with --play, --replay, --waves or --relay".to_owned());
     }
     if (a.character.is_some() || a.waves_bot.is_some()) && a.waves.is_none() {
         return Err("--character, --waves-bot: no --waves".to_owned());
@@ -605,7 +634,14 @@ fn run(a: Args) -> mvs_app::Result<()> {
                 }
                 None => {
                     let mut start = MatchStart::default_match(a.seed);
+                    if let Some(level) = a.bots {
+                        for p in &mut start.setup.players {
+                            p.bot = true;
+                            p.difficulty = Some(mvs_sim::Real::from(level));
+                        }
+                    }
                     start.stage.clone_from(&a.stage);
+                    start.layout.clone_from(&a.layout);
                     start
                 }
             },
@@ -682,6 +718,19 @@ fn main() -> ExitCode {
     if args.peek().is_some_and(|a| a == "--version") {
         println!("{}", mvs_release::version_line());
         return ExitCode::SUCCESS;
+    }
+    // (the compatibility id a fresh import gets: the release's reference file must be for it)
+    if args.peek().is_some_and(|a| a == "--compat-id") {
+        return match mvs_app::online::glue::code_compat_id() {
+            Ok(id) => {
+                println!("{id}");
+                ExitCode::SUCCESS
+            }
+            Err(e) => {
+                eprintln!("mvs: {e}");
+                ExitCode::FAILURE
+            }
+        };
     }
     if args.peek().is_some_and(|a| a == "--self-test") {
         return ExitCode::from(mvs_app::selftest::main(args.skip(1)));
