@@ -488,7 +488,8 @@ pub enum StagePiece {
 }
 
 fn entry(w: &World) -> Option<StageEntry> {
-    w.registry.stages.get(&w.data.stage.name).copied()
+    let name = &w.data.stage.name;
+    w.registry.stages.get(name).copied().or_else(|| crate::stages::statics::custom_entry(name))
 }
 
 fn run(w: &World) -> &StageState {

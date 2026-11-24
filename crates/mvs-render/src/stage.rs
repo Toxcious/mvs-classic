@@ -68,26 +68,35 @@ pub struct StageJob {
     gpu: Gpu,
     assets: Arc<crate::Assets>,
     map: String,
+    layout: Option<Arc<mvs_stage::Layout>>,
 }
 
 impl StageJob {
     /// The stage's prep on this thread, with a deferred context of its own.
     pub fn run(self) -> Result<StagePrep> {
         let gpu = self.gpu.deferred()?;
-        let mut p = prepare_stage(&gpu, &self.assets, &self.map)?;
+        let mut p = prepare_stage(&gpu, &self.assets, &self.map, self.layout.as_deref())?;
         p.recorded = Some(gpu.recorded()?);
         Ok(p)
     }
 }
 
-/// [`StagePrep`] of the stage `map` made with `gpu`'s context. The landscape's textures and the foliage's meshes are
-/// read into the shared caches for the set.
-fn prepare_stage(gpu: &Gpu, assets: &crate::Assets, map: &str) -> Result<StagePrep> {
+/// [`StagePrep`] of the stage `map` made with `gpu`'s context, a custom stage's `layout` over it. The landscape's
+/// textures and the foliage's meshes are read into the shared caches for the set.
+fn prepare_stage(
+    gpu: &Gpu,
+    assets: &crate::Assets,
+    map: &str,
+    layout: Option<&mvs_stage::Layout>,
+) -> Result<StagePrep> {
     let t0 = std::time::Instant::now();
     let key = stage_key(map);
     let store = assets.store();
     let draw = StageDraw::load(store, &key)?;
-    let data = stage_data(store, &key)?;
+    let mut data = stage_data(store, &key)?;
+    if let Some(l) = layout {
+        data = crate::scenery::layout::composed_stage_data(store, &data, l)?;
+    }
     let shadows = crate::lighting::tlv::static_shadows(gpu, store, data.tlv_shadow.as_ref())?;
     let vlm = {
         let pack = store.kind("lighting")?;
@@ -95,7 +104,7 @@ fn prepare_stage(gpu: &Gpu, assets: &crate::Assets, map: &str) -> Result<StagePr
         if entries.is_empty() { None } else { Some(VlmVolume::merge(&entries)?) }
     };
     let sky = load_sky(gpu, assets, &draw.sky)?;
-    let sc = crate::scenery::scenery(assets, &draw.scenery.entry)?;
+    let sc = crate::scenery::scenery(assets, &draw.scenery.entry, layout)?;
     let mut view = ViewMembers::default();
     if let Some(v) = &vlm {
         v.upload(gpu, &mut view)?;
@@ -125,13 +134,23 @@ impl Renderer {
     /// The stage to draw, by MapData name: fills `statics`, `landscape`, `members`, `lightmap_scene`, `lights`,
     /// the decal pass's DecalActors and `level_emitters` (the caller hands them to `Fx::begin_level`).
     pub fn set_stage(&mut self, map: &str) -> Result<()> {
-        let p = prepare_stage(self.gpu(), self.assets(), map)?;
+        self.set_stage_with(map, None)
+    }
+
+    /// [`Renderer::set_stage`] with a custom stage's layout over the stage `map` (its base).
+    pub fn set_stage_with(&mut self, map: &str, layout: Option<&mvs_stage::Layout>) -> Result<()> {
+        let p = prepare_stage(self.gpu(), self.assets(), map, layout)?;
         self.set_stage_prepared(p)
     }
 
     /// The prep of the stage `map` for a loader thread.
     pub fn stage_job(&self, map: &str) -> StageJob {
-        StageJob { gpu: self.gpu().share(), assets: self.assets.clone(), map: map.to_owned() }
+        self.stage_job_with(map, None)
+    }
+
+    /// [`Renderer::stage_job`] with a custom stage's layout over the stage `map`.
+    pub fn stage_job_with(&self, map: &str, layout: Option<Arc<mvs_stage::Layout>>) -> StageJob {
+        StageJob { gpu: self.gpu().share(), assets: self.assets.clone(), map: map.to_owned(), layout }
     }
 
     /// [`Renderer::set_stage`] on a stage's prep.

@@ -6,6 +6,7 @@ mod blocks;
 mod border;
 pub mod cromulons;
 pub mod host;
+pub mod layout;
 pub mod parallax;
 pub mod platform_blend;
 mod run;
@@ -312,7 +313,7 @@ pub fn sound_events(store: &mvs_store::Store, map: &str) -> Result<Vec<String>> 
 /// attached ones included, is linked to the scenery's state (SceneryRun::apply: shown, placed, posed), and a
 /// stage's block changes that state.
 // Unverified: an instance receives the decals when the scenery has none or lists it in `decalReceivers`.
-pub(crate) fn scenery(assets: &crate::Assets, entry: &str) -> Result<SceneryOut> {
+pub(crate) fn scenery(assets: &crate::Assets, entry: &str, layout: Option<&mvs_stage::Layout>) -> Result<SceneryOut> {
     let pack = assets.store().kind("scenery")?;
     let bytes = pack.bytes(entry)?;
     let bin = JsonBin::split(b"MVSC", &bytes, entry)?;
@@ -320,6 +321,10 @@ pub(crate) fn scenery(assets: &crate::Assets, entry: &str) -> Result<SceneryOut>
     let mut s = h.scenery;
     // (the tutorial level's solid instances, one per live solid: scenery/tutorial.rs)
     tutorial::clone_solids(&mut s.instances, s.rest.get("tutorialSolids"));
+    // (a custom stage's layout over its base: scenery/layout.rs)
+    if let Some(l) = layout {
+        layout::apply_from_store(&mut s, l, assets.store())?;
+    }
     let border = blast_border(&s, entry)?;
     let mut lightmaps: LightmapCache = HashMap::new();
     let mut out = Vec::new();

@@ -8,7 +8,7 @@
 //!   to the launcher beside it, which plays at once when the game is ready)
 //! mvs [--data <dir>] [--store <dir>] [--size 1920x1080] [--full-screen] [--adapter <text>] [--seed <n>] [--no-ui]
 //!   [--replay <trace match> [--trace-out <file>]] [--real-pace] [--shot <tick>[,..]] [--out <dir>] [--throttle <rate>]
-//!   [--bench <secs>] [--stage <key>] [--shot-results <secs>] [--press-results <secs>] [--no-audio] [--input-script <jsonl>] [--menu-tape <out>]
+//!   [--bench <secs>] [--stage <key>] [--stage-layout <file>] [--shot-results <secs>] [--press-results <secs>] [--no-audio] [--input-script <jsonl>] [--menu-tape <out>]
 //!   [--shot-frames <frame>[,..]] [--live-loads] [--audio-tape <file>]
 //!   [--waves endless|100 [--character <key>] [--waves-bot <level>]]   (a Waves run on `--stage`, cast from `--seed`)
 //!   [--wheel [--wheel-seconds <n>]]   (with `--play` too: the Chaos Wheel rule in the command line's match, a Lab and Local Play;
@@ -60,7 +60,7 @@ const USAGE: &str = "mvs --version\nmvs --self-test [--data <dir>] [--store <dir
 mvs --play --store <dir> [--data <dir>] [--size 1920x1080] [--full-screen] [--adapter <text>] [--no-audio] [--mute | --sound] [--background | --foreground] [--online-defaults <file>]\n\
 mvs [--data <dir>] [--store <dir>] [--size 1920x1080] [--full-screen] [--adapter <text>] [--seed <n>] [--no-ui] \
 [--replay <trace match> [--trace-out <file>]] [--real-pace] [--shot <tick>[,..]] [--out <dir>] [--throttle <rate>] \
-[--bench <secs>] [--shot-results <secs>] [--no-audio] [--input-script <jsonl>] [--menu-tape <out>] [--shot-frames <frame>[,..]] \
+[--bench <secs>] [--stage <key>] [--stage-layout <file>] [--shot-results <secs>] [--no-audio] [--input-script <jsonl>] [--menu-tape <out>] [--shot-frames <frame>[,..]] \
 [--live-loads] [--audio-tape <file>] [--waves endless|100 [--character <key>] [--waves-bot <level>]] [--wheel [--wheel-seconds <n>]]\n[--relay <addr> (--host | --join <lobby>) [--key <file>] [--feed <trace match>]]\n\
 [--online-config <file> [--direct-loopback] [--online-open host|join:<code>|queue:<mode>[,..]] [--online-lag <ms>] \
 [--online-desync-at <tick>] [--feed <trace match>]]
@@ -79,6 +79,9 @@ struct Args {
     seed: i32,
     /// `--stage`: the stage key of the command line's match (an online host's too; the guest takes the host's).
     stage: String,
+    /// (the port's own, dev) `--stage-layout <file>`: the command line's match on a custom stage, its layout's base
+    /// the stage.
+    layout: Option<std::sync::Arc<mvs_stage::Layout>>,
     replay: Option<String>,
     run: RunOptions,
     /// `--size` or `--full-screen` given: the window opens as they say, not as the settings saved it.
@@ -212,6 +215,7 @@ fn parse(mut it: impl Iterator<Item = String>) -> Result<Args, String> {
         online_defaults_given: None,
         seed: 1,
         stage: mvs_sim_trace::TRACE_STAGE.to_owned(),
+        layout: None,
         replay: None,
         run: RunOptions {
             first: MatchOptions::default(),
@@ -292,6 +296,13 @@ fn parse(mut it: impl Iterator<Item = String>) -> Result<Args, String> {
             "--no-ui" => a.shell.ui = false,
             "--no-audio" => a.shell.audio = false,
             "--stage" => a.stage = it.next().ok_or("--stage: no value")?,
+            "--stage-layout" => {
+                let path = it.next().ok_or("--stage-layout: no value")?;
+                let text = std::fs::read_to_string(&path).map_err(|e| format!("--stage-layout {path}: {e}"))?;
+                let l = mvs_stage::Layout::read(&text).map_err(|e| format!("--stage-layout {path}: {e}"))?;
+                mvs_stage::check(&l).map_err(|e| format!("--stage-layout {path}: {e}"))?;
+                a.layout = Some(std::sync::Arc::new(l));
+            }
             "--replay" => a.replay = Some(it.next().ok_or("--replay: no value")?),
             "--waves" => {
                 let v = it.next().ok_or("--waves: no value")?;
@@ -386,6 +397,13 @@ fn parse(mut it: impl Iterator<Item = String>) -> Result<Args, String> {
     }
     if a.play && a.stage != mvs_sim_trace::TRACE_STAGE {
         return Err("--stage: not with --play (the menus pick the stage from the map)".to_owned());
+    }
+    if a.layout.is_some() && (a.play || a.replay.is_some() || a.waves.is_some() || relay.is_some()) {
+        return Err("--stage-layout: not with --play, --replay, --waves or --relay".to_owned());
+    }
+    if let Some(l) = &a.layout {
+        // (the layout names its base: the stage loaded under it)
+        a.stage.clone_from(&l.base);
     }
     if a.replay.is_some() && a.stage != mvs_sim_trace::TRACE_STAGE {
         return Err("--stage: not with --replay (the trace's header names the stage)".to_owned());
@@ -606,6 +624,7 @@ fn run(a: Args) -> mvs_app::Result<()> {
                 None => {
                     let mut start = MatchStart::default_match(a.seed);
                     start.stage.clone_from(&a.stage);
+                    start.layout.clone_from(&a.layout);
                     start
                 }
             },

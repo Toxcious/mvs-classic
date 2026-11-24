@@ -614,6 +614,7 @@ dependencies = [
  "mvs-settings",
  "mvs-sim",
  "mvs-sim-trace",
+ "mvs-stage",
  "mvs-store",
  "mvs-trace",
  "mvs-ui",
@@ -856,6 +857,7 @@ dependencies = [
  "mvs-material",
  "mvs-sim",
  "mvs-sim-trace",
+ "mvs-stage",
  "mvs-store",
  "mvs-trace",
  "mvs-vfx",
@@ -920,6 +922,18 @@ dependencies = [
  "mvs-trace",
  "serde_json",
  "windows",
+]
+
+[[package]]
+name = "mvs-stage"
+version = "0.1.8"
+dependencies = [
+ "mvs-data",
+ "mvs-math",
+ "mvs-sim",
+ "serde",
+ "serde_json",
+ "thiserror",
 ]
 
 [[package]]

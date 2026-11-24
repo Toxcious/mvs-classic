@@ -14,6 +14,7 @@ trial-tape = { path = "crates/trial-tape" }
 mvs-store = { path = "crates/mvs-store" }
 mvs-load = { path = "crates/mvs-load" }
 mvs-data = { path = "crates/mvs-data" }
+mvs-stage = { path = "crates/mvs-stage" }
 mvs-audio = { path = "crates/mvs-audio" }
 mvs-trace = { path = "crates/mvs-trace" }
 indexmap = { version = "2", features = ["serde"] }

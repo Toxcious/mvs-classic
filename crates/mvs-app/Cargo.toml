@@ -25,6 +25,7 @@ mvs-host.workspace = true
 mvs-protocol.workspace = true
 mvs-pak.workspace = true
 mvs-render.workspace = true
+mvs-stage.workspace = true
 mvs-release.workspace = true
 mvs-settings.workspace = true
 mvs-sim = { path = "../mvs-sim" }
