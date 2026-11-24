@@ -42,6 +42,9 @@ pub struct Options {
     pub relay_linux: Option<PathBuf>,
     /// Skip the cargo builds and pack the last ones (a re-pack of the same version).
     pub no_build: bool,
+    /// Skip the cargo builds and pack the programs in this folder (`mvs.exe`, `mvs-launcher.exe`, `mvs-relay.exe`):
+    /// the release workflow's, fetched and verified by `tools/release-fetch.ps1`.
+    pub programs: Option<PathBuf>,
     /// The store the self check's match runs on (None: the one the built exe finds, its data root's).
     pub store: Option<PathBuf>,
 }
@@ -249,10 +252,18 @@ pub fn run(o: &Options) -> Result<(), String> {
     if !found.is_empty() {
         return Err(format!("dist: the guard refused the build list: {}", found.join("; ")));
     }
+    if o.programs.is_some() && o.no_build {
+        return Err("dist: --programs and --no-build both name what to pack; give one".to_owned());
+    }
+    if let Some(dir) = &o.programs
+        && !dir.is_dir()
+    {
+        return Err(format!("dist: no programs folder at {}", dir.display()));
+    }
     fresh_out(&o.out)?;
 
     let target = std::env::var_os("CARGO_TARGET_DIR").map_or_else(|| o.repo.join("target"), PathBuf::from);
-    let built = target.join("release");
+    let built = o.programs.clone().unwrap_or_else(|| target.join("release"));
     let (exe, launcher_exe, relay_exe) =
         (built.join(BUILT_GAME_EXE), built.join(BUILT_LAUNCHER_EXE), built.join("mvs-relay.exe"));
     let stamp = Stamp {
@@ -263,7 +274,17 @@ pub fn run(o: &Options) -> Result<(), String> {
         relay: String::new(),
     };
     let stamp_file = built.join(STAMP);
-    if o.no_build {
+    if o.programs.is_some() {
+        // the workflow built them for the tag's version and the feed; check_version below holds them to the version,
+        // this to the feed (the exe holds the feed's URL as text)
+        if let Some(f) = &o.feed {
+            let has = |p: &Path| read(p).map(|b| b.windows(f.len()).any(|w| w == f.as_bytes()));
+            if !has(&exe)? || !has(&launcher_exe)? {
+                return Err(format!("dist: --programs: mvs.exe or mvs-launcher.exe was not built with the feed {f}"));
+            }
+        }
+        println!("dist: packing the programs in {}", built.display());
+    } else if o.no_build {
         let had = std::fs::read(&stamp_file)
             .ok()
             .and_then(|t| serde_json::from_slice::<Stamp>(&t).ok())

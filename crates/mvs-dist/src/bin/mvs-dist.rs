@@ -1,13 +1,14 @@
 //! mvs-dist: the developer's release tool.
 //!
 //!   mvs-dist build --version <x.y.z> [--feed <url>] [--eos] [--out <dir>] [--relay-linux <file>] [--no-build]
-//!       [--store <dir>]
+//!       [--programs <dir>] [--store <dir>]
 //!       builds mvs.exe and mvs-relay.exe for the version (and the feed the exe checks), writes into <dir> (default
 //!       <repo>/target/dist) the release folder, MVS-Classic-<version>.zip and MVS-Classic-Relay-<version>.zip, then
 //!       guards both zips. --eos packs the EOS SDK's DLL and credentials named by MVS_EOS_DLL and MVS_EOS_CREDENTIALS.
 //!       --relay-linux packs a Linux mvs-relay built elsewhere. --no-build packs the last build again (built for the
-//!       same version and feed). The built mvs.exe runs the self check's match on --store (default: the store it
-//!       finds itself) for the release's self-check.json.
+//!       same version and feed). --programs packs the programs in <dir> instead of building them (the release
+//!       workflow's, fetched by tools/release-fetch.ps1). The built mvs.exe runs the self check's match on --store
+//!       (default: the store it finds itself) for the release's self-check.json.
 //!   mvs-dist guard <game zip> [<relay zip>] [--key <local.json>]
 //!       the guard alone (the key from <repo>/content/local.json unless --key names one)
 //!   mvs-dist serve <dir> [--port <n>]
@@ -26,7 +27,7 @@ use mvs_dist::pack::{self, Options};
 use mvs_dist::serve;
 
 const USAGE: &str =
-    "usage: mvs-dist build --version <x.y.z> [--feed <url>] [--eos] [--out <dir>] [--relay-linux <file>] [--no-build] [--store <dir>]
+    "usage: mvs-dist build --version <x.y.z> [--feed <url>] [--eos] [--out <dir>] [--relay-linux <file>] [--no-build] [--programs <dir>] [--store <dir>]
        mvs-dist guard <game zip> [<relay zip>] [--key <local.json>]
        mvs-dist serve <dir> [--port <n>]
        mvs-dist release-check [--store <dir>] [--keep]";
@@ -77,7 +78,11 @@ fn absolute(p: &str) -> Result<PathBuf, String> {
 }
 
 fn build(args: &[String]) -> Result<(), String> {
-    let a = parse(args, &["--version", "--feed", "--out", "--relay-linux", "--store"], &["--eos", "--no-build"])?;
+    let a = parse(
+        args,
+        &["--version", "--feed", "--out", "--relay-linux", "--programs", "--store"],
+        &["--eos", "--no-build"],
+    )?;
     if !a.rest.is_empty() {
         return Err(USAGE.to_owned());
     }
@@ -90,6 +95,7 @@ fn build(args: &[String]) -> Result<(), String> {
         out: a.get("--out").map_or_else(|| Ok(repo.join("target/dist")), absolute)?,
         relay_linux: a.get("--relay-linux").map(absolute).transpose()?,
         no_build: a.has("--no-build"),
+        programs: a.get("--programs").map(absolute).transpose()?,
         store: a.get("--store").map(absolute).transpose()?,
         repo,
     })
