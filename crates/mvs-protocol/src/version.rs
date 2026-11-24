@@ -10,7 +10,9 @@
 /// 28: a custom lobby's Chaos Wheel (the option `wheel`, the set-up's `wheel`).
 /// 29: a custom lobby's style is its own (`lobby_rules::LobbyStyle`: 0 Versus, 1 Free For All), no longer the
 /// build's ETeamStyle.
-pub const PROTOCOL: u32 = 29;
+/// 30: the Chaos Wheel option is its choices (`lobby_rules::WheelOptions`: window, warning, Chaos rate, two at once,
+/// pool), and the set-up's `wheel` carries the rate and two at once.
+pub const PROTOCOL: u32 = 30;
 
 /// The origin of the app's game window (`mvs://game/`): the raw `Origin` header the server lets in by default.
 pub const APP_ORIGIN: &str = "mvs://game";

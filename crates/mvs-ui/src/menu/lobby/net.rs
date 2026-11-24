@@ -579,6 +579,7 @@ impl NetLobby {
         let value = match value {
             OptionValue::Bool(b) => OptionWire::Bool(b),
             OptionValue::Set(m) => OptionWire::Number(m.0),
+            OptionValue::Wheel(o) => OptionWire::Wheel(o),
         };
         self.send(ClientMessage::LobbySetOption { key: key.to_string(), value });
     }

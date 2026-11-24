@@ -1,8 +1,9 @@
 //! (the port's own) A custom lobby's settings: a page of lobby options
 //! (mvs_protocol::lobby_rules `OptionKey`), a row each, drawn on UI_QuickMatchSettings' tree (the art, the panel, a
 //! drop menu per row, Done and the close button; its own three menus and the hazards toggle stay collapsed). Two
-//! pages: the room's (modal id `customGameSettings`, the lobby screen's ROOM SETTINGS button, an online lobby's) and
-//! the experimental rules (`customGameExperimental`, the button in Reset To Defaults' place). The leader's rows ask
+//! pages: the room's (modal id `customGameSettings`, the lobby screen's ROOM SETTINGS button, an online lobby's),
+//! the experimental rules (`customGameExperimental`, the button in Reset To Defaults' place) and the Chaos Wheel's
+//! (`customGameWheel`, the CHAOS WHEEL button beside it: `wheel_page`, the rows of `WheelOptions`). The leader's rows ask
 //! the lobby for the change at once (`on_option`); the others' show the values, greyed. The lobby screen hands the
 //! modal its lobby's state and page (`bind`) and calls `refresh` at each change of the options or the leader.
 //!
@@ -11,7 +12,9 @@
 
 use std::any::Any;
 
-use mvs_protocol::lobby_rules::{LobbyOptions, MutatorSet, OptionKey, OptionValue};
+use mvs_protocol::lobby_rules::{
+    LobbyOptions, MutatorSet, OptionKey, OptionValue, WHEEL_SECONDS_CHOICES, WHEEL_WARN_CHOICES, WheelOptions,
+};
 use serde_json::{Value, json};
 
 use super::common::{ModalBase, fill_page};
@@ -34,13 +37,38 @@ pub enum Words {
     Own(String),
 }
 
+/// One of the Chaos Wheel's choices, a part of `WheelOptions` (`wheel_page`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WheelPick {
+    On(bool),
+    Seconds(u32),
+    Warn(u32),
+    /// A rate by its place in `mvs_mutators::ChaosRate::ALL`.
+    Chaos(u8),
+    Two(bool),
+    /// The pool's quick picks: every mutator, the Mild ones, all but the Chaos ones.
+    All,
+    Mild,
+    NoChaos,
+    /// One mutator of `mvs_mutators::ALL`, ticked or unticked.
+    Mutator(usize),
+}
+
+/// A drop menu entry: a lobby option's value, or a Chaos Wheel choice.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Pick {
+    Value(OptionValue),
+    Wheel(WheelPick),
+}
+
 #[derive(Clone, Debug)]
 pub struct Row {
     pub key: OptionKey,
     pub label: Words,
     /// The values in the order the drop menu lists them, with their names.
-    pub values: Vec<(OptionValue, Words)>,
-    /// A checklist (the mutators): the values are sets of one, ticked or not; the empty set clears the list.
+    pub values: Vec<(Pick, Words)>,
+    /// A checklist (the mutators, the wheel's pool): the values are sets of one, ticked or not; the empty set (the
+    /// quick picks) sets the whole list.
     pub multi: bool,
 }
 
@@ -52,11 +80,140 @@ pub struct SettingsPage {
     pub art: Option<&'static str>,
 }
 
-fn on_off() -> Vec<(OptionValue, Words)> {
+fn on_off() -> Vec<(Pick, Words)> {
     vec![
-        (OptionValue::Bool(false), Words::Own(text::OFF.into())),
-        (OptionValue::Bool(true), Words::Own(text::ON.into())),
+        (Pick::Value(OptionValue::Bool(false)), Words::Own(text::OFF.into())),
+        (Pick::Value(OptionValue::Bool(true)), Words::Own(text::ON.into())),
     ]
+}
+
+fn own(s: impl Into<String>) -> Words {
+    Words::Own(s.into())
+}
+
+/// The Chaos Wheel's page: on or off, the window, the warning, the Chaos events' rate, two at once, and the pool (a
+/// checklist of `mvs_mutators::ALL` under its quick picks, each named with its tier).
+pub fn wheel_page() -> SettingsPage {
+    let w = |p: WheelPick, s: Words| (Pick::Wheel(p), s);
+    let row = |label: &str, values: Vec<(Pick, Words)>, multi: bool| Row {
+        key: OptionKey::Wheel,
+        label: own(label),
+        values,
+        multi,
+    };
+    let mut pool = vec![
+        w(WheelPick::All, own(text::POOL_ALL)),
+        w(WheelPick::Mild, own(text::POOL_MILD)),
+        w(WheelPick::NoChaos, own(text::POOL_NO_CHAOS)),
+    ];
+    for (i, m) in mvs_mutators::ALL.iter().enumerate() {
+        pool.push(w(WheelPick::Mutator(i), own(format!("{} ({})", text::wheel_name(m.key), text::tier_name(m.tier)))));
+    }
+    SettingsPage {
+        title: own(text::CHAOS_WHEEL),
+        rows: vec![
+            row(
+                text::CHAOS_WHEEL,
+                vec![w(WheelPick::On(false), own(text::OFF)), w(WheelPick::On(true), own(text::ON))],
+                false,
+            ),
+            row(
+                text::WHEEL_TIME,
+                WHEEL_SECONDS_CHOICES.iter().map(|&s| w(WheelPick::Seconds(s), own(text::seconds(s)))).collect(),
+                false,
+            ),
+            row(
+                text::WHEEL_WARNING,
+                WHEEL_WARN_CHOICES.iter().map(|&s| w(WheelPick::Warn(s), own(text::seconds(s)))).collect(),
+                false,
+            ),
+            row(
+                text::WHEEL_EVENTS,
+                (0u8..4).map(|r| w(WheelPick::Chaos(r), own(text::WHEEL_RATES[usize::from(r)]))).collect(),
+                false,
+            ),
+            row(
+                text::WHEEL_TWO,
+                vec![w(WheelPick::Two(false), own(text::OFF)), w(WheelPick::Two(true), own(text::ON))],
+                false,
+            ),
+            row(text::WHEEL_POOL, pool, true),
+        ],
+        art: Some("GameMode_AXHard_BG"),
+    }
+}
+
+/// The pool's left-out bits of every mutator whose tier `keep` refuses.
+fn off_where(keep: impl Fn(mvs_mutators::Tier) -> bool) -> u64 {
+    mvs_mutators::ALL.iter().enumerate().filter(|(_, m)| !keep(m.tier)).fold(0, |o, (i, _)| o | (1 << i))
+}
+
+/// The options after the choice `p`; None where it is refused (a pool left empty).
+pub fn wheel_after(o: WheelOptions, p: WheelPick) -> Option<WheelOptions> {
+    use mvs_mutators::Tier;
+    let n = match p {
+        WheelPick::On(on) => WheelOptions { on, ..o },
+        WheelPick::Seconds(seconds) => WheelOptions { seconds, ..o },
+        WheelPick::Warn(warn) => WheelOptions { warn, ..o },
+        WheelPick::Chaos(chaos) => WheelOptions { chaos, ..o },
+        WheelPick::Two(two) => WheelOptions { two, ..o },
+        WheelPick::All => WheelOptions { off: 0, ..o },
+        WheelPick::Mild => WheelOptions { off: off_where(|t| t == Tier::Mild), ..o },
+        WheelPick::NoChaos => WheelOptions { off: off_where(|t| t != Tier::Chaos), ..o },
+        WheelPick::Mutator(i) => o.with(i, !o.has(i)),
+    };
+    n.valid().then_some(n)
+}
+
+/// A wheel choice's id in its drop menu.
+fn wheel_id(p: WheelPick) -> String {
+    match p {
+        WheelPick::On(b) => format!("on{}", u8::from(b)),
+        WheelPick::Seconds(s) => format!("s{s}"),
+        WheelPick::Warn(s) => format!("w{s}"),
+        WheelPick::Chaos(r) => format!("c{r}"),
+        WheelPick::Two(b) => format!("t{}", u8::from(b)),
+        WheelPick::All => "all".into(),
+        WheelPick::Mild => "mild".into(),
+        WheelPick::NoChaos => "nochaos".into(),
+        WheelPick::Mutator(i) => format!("m{i}"),
+    }
+}
+
+fn pick_id(p: Pick) -> String {
+    match p {
+        Pick::Value(v) => option_text(v),
+        Pick::Wheel(w) => wheel_id(w),
+    }
+}
+
+/// The choice a single wheel row shows for `o`, by the row's kind (its first entry).
+fn wheel_now(kind: WheelPick, o: WheelOptions) -> WheelPick {
+    match kind {
+        WheelPick::On(_) => WheelPick::On(o.on),
+        WheelPick::Seconds(_) => WheelPick::Seconds(o.seconds),
+        WheelPick::Warn(_) => WheelPick::Warn(o.warn),
+        WheelPick::Chaos(_) => WheelPick::Chaos(o.chaos),
+        WheelPick::Two(_) => WheelPick::Two(o.two),
+        other => other,
+    }
+}
+
+/// The pool checklist's label: All, the one mutator's name, or the count.
+fn pool_label(o: WheelOptions) -> String {
+    let n = (0..mvs_mutators::ALL.len()).filter(|&i| o.has(i)).count();
+    match n {
+        _ if o.off == 0 => text::POOL_ALL.to_string(),
+        1 => (0..mvs_mutators::ALL.len())
+            .find(|&i| o.has(i))
+            .map_or_else(String::new, |i| text::wheel_name(mvs_mutators::ALL[i].key).to_string()),
+        n => text::mutator_count(n),
+    }
+}
+
+/// The pool checklist's ticked ids: each mutator in it.
+fn pool_ticked(o: WheelOptions) -> Vec<String> {
+    (0..mvs_mutators::ALL.len()).filter(|&i| o.has(i)).map(|i| wheel_id(WheelPick::Mutator(i))).collect()
 }
 
 /// The room's page.
@@ -68,8 +225,8 @@ pub fn room_page() -> SettingsPage {
                 key: OptionKey::Public,
                 label: Words::Game("C51E56ED4E673B922BDE2AAFB938F8F2"), // Privacy
                 values: vec![
-                    (OptionValue::Bool(false), Words::Game("1164D2E24901624F6C0BF48A216689B8")), // Private
-                    (OptionValue::Bool(true), Words::Game("37F7D5A94886770D20288BA8D91BCB3D")),  // Public
+                    (Pick::Value(OptionValue::Bool(false)), Words::Game("1164D2E24901624F6C0BF48A216689B8")), // Private
+                    (Pick::Value(OptionValue::Bool(true)), Words::Game("37F7D5A94886770D20288BA8D91BCB3D")),  // Public
                 ],
                 multi: false,
             },
@@ -93,28 +250,30 @@ fn mutators_row() -> Row {
         values: text::MUTATORS
             .iter()
             .enumerate()
-            .map(|(i, t)| (OptionValue::Set(MutatorSet::default().with(i, true)), Words::Own((*t).into())))
+            .map(|(i, t)| (Pick::Value(OptionValue::Set(MutatorSet::default().with(i, true))), Words::Own((*t).into())))
             .collect(),
         multi: true,
     }
 }
 
-/// The experimental rules, the port's own (not in the beta); the art is the arcade's hard card background.
+/// The experimental rules, the port's own (not in the beta); the art is the arcade's hard card background. The
+/// Chaos Wheel has a page of its own (`wheel_page`).
 pub fn experimental_page() -> SettingsPage {
     SettingsPage {
         title: Words::Own(text::EXPERIMENTAL_TITLE.into()),
         rows: vec![
             Row { key: OptionKey::Stocks, label: Words::Own(text::STOCK_MODE.into()), values: on_off(), multi: false },
             mutators_row(),
-            Row { key: OptionKey::Wheel, label: Words::Own(text::CHAOS_WHEEL.into()), values: on_off(), multi: false },
         ],
         art: Some("GameMode_AXHard_BG"),
     }
 }
 
-/// The Lab's experimental rules: the mutators alone (the Lab has no stocks and no wheel).
+/// The Lab's experimental rules: the mutators and the Chaos Wheel's rows (the Lab has no stocks).
 pub fn lab_experimental_page() -> SettingsPage {
-    SettingsPage { rows: vec![mutators_row()], ..experimental_page() }
+    let mut rows = vec![mutators_row()];
+    rows.extend(wheel_page().rows);
+    SettingsPage { rows, ..experimental_page() }
 }
 
 /// The set after a click on a checklist row's `value`: Off clears it, a mutator is ticked or unticked.
@@ -164,7 +323,7 @@ const H_ROW: u32 = 16;
 struct MenuRow {
     key: OptionKey,
     menu: WidgetId,
-    values: Vec<OptionValue>,
+    values: Vec<Pick>,
     multi: bool,
 }
 
@@ -182,6 +341,8 @@ fn option_text(v: OptionValue) -> String {
     match v {
         OptionValue::Bool(b) => b.to_string(),
         OptionValue::Set(m) => m.0.to_string(),
+        // (a wheel row's entries are `Pick::Wheel`, each with its own id)
+        OptionValue::Wheel(_) => String::new(),
     }
 }
 
@@ -237,7 +398,7 @@ impl CustomGameSettings {
             let items: Vec<Value> = r
                 .values
                 .iter()
-                .map(|(v, t)| json!({ P_LABEL: { "CultureInvariantString": Self::words(cx, t) }, P_ID: option_text(*v) }))
+                .map(|(v, t)| json!({ P_LABEL: { "CultureInvariantString": Self::words(cx, t) }, P_ID: pick_id(*v) }))
                 .collect();
             let n = items.len();
             let mut props = like_props.clone();
@@ -304,8 +465,16 @@ impl CustomGameSettings {
         for m in &self.menus {
             let value = v.options.get(m.key);
             let main = cx.view.tree().find_in(m.menu, "mainInteractor");
-            match value {
-                OptionValue::Set(set) if m.multi => {
+            match (value, m.values.first()) {
+                (OptionValue::Wheel(o), _) if m.multi => {
+                    let (ticked, label) = (pool_ticked(o), pool_label(o));
+                    cx.visit::<DropMenu, _>(m.menu, |d, cx| d.set_checked(cx, ticked, &label));
+                }
+                (OptionValue::Wheel(o), Some(&Pick::Wheel(kind))) => {
+                    let key = wheel_id(wheel_now(kind, o));
+                    cx.visit::<DropMenu, _>(m.menu, |d, cx| d.set_active_by_id(cx, &key));
+                }
+                (OptionValue::Set(set), _) if m.multi => {
                     let (ticked, label) = (ticked_ids(set), mutators_label(set));
                     cx.visit::<DropMenu, _>(m.menu, |d, cx| d.set_checked(cx, ticked, &label));
                 }
@@ -425,10 +594,15 @@ impl Controller for CustomGameSettings {
                 {
                     let key = row.key;
                     let value = match (value, self.view.map(|v| v.options.get(key))) {
-                        (OptionValue::Set(click), Some(OptionValue::Set(now))) if row.multi => {
+                        (Pick::Value(OptionValue::Set(click)), Some(OptionValue::Set(now))) if row.multi => {
                             OptionValue::Set(toggled(now, click))
                         }
-                        _ => value,
+                        (Pick::Wheel(p), Some(OptionValue::Wheel(now))) => {
+                            let Some(o) = wheel_after(now, p) else { return };
+                            OptionValue::Wheel(o)
+                        }
+                        (Pick::Value(v), _) => v,
+                        (Pick::Wheel(_), _) => return,
                     };
                     // (the page's copy takes the change at once: a second click before the lobby's answer toggles
                     // from it)
@@ -455,15 +629,36 @@ mod tests {
     fn the_experimental_page_lists_every_mutator() {
         let p = experimental_page();
         assert_eq!(p.rows[1].values.len(), mvs_protocol::lobby_rules::MUTATOR_CHOICES);
-        assert_eq!(
-            p.rows.iter().map(|r| r.key).collect::<Vec<_>>(),
-            [OptionKey::Stocks, OptionKey::Mutators, OptionKey::Wheel]
-        );
+        assert_eq!(p.rows.iter().map(|r| r.key).collect::<Vec<_>>(), [OptionKey::Stocks, OptionKey::Mutators]);
         assert_eq!(p.art, Some("GameMode_AXHard_BG"));
         assert_eq!(room_page().rows.len(), 2);
         let lab = lab_experimental_page();
-        assert_eq!(lab.rows.len(), 1);
+        assert_eq!(lab.rows.len(), 1 + wheel_page().rows.len());
         assert!(lab.rows[0].multi && lab.rows[0].key == OptionKey::Mutators);
+    }
+
+    #[test]
+    fn the_wheel_page_sets_each_choice_and_keeps_a_pool() {
+        let p = wheel_page();
+        assert_eq!(p.rows.len(), 6);
+        assert!(p.rows.iter().all(|r| r.key == OptionKey::Wheel));
+        assert_eq!(p.rows[5].values.len(), 3 + mvs_mutators::ALL.len());
+        let o = WheelOptions::default();
+        let o = wheel_after(o, WheelPick::On(true)).expect("on");
+        let o = wheel_after(o, WheelPick::Seconds(45)).expect("a window");
+        let o = wheel_after(o, WheelPick::Chaos(0)).expect("a rate");
+        assert_eq!((o.on, o.seconds, o.rate()), (true, 45, mvs_mutators::ChaosRate::Off));
+        assert_eq!(wheel_id(wheel_now(WheelPick::Seconds(10), o)), "s45");
+        // the quick picks and a single mutator
+        let mild = wheel_after(o, WheelPick::Mild).expect("mild");
+        assert!(mvs_mutators::ALL.iter().enumerate().all(|(i, m)| mild.has(i) == (m.tier == mvs_mutators::Tier::Mild)));
+        let one = wheel_after(mild, WheelPick::Mutator(1)).expect("one out");
+        assert!(!one.has(1));
+        assert_eq!(pool_label(wheel_after(one, WheelPick::All).expect("all")), text::POOL_ALL);
+        // the last mutator cannot be unticked
+        let last = (1..mvs_mutators::ALL.len()).fold(o, |o, i| o.with(i, false));
+        assert_eq!(pool_label(last), text::wheel_name(mvs_mutators::ALL[0].key));
+        assert_eq!(wheel_after(last, WheelPick::Mutator(0)), None);
     }
 
     #[test]

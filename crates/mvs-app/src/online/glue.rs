@@ -599,7 +599,10 @@ mod tests {
     #[test]
     fn a_lobbys_wheel_is_the_sims_rule() {
         let wire = mvs_protocol::setup::MatchSetupWire {
-            wheel: Some(mvs_protocol::lobby_rules::wheel_rule()),
+            wheel: mvs_protocol::lobby_rules::wheel_rule(mvs_protocol::lobby_rules::WheelOptions {
+                on: true,
+                ..Default::default()
+            }),
             ..Default::default()
         };
         assert_eq!(setup_of_wire(&wire).expect("the set-up reads").wheel, Some(crate::wheel::whole_pool()));

@@ -133,6 +133,9 @@ pub struct WheelHud {
     pub current: Option<usize>,
     /// The next mutator, once it is drawn.
     pub next: Option<usize>,
+    /// Two at once: the second mutator on, and the second of the next change once it is drawn.
+    pub also: Option<usize>,
+    pub also_next: Option<usize>,
     /// Ticks to the next change; None before the match starts and once it is over.
     pub ticks_left: Option<u32>,
     /// A window's length and how long ahead of a change the next mutator is drawn, ticks.
@@ -2254,8 +2257,14 @@ mod tests {
             };
             hud.draw(&f, &mut fonts, &mut ElementList::default());
         };
-        let status =
-            |current, next, left| WheelHud { current, next, ticks_left: left, window_ticks: 1200, warn_ticks: 180 };
+        let status = |current, next, left| WheelHud {
+            current,
+            next,
+            ticks_left: left,
+            window_ticks: 1200,
+            warn_ticks: 180,
+            ..WheelHud::default()
+        };
         let step = |hud: &mut Hud, w: Option<WheelHud>, t: f64| {
             hud.set_wheel(w);
             hud.observe(&h.w, &[], t, t);

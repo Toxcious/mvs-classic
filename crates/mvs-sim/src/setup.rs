@@ -122,6 +122,8 @@ pub struct Wheel {
     pub warn: Real,
     /// How many of the pool's Chaos mutators a round of the draw's bag holds.
     pub chaos: mvs_mutators::ChaosRate,
+    /// Two at once: late in the match (`world::wheel`'s `late`) each change brings two mutators.
+    pub two: bool,
 }
 
 impl Wheel {
@@ -132,7 +134,7 @@ impl Wheel {
 
     /// A custom game's rule over `pool`.
     pub fn of(pool: Vec<String>) -> Wheel {
-        Wheel { pool, seconds: Wheel::SECONDS, warn: Wheel::WARN, chaos: mvs_mutators::ChaosRate::Normal }
+        Wheel { pool, seconds: Wheel::SECONDS, warn: Wheel::WARN, chaos: mvs_mutators::ChaosRate::Normal, two: false }
     }
 }
 

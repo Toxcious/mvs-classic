@@ -67,11 +67,12 @@ team style and with Stock Mode.
 
 ## Chaos Wheel (`wheel`)
 
-One mutator at a time for every fighter, changed every 20 seconds: the match starts plain, the first mutator
-comes on 20 seconds after the match starts, and each one ends as the next comes on, until the match is over. The
-match set-up carries the rule as `wheel: { pool, seconds, warn }` (`mvs-protocol` `setup.rs`, filled by
-`lobby_rules::wheel_rule`): the mutator keys that may be rolled, the window's length and how far ahead the next
-one is drawn. The sim's part is `mvs-sim` `world/wheel.rs`. Works in every team style, with Stock Mode and
+One mutator at a time for every fighter, changed every window (20 seconds by default): the match starts plain,
+the first mutator comes on a window after the match starts, and each one ends as the next comes on, until the
+match is over. The match set-up carries the rule as `wheel: { pool, seconds, warn, chaos, two }`
+(`mvs-protocol` `setup.rs`, filled by `lobby_rules::wheel_rule`): the mutator keys that may be rolled, the
+window's length, how far ahead the next one is drawn, the Chaos rate (left out at Normal) and two at once (left
+out when off). The sim's part is `mvs-sim` `world/wheel.rs`. Works in every team style, with Stock Mode and
 beside the Mutators row.
 
 - The pool (`mvs-mutators`, each with its tier): Mild (sky blue): Giant, Miniature, Low Gravity, Air Show,
@@ -93,10 +94,18 @@ beside the Mutators row.
 - A cooldown multiplier's end (Ability Frenzy, Big Head) multiplies each cooldown's length by new / old, as the
   build's buffs end: some lengths come back one float step off (14 seconds as 14.000001).
 - The rule's saved state is by player slot: a mode with more pawns than players (Waves) does not take it.
-- The page's row is Chaos Wheel, Off or On; the Lab's page does not have it. The option's value is a bool, and
-  the pool, the window and the warning are the rule's own constants (`WHEEL_MUTATORS`, `WHEEL_SECONDS`,
-  `WHEEL_WARN`), not settings. Offline the menus fill the set-up from the lobby's options; online the host core
-  does (`mvs-host`), so every member's match has the same rule.
+- Settings: the lobby's CHAOS WHEEL button (beside EXPERIMENTAL SETTINGS) opens the wheel's page
+  (`custom_settings::wheel_page`): Chaos Wheel Off / On; Time per Change 10, 15, 20, 30, 45 or 60 seconds;
+  Warning 3 or 5 seconds; Chaos Events Off / Rare / Normal / Often; Two at Once; and Mutators, a checklist of
+  every mutator with its tier and three quick picks (All, Mild Only, No Chaos). The Lab's Experimental Settings
+  page has the same rows under its Mutators row; a change restarts the Lab's match at the unpause. The option's
+  value is `lobby_rules::WheelOptions` (`on`, `seconds`, `warn`, `chaos` 0-3, `two`, `off`: a bit per
+  mutator left out of the pool); the host refuses a value off the lists or an empty pool, and the default is
+  left off the wire (PROTOCOL 30). Offline the menus fill the set-up from the lobby's options; online the host
+  core does (`mvs-host`), so every member's match has the same rule.
+- Two at once: in the last minute of a timed match, at match point of a stock match, or with a team one
+  knockout from the win, each change draws a second mutator as well (never the first's), on for the same window.
+  The card shows it on a line of its own under the name, once the reel has landed.
 - HUD (`mvs-ui` `hud/wheel.rs`): a card under the scoreboard's clock (above it with the HUD at the bottom), at
   the scoreboard's scale and opacity, in its fonts: a label, the mutator's name and a bar that runs down over the
   window. The first window reads GET READY over the rule's name. When the next mutator is drawn the label reads

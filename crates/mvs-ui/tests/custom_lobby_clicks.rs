@@ -630,17 +630,18 @@ fn the_mutators_list_ticks_more_than_one() {
     assert_eq!(sent, [("mutators".to_string(), 1 << 2), ("mutators".to_string(), (1 << 2) | (1 << 6))]);
 }
 
-/// The experimental page's Chaos Wheel row: On asks the lobby for the option `wheel`.
+/// The CHAOS WHEEL button opens the wheel's page, and its first row's On asks the lobby for the option `wheel`
+/// with the wheel on and the rest of its choices kept.
 #[test]
 fn the_wheel_row_asks_for_the_option() {
     use mvs_protocol::messages::{ClientMessage, OptionWire};
     use mvs_ui::menu::custom_text;
     use mvs_ui::menu::online::OnlineCmd;
     let Some(mut l) = Lobby::new(env()) else { return };
-    let b = l.find("customGame", "ResetToDefaultsButton");
+    let b = l.find("customGame", "WheelSettingsButton");
     l.click(b);
-    assert!(l.up("customGameExperimental"));
-    let row = l.find("customGameExperimental", "Option_Wheel");
+    assert!(l.up("customGameWheel"));
+    let row = l.find("customGameWheel", "Option_Wheel");
     let open = l.screen.view.tree().find_in(row, "mainInteractor");
     l.click(open);
     l.frames(30, &[]);
@@ -654,20 +655,21 @@ fn the_wheel_row_asks_for_the_option() {
     };
     l.click(on);
     l.frames(20, &[]);
-    let sent: Vec<(String, bool)> = l
+    let sent: Vec<(String, mvs_protocol::lobby_rules::WheelOptions)> = l
         .screen
         .view
         .take_online_cmds()
         .into_iter()
         .filter_map(|c| match c {
             OnlineCmd::Send(m) => match *m {
-                ClientMessage::LobbySetOption { key, value: OptionWire::Bool(b) } => Some((key, b)),
+                ClientMessage::LobbySetOption { key, value: OptionWire::Wheel(o) } => Some((key, o)),
                 _ => None,
             },
             _ => None,
         })
         .collect();
-    assert_eq!(sent, [("wheel".to_string(), true)]);
+    let on = mvs_protocol::lobby_rules::WheelOptions { on: true, ..Default::default() };
+    assert_eq!(sent, [("wheel".to_string(), on)]);
 }
 
 impl Lobby {

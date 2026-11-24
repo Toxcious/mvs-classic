@@ -53,6 +53,8 @@ pub fn hud_of(setup: &MatchSetup, s: &WheelStatus) -> WheelHud {
     WheelHud {
         current: named(s.current),
         next: named(s.next),
+        also: named(s.also),
+        also_next: named(s.also_next),
         ticks_left: s.ticks_left,
         window_ticks: s.window_ticks,
         warn_ticks,
@@ -76,18 +78,40 @@ mod tests {
     #[test]
     fn the_card_names_the_pool_by_the_wheels_order() {
         let setup = MatchSetup { wheel: Some(whole_pool()), ..MatchSetup::default() };
-        let s = WheelStatus { current: Some(0), next: Some(12), ticks_left: Some(90), window_ticks: 1200 };
+        let s = WheelStatus {
+            current: Some(0),
+            next: Some(12),
+            also: Some(1),
+            also_next: None,
+            ticks_left: Some(90),
+            window_ticks: 1200,
+        };
         let h = hud_of(&setup, &s);
         assert_eq!(h.current.map(|i| mvs_mutators::ALL[i].key), Some("Mutator_Giant"));
         assert_eq!(h.next.map(|i| mvs_mutators::ALL[i].key), Some("Mutator_RandomItemSpawns"));
+        assert_eq!((h.also, h.also_next), (Some(1), None));
         assert_eq!((h.ticks_left, h.window_ticks, h.warn_ticks), (Some(90), 1200, 180));
         assert_eq!(hud_pool(&setup).map(|p| p.len()), Some(mvs_mutators::ALL.len()));
         assert_eq!(hud_pool(&MatchSetup::default()), None);
         // a window shorter than the warning: the draw comes at the window's start
         let short = MatchSetup { wheel: Some(switch_rule(Some(0.5))), ..MatchSetup::default() };
-        let s = WheelStatus { current: None, next: None, ticks_left: Some(30), window_ticks: 30 };
+        let s = WheelStatus {
+            current: None,
+            next: None,
+            also: None,
+            also_next: None,
+            ticks_left: Some(30),
+            window_ticks: 30,
+        };
         assert_eq!(hud_of(&short, &s).warn_ticks, 10);
-        let plain = WheelStatus { current: None, next: None, ticks_left: None, window_ticks: 1200 };
+        let plain = WheelStatus {
+            current: None,
+            next: None,
+            also: None,
+            also_next: None,
+            ticks_left: None,
+            window_ticks: 1200,
+        };
         assert_eq!(hud_of(&setup, &plain), WheelHud { window_ticks: 1200, warn_ticks: 180, ..WheelHud::default() });
     }
 

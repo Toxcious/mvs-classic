@@ -26,7 +26,7 @@ use super::controls::drop_menu::{DropMenu, own_item};
 use super::controls::interactor::{self, batch_set_context, batch_set_scroll_box};
 use super::controls::tooltip::{TooltipTarget, tooltip_params};
 use super::controls::{bind, find, focus_frame, slot_z_order, wd};
-use super::custom_settings::{CustomGameSettings, LobbyView, SettingsPage, experimental_page, room_page};
+use super::custom_settings::{CustomGameSettings, LobbyView, SettingsPage, experimental_page, room_page, wheel_page};
 use super::home::Homescreen;
 use super::lobby_chat::{self, ChatAction, LobbyChat};
 use super::nav::{GlobalNav, live};
@@ -920,6 +920,7 @@ const CLIP_BLEED: f64 = 16.0;
 const LOBBY_DROPS: [&str; 4] = ["UI_DropGameMode", "UI_DropRingouts", "UI_DropTime", "UI_DropMatches"];
 const LOBBY_TEAMS: [&str; 3] = ["WBP_CustomGameTeam", "WBP_CustomGameTeam_1", "WBP_CustomGameTeam_ffa"];
 const EXPERIMENTAL_MODAL: &str = "customGameExperimental";
+const WHEEL_MODAL: &str = "customGameWheel";
 const SETTINGS_MODAL: &str = "customGameSettings";
 
 const G_SUBMIT3: u32 = 1;
@@ -938,6 +939,7 @@ const G_ROOM_SETTINGS: u32 = 13;
 const G_INVITED: u32 = 14;
 const G_KEY: u32 = 15;
 const G_MAPS_SELECTED: u32 = 16;
+const G_WHEEL: u32 = 18;
 /// (the port's own) The eye beside the room code: shows or masks it.
 const G_EYE: u32 = 17;
 /// The chat input's events (lobby_chat::H_*) arrive under these ids.
@@ -1124,6 +1126,59 @@ impl CustomGame {
             b.on_click.add(Handler { owner: me, id: click });
         });
         w
+    }
+
+    /// (the port's own) CHAOS WHEEL, a button of EXPERIMENTAL SETTINGS' kind beside it, the two in a row in
+    /// EXPERIMENTAL SETTINGS' slot (the column under the settings has no room for a second line): the wheel's page
+    /// (`wheel_page`).
+    fn add_wheel_button(cx: &mut Cx<'_>, reset: WidgetId) {
+        let (user, props, parent, at, pad, ha, va, fill) = {
+            let t = cx.view.tree();
+            let r = t.widget(reset);
+            let parent = r.parent;
+            let at = parent.and_then(|p| t.widget(p).children.iter().position(|c| *c == reset));
+            (
+                t.user_class(reset).map(str::to_string),
+                t.props(reset).clone(),
+                parent,
+                at,
+                r.pad,
+                r.h_align,
+                r.v_align,
+                r.fill,
+            )
+        };
+        let (Some(user), Some(parent)) = (user, parent) else { return };
+        let bundle = cx.view.bundle.clone();
+        let b = MenuView::create(cx, &user);
+        let row = {
+            let t = cx.view.tree_mut();
+            let row = t.create_plain(&bundle, "HorizontalBox", "ExperimentalButtons");
+            let w = t.widget_mut(row);
+            w.pad = pad;
+            w.h_align = ha;
+            w.v_align = va;
+            w.fill = fill;
+            t.insert(parent, row, at);
+            t.insert(row, reset, None);
+            let w = t.widget_mut(reset);
+            w.pad = Margin::default();
+            w.fill = 1.0;
+            if let Some(o) = props.as_object() {
+                // (its own tag: the interactor's id is the button's)
+                for (k, v) in o.iter().filter(|(k, _)| k.as_str() != "tag") {
+                    t.set_prop(b, k, v.clone());
+                }
+            }
+            let w = t.widget_mut(b);
+            w.name = "WheelSettingsButton".into();
+            w.pad = Margin { l: TOP_GAP, ..Margin::default() };
+            w.fill = 1.0;
+            w.v_align = va;
+            row
+        };
+        MenuView::add_child(cx, row, b, None);
+        cx.visit::<ButtonSecondary, _>(b, |x, cx| x.init(cx, custom_text::WHEEL_BUTTON));
     }
 
     fn add_code_button(&mut self, cx: &mut Cx<'_>) {
@@ -1608,6 +1663,7 @@ impl CustomGame {
         for n in [
             "CancelCustomGameButton",
             "ResetToDefaultsButton",
+            "WheelSettingsButton",
             "SelectMapsButton",
             "Button_JoinSpectators",
             "Button_JoinPlayers",
@@ -1732,6 +1788,7 @@ impl CustomGame {
         // (the experimental settings button is every member's: custom_settings greys the rows of one who does not
         // lead)
         set_vis(cx, "ResetToDefaultsButton", Vis::SelfHitTestInvisible);
+        set_vis(cx, "WheelSettingsButton", Vis::SelfHitTestInvisible);
         let label = if leader { "Start Match".to_string() } else { self.ready_label() };
         let b = find(cx, "Btn_StartMatch");
         cx.visit::<ButtonMain, _>(b, |b, cx| b.set_label(cx, &label));
@@ -1946,7 +2003,7 @@ impl CustomGame {
     /// The settings modals' rows again (an options change, a new leader).
     fn refresh_settings(&mut self, cx: &mut Cx<'_>) {
         let view = self.lobby_view();
-        for id in [SETTINGS_MODAL, EXPERIMENTAL_MODAL] {
+        for id in [SETTINGS_MODAL, EXPERIMENTAL_MODAL, WHEEL_MODAL] {
             if let Some(w) = cx.view.manager.get_modal(id) {
                 cx.visit::<CustomGameSettings, _>(w, |s, cx| s.refresh(cx, Some(view)));
             }
@@ -2099,6 +2156,7 @@ impl Modal for CustomGame {
         cx.visit::<ToggleSwitch, _>(h, |t, _| t.on_toggle_changed.add(Handler { owner: me, id: G_HAZARDS }));
         for (n, id) in [
             ("ResetToDefaultsButton", G_EXPERIMENTAL),
+            ("WheelSettingsButton", G_WHEEL),
             ("CancelCustomGameButton", G_LEAVE),
             ("SelectMapsButton", G_SELECT_MAPS),
         ] {
@@ -2170,6 +2228,7 @@ impl Controller for CustomGame {
         cx.visit::<CustomGameTeam, _>(ffa, |t, cx| t.as_grid(cx));
         let reset = find(cx, "ResetToDefaultsButton");
         cx.visit::<ButtonSecondary, _>(reset, |b, cx| b.init(cx, custom_text::EXPERIMENTAL_BUTTON));
+        Self::add_wheel_button(cx, reset);
         let sb = find(cx, "scrollContainer");
         cx.view.manager.register_scrollbox(sb);
         // Deviation: both scroll boxes clip to their bounds as the build's do, but their content (the inputs, the team
@@ -2276,6 +2335,7 @@ impl Controller for CustomGame {
         // (the lobby's settings go with it)
         Manager::dismiss_modal(cx, SETTINGS_MODAL);
         Manager::dismiss_modal(cx, EXPERIMENTAL_MODAL);
+        Manager::dismiss_modal(cx, WHEEL_MODAL);
         let me = cx.w;
         cx.view.manager.on_key_input.remove(Handler { owner: me, id: G_KEY });
         if let Some(c) = self.chat.take() {
@@ -2348,6 +2408,7 @@ impl Controller for CustomGame {
                 self.lobby_mut().set_allow_hazards(on);
             }
             G_EXPERIMENTAL => self.show_settings(cx, EXPERIMENTAL_MODAL, experimental_page()),
+            G_WHEEL => self.show_settings(cx, WHEEL_MODAL, wheel_page()),
             G_LEAVE => self.leave(cx),
             G_LEAVE_CONFIRMED => {
                 let id = self.base.modal_id.clone();

@@ -4,7 +4,7 @@
 
 use mvs_protocol::lobby_rules::{
     BOT_DIFFICULTY_EXPERT, BOT_DIFFICULTY_MIN, LobbyPlayer, LobbyRules, LobbyStyle, MutatorSet, OptionKey, OptionValue,
-    bot_name,
+    WheelOptions, bot_name,
 };
 use mvs_protocol::messages::{HostWhy, LobbyErrorWhy, LobbyRefusedWhy, RefusedWhy, ServerMessage};
 use mvs_protocol::names::clean_name;
@@ -34,6 +34,10 @@ fn option_value(key: Option<&Value>, value: Option<&Value>) -> Option<(OptionKey
             // (a set of listed mutators' bits)
             let bits = u32::try_from(value?.as_u64()?).ok()?;
             MutatorSet::of(bits).map(|m| (key, OptionValue::Set(m)))
+        }
+        OptionKey::Wheel => {
+            let o: WheelOptions = serde_json::from_value(value?.clone()).ok()?;
+            Some((key, OptionValue::Wheel(o)))
         }
         _ => value?.as_bool().map(|b| (key, OptionValue::Bool(b))),
     }

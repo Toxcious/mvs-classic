@@ -191,6 +191,7 @@ pub struct LabControl {
     map_at_pause: String,
     /// (the port's own) The mutators at the pause: another set at the unpause respawns into a restart.
     mutators_at_pause: MutatorSet,
+    wheel_at_pause: mvs_protocol::lobby_rules::WheelOptions,
     /// Ticks of HandleAllPlayerDataAcked's Delay(1.0); 0 = no spawn pending.
     spawn_left: u32,
     /// What the match runs with (rosterOf at its start).
@@ -209,6 +210,7 @@ impl LabControl {
             unpaused_this_frame: false,
             config_at_pause: Vec::new(),
             mutators_at_pause: MutatorSet::default(),
+            wheel_at_pause: mvs_protocol::lobby_rules::WheelOptions::default(),
             map_at_pause: String::new(),
             spawn_left: 0,
             roster,
@@ -276,6 +278,7 @@ impl LabControl {
         if on {
             self.config_at_pause = st.config.players.clone();
             self.mutators_at_pause = st.config.mutators;
+            self.wheel_at_pause = st.config.wheel;
             self.map_at_pause = st.config.selected_map.clone();
             self.map_roll = None;
             out.push(LabEffect::Paused(true));
@@ -300,7 +303,8 @@ impl LabControl {
             .iter()
             .enumerate()
             .any(|(n, p)| self.config_at_pause.get(n).is_none_or(|old| !lab_players_equal(p, old)))
-            || st.config.mutators != self.mutators_at_pause;
+            || st.config.mutators != self.mutators_at_pause
+            || st.config.wheel != self.wheel_at_pause;
         if changed {
             self.respawn(st, i, &mut out);
         }

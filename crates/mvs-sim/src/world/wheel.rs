@@ -70,6 +70,10 @@ pub struct WheelState {
     pub current: i32,
     /// The pool index of the next one once drawn, -1 for none.
     pub next: i32,
+    /// Two at once (`Wheel::two`): the pool index of the second mutator on, -1 for none.
+    pub also: i32,
+    /// The second of the next change, drawn with `next` once the match is late, -1 for none.
+    pub also_next: i32,
     /// The draw's bag: the pool indexes not drawn yet this round (`draw`), refilled with the whole pool once none
     /// of it may be drawn.
     pub bag: Vec<i32>,
@@ -91,6 +95,9 @@ pub struct WheelStatus {
     pub current: Option<usize>,
     /// The next mutator, from the tick it is drawn (the set-up's `warn` ahead of the change) to the change.
     pub next: Option<usize>,
+    /// Two at once: the second mutator on, and the second of the next change.
+    pub also: Option<usize>,
+    pub also_next: Option<usize>,
     /// Ticks to the next change; None before the match starts and once it is over.
     pub ticks_left: Option<u32>,
     /// A window's length in ticks.
@@ -134,6 +141,8 @@ pub fn new_state(setup: &MatchSetup, seed: i32) -> Option<WheelState> {
         change_at: -1,
         current: -1,
         next: -1,
+        also: -1,
+        also_next: -1,
         bag: Vec::new(),
         recent: Vec::new(),
         over: false,
@@ -150,6 +159,8 @@ pub fn status(w: &World) -> Option<WheelStatus> {
     Some(WheelStatus {
         current: index(st.current),
         next: index(st.next),
+        also: index(st.also),
+        also_next: index(st.also_next),
         ticks_left,
         window_ticks: u32::try_from(window).expect("a positive window"),
     })
@@ -223,16 +234,17 @@ fn new_round(w: &mut World) -> Vec<i32> {
 /// few draws (`HELD_BACK`, a third of the pool at most), from the rule's stream. A bag with none to give is refilled
 /// with a new round (`new_round`: the pool, Chaos mutators at the set-up's rate); the last draws are held back across
 /// the refill as long as some other entry may be drawn, then only the one on. -1 when no entry but the one on may be
-/// drawn. A Chaos mutator is never drawn at the rate Off.
-fn draw(w: &mut World) -> i32 {
+/// drawn. A Chaos mutator is never drawn at the rate Off. `other`, the change's first draw when this is its second,
+/// is never given either.
+fn draw(w: &mut World, other: i32) -> i32 {
     let n = wheel(w).pool.len();
-    let current = state(w).current;
+    let (current, also) = (state(w).current, state(w).also);
     let held = HELD_BACK.min(n / 3);
     let off = wheel(w).chaos == mvs_mutators::ChaosRate::Off;
     let runnable: Vec<i32> = (0..n)
         .filter(|&i| runnable(w, i) && !(off && is_chaos(w, i)))
         .map(as_index)
-        .filter(|&i| i != current)
+        .filter(|&i| i != current && i != also && i != other)
         .collect();
     let fresh = |st: &WheelState, from: &[i32]| -> Vec<i32> {
         let recent = &st.recent[st.recent.len().saturating_sub(held)..];
@@ -262,6 +274,23 @@ fn draw(w: &mut World) -> i32 {
         st.recent.remove(0);
     }
     pick
+}
+
+/// The seconds left of a timed match from which two at once comes on.
+pub const LATE_SECONDS: Real = 60.0;
+
+/// Whether the match is late for two at once: its last `LATE_SECONDS` (a timed match), or one ring-out from its end
+/// (under stocks two teams left and one on its last life, `flow::stock_match_point`; on points a team one short
+/// of the win).
+fn late(w: &World) -> bool {
+    let Some(r) = w.setup.rules else { return false };
+    if r.duration > 0.0 && w.flow.match_started && w.round_time_remaining() <= LATE_SECONDS {
+        return true;
+    }
+    if r.stocks {
+        return flow::stock_match_point(w);
+    }
+    r.knockouts_to_win > 0.0 && w.flow.team_knockouts.contains(&(r.knockouts_to_win - 1.0))
 }
 
 // The clock has started: BPI_SetMatchStarted in a match with its flow, the first step in one without.
@@ -294,10 +323,14 @@ pub fn wheel_latent(w: &mut World) {
     let window = window_ticks(w);
     let warn = ticks(wheel(w).warn).min(window);
     if state(w).next < 0 && tick >= state(w).change_at - warn {
-        let next = draw(w);
+        let next = draw(w, -1);
         state_mut(w).next = next;
         if next >= 0 {
             w.events.push(Event::WheelNext { index: next });
+            if wheel(w).two && late(w) {
+                let also = draw(w, next);
+                state_mut(w).also_next = also;
+            }
         }
     }
     if tick < state(w).change_at {
@@ -312,6 +345,8 @@ pub fn wheel_latent(w: &mut World) {
     let st = state_mut(w);
     st.current = next;
     st.next = -1;
+    st.also = st.also_next;
+    st.also_next = -1;
     begin_window(w);
     w.events.push(Event::WheelChange { index: next });
 }
@@ -325,10 +360,10 @@ fn slot(w: &World, f: FighterId) -> Option<usize> {
     w.players.iter().position(|&p| p == f)
 }
 
-/// The current window's class, if a mutator is on.
-fn current_class(w: &World) -> Option<Name> {
-    let i = index(w.wheel.as_ref()?.current)?;
-    class_of(w, i).map(|c| w.lit(c))
+/// The current window's classes: the mutator on and, two at once, the second.
+fn on_classes(w: &World) -> Vec<Name> {
+    let Some(st) = w.wheel.as_ref() else { return Vec::new() };
+    [st.current, st.also].into_iter().filter_map(index).filter_map(|i| class_of(w, i)).map(|c| w.lit(c)).collect()
 }
 
 fn is_world_class(w: &World, cls: Name) -> bool {
@@ -356,39 +391,55 @@ fn give(w: &mut World, f: FighterId, cls: Name) {
     buffs::spawn_buff(w, f, cls, 0.0, Some(0), Some(f), true, None);
 }
 
-/// A window's start: its mutator on every live fighter, or Random Items' spawner started.
+/// A window's start: each of its mutators on every live fighter, or Random Items' spawner started.
 fn begin_window(w: &mut World) {
-    let Some(cls) = current_class(w) else { return };
-    if is_world_class(w, cls) {
-        start_items(w);
-        return;
-    }
-    for f in live_players(w) {
-        give(w, f, cls);
+    for cls in on_classes(w) {
+        if is_world_class(w, cls) {
+            start_items(w);
+            continue;
+        }
+        for f in live_players(w) {
+            give(w, f, cls);
+        }
     }
 }
 
-/// A window's end: its mutator off every fighter (`buffs::remove_buff`: K2_DestroyActor, its EndPlay and the state
-/// manager's end pass), then the rule's own tail; or Random Items' spawner stopped.
+/// A window's end: each of its mutators off every fighter (`buffs::remove_buff`: K2_DestroyActor, its EndPlay and
+/// the state manager's end pass), then the rule's own tail; or Random Items' spawner stopped.
 fn end_window(w: &mut World) {
-    let Some(cls) = current_class(w) else { return };
-    if is_world_class(w, cls) {
-        stop_items(w);
+    let classes = on_classes(w);
+    let mut fighter = Vec::new();
+    for cls in classes {
+        if is_world_class(w, cls) {
+            stop_items(w);
+        } else {
+            fighter.push(cls);
+        }
+    }
+    if fighter.is_empty() {
         return;
     }
-    let name = w.names.str(cls).to_owned();
     for (s, f) in w.players.clone().into_iter().enumerate() {
-        buffs::remove_buff(w, f, Some(cls), None);
-        let saved = std::mem::take(&mut state_mut(w).saved[s]);
-        match name.as_str() {
-            // OverrideGravity at its BeginPlay has no clear of its own: a ring-out's reset clears it
-            // (`match_side::reset_for_respawn`). The rule clears it where the fighter had none before.
-            LOW_GRAVITY if saved.held && !saved.gravity => crate::fighter::moves::clear_gravity_override(w, f),
-            // AirSpecialMax + 1 at its BeginPlay is never taken back in the build (each life's mutator adds one
-            // more); the rule puts the value back.
-            AIR_SPECIAL if saved.held => w.fighter_mut(f).air.air_special_max_set = saved.air,
-            _ => {}
+        for &cls in &fighter {
+            buffs::remove_buff(w, f, Some(cls), None);
         }
+        let saved = std::mem::take(&mut state_mut(w).saved[s]);
+        for &cls in &fighter {
+            tail(w, f, cls, &saved);
+        }
+    }
+}
+
+/// The rule's own tail at a window's end for one fighter mutator `cls`, from what the fighter held before.
+fn tail(w: &mut World, f: FighterId, cls: Name, saved: &WheelSaved) {
+    match w.names.str(cls) {
+        // OverrideGravity at its BeginPlay has no clear of its own: a ring-out's reset clears it
+        // (`match_side::reset_for_respawn`). The rule clears it where the fighter had none before.
+        LOW_GRAVITY if saved.held && !saved.gravity => crate::fighter::moves::clear_gravity_override(w, f),
+        // Air Show's AirSpecialMax at its BeginPlay is never taken back in the build (the build's mutator adds one
+        // more each life); the rule puts the value back.
+        AIR_SPECIAL if saved.held => w.fighter_mut(f).air.air_special_max_set = saved.air,
+        _ => {}
     }
 }
 
@@ -433,15 +484,18 @@ pub fn change_to(w: &mut World, index: Option<usize>) {
     let st = state_mut(w);
     st.current = index.map_or(-1, |i| i32::try_from(i).expect("a short pool"));
     st.next = -1;
+    st.also = -1;
+    st.also_next = -1;
     begin_window(w);
 }
 
 /// `wheelFighterSpawned`: a pawn's spawn (`reset::reset`) or respawn (`flow::respawn`), behind Apply Mutators To
 /// Fighter: the window's mutator on it, as the build gives a match's own mutators at each respawn.
 pub fn wheel_fighter_spawned(w: &mut World, f: FighterId) {
-    let Some(cls) = current_class(w) else { return };
-    if !is_world_class(w, cls) {
-        give(w, f, cls);
+    for cls in on_classes(w) {
+        if !is_world_class(w, cls) {
+            give(w, f, cls);
+        }
     }
 }
 

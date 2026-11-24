@@ -35,6 +35,9 @@ pub struct LabConfig {
     /// (the port's own) The match's mutators (the Lab's Experimental Settings): a change restarts the match at the
     /// unpause.
     pub mutators: mvs_protocol::lobby_rules::MutatorSet,
+    /// (the port's own) The Chaos Wheel's choices (the Lab's Experimental Settings): a change restarts the match at
+    /// the unpause.
+    pub wheel: mvs_protocol::lobby_rules::WheelOptions,
 }
 
 /// The Lab's toggles a restart carries (LabSession's hitstunCombo, juggleCombo, hazards).

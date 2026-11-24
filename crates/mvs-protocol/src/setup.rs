@@ -124,6 +124,12 @@ pub struct WheelWire {
     pub pool: Vec<String>,
     pub seconds: u32,
     pub warn: u32,
+    /// The rate of Chaos mutators (`mvs_mutators::ChaosRate::key`); absent: normal.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chaos: Option<String>,
+    /// Two at once late in the match; absent: off.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub two: bool,
 }
 
 /// The match set-up: `players` in player-index order; `rules` absent for the Lab (TrainGameMode); `flow` the world

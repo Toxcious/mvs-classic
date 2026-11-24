@@ -1118,7 +1118,7 @@ const LP_PERKS_EXITED: u32 = 17;
 const LP_EXPERIMENTAL: u32 = 18;
 const LP_MUTATORS: u32 = 19;
 
-/// (the port's own) The Lab's Experimental Settings page: the mutators (`lab_experimental_page`).
+/// (the port's own) The Lab's Experimental Settings page: the mutators and the Chaos Wheel (`lab_experimental_page`).
 pub const LAB_EXPERIMENTAL_MODAL: &str = "labExperimental";
 
 /// Deviation: Move List and the online session button are not wired; Show Hitstun Combo, Show Juggle Combo, Instant
@@ -1218,7 +1218,7 @@ impl LabPanel {
 
     /// (the port's own) What the Experimental Settings page reads of the Lab: its mutators, the leader's to change.
     fn experimental_view(c: &LabConfig, leader: bool) -> LobbyView {
-        let options = LobbyOptions { mutators: c.mutators, ..LobbyOptions::default() };
+        let options = LobbyOptions { mutators: c.mutators, wheel: c.wheel, ..LobbyOptions::default() };
         LobbyView { leader, team_style: 0, options }
     }
 
@@ -1549,11 +1549,15 @@ impl Controller for LabPanel {
             LP_MOVES => toggle_movelist(cx),
             LP_EXPERIMENTAL => self.show_experimental(cx),
             LP_MUTATORS => {
-                if let Some(&(_, OptionValue::Set(m))) = arg.downcast_ref::<OptionRequest>()
+                if let Some(&(_, value)) = arg.downcast_ref::<OptionRequest>()
                     && let Some(s) = cx.lab.as_mut()
                 {
                     let mut c = s.config().clone();
-                    c.mutators = m;
+                    match value {
+                        OptionValue::Set(m) => c.mutators = m,
+                        OptionValue::Wheel(o) => c.wheel = o,
+                        OptionValue::Bool(_) => return,
+                    }
                     s.request_config_update(c);
                 }
             }

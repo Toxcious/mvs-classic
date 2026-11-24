@@ -17,6 +17,31 @@ pub const EXPERIMENTAL_BUTTON: &str = "EXPERIMENTAL SETTINGS";
 pub const EXPERIMENTAL_TITLE: &str = "Experimental";
 pub const STOCK_MODE: &str = "Stock Mode";
 pub const CHAOS_WHEEL: &str = "Chaos Wheel";
+/// The custom lobby's button of the Chaos Wheel's page, and the page's rows.
+pub const WHEEL_BUTTON: &str = "CHAOS WHEEL";
+pub const WHEEL_TIME: &str = "Time per Change";
+pub const WHEEL_WARNING: &str = "Warning";
+pub const WHEEL_EVENTS: &str = "Chaos Events";
+pub const WHEEL_TWO: &str = "Two at Once";
+pub const WHEEL_POOL: &str = "Mutators";
+/// The pool's quick picks.
+pub const POOL_ALL: &str = "All";
+pub const POOL_MILD: &str = "Mild Only";
+pub const POOL_NO_CHAOS: &str = "No Chaos";
+/// The Chaos events' rates, in `mvs_mutators::ChaosRate::ALL`'s order.
+pub const WHEEL_RATES: [&str; 4] = ["Off", "Rare", "Normal", "Often"];
+/// A time of the wheel's rows.
+pub fn seconds(n: u32) -> String {
+    format!("{n} Seconds")
+}
+/// A tier's name (`mvs_mutators::Tier`).
+pub fn tier_name(t: mvs_mutators::Tier) -> &'static str {
+    match t {
+        mvs_mutators::Tier::Mild => "Mild",
+        mvs_mutators::Tier::Wild => "Wild",
+        mvs_mutators::Tier::Chaos => "Chaos",
+    }
+}
 pub const OFF: &str = "Off";
 pub const ON: &str = "On";
 pub const MUTATOR: &str = "Mutators";

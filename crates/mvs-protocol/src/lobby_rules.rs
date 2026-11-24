@@ -100,8 +100,8 @@ pub enum OptionKey {
     InvitedOnly,
     /// An experimental rule: the match's mutators, a set of `LOBBY_MUTATORS` (`MutatorSet`), each run at once.
     Mutators,
-    /// An experimental rule: the Chaos Wheel (`wheel_rule`), a mutator of `mvs_mutators::ALL` rolled for every fighter
-    /// every `WHEEL_SECONDS`.
+    /// The Chaos Wheel (`wheel_rule`): a mutator of `mvs_mutators::ALL` rolled for every fighter every so often, as
+    /// the lobby's `WheelOptions` set it.
     Wheel,
 }
 
@@ -110,11 +110,82 @@ impl OptionKey {
         [OptionKey::Public, OptionKey::Stocks, OptionKey::InvitedOnly, OptionKey::Mutators, OptionKey::Wheel];
 }
 
-/// One setting's value: a bool row's true or false, a set row's set.
+/// One setting's value: a bool row's true or false, a set row's set, the Chaos Wheel's choices.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum OptionValue {
     Bool(bool),
     Set(MutatorSet),
+    Wheel(WheelOptions),
+}
+
+/// The Chaos Wheel's window lengths the lobby offers, seconds.
+pub const WHEEL_SECONDS_CHOICES: [u32; 6] = [10, 15, 20, 30, 45, 60];
+/// The Chaos Wheel's warnings the lobby offers, seconds ahead of a change.
+pub const WHEEL_WARN_CHOICES: [u32; 2] = [3, 5];
+
+/// The Chaos Wheel's choices a lobby holds (the CHAOS WHEEL screen); on the wire an object.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WheelOptions {
+    pub on: bool,
+    /// A window's length, one of `WHEEL_SECONDS_CHOICES`.
+    pub seconds: u32,
+    /// How far ahead of a change the next one is spun, one of `WHEEL_WARN_CHOICES`.
+    pub warn: u32,
+    /// `mvs_mutators::ChaosRate` by its place in `ChaosRate::ALL`.
+    pub chaos: u8,
+    /// Two at once late in the match.
+    pub two: bool,
+    /// The pool's left-out entries: bit n is `mvs_mutators::ALL[n]`, so a mutator added later is in.
+    pub off: u64,
+}
+
+impl Default for WheelOptions {
+    fn default() -> WheelOptions {
+        WheelOptions { on: false, seconds: WHEEL_SECONDS, warn: WHEEL_WARN, chaos: 2, two: false, off: 0 }
+    }
+}
+
+impl WheelOptions {
+    /// The default choices (left off the wire, as the option was before it had choices).
+    pub fn is_default(&self) -> bool {
+        *self == WheelOptions::default()
+    }
+
+    /// The rate of Chaos mutators.
+    pub fn rate(self) -> mvs_mutators::ChaosRate {
+        mvs_mutators::ChaosRate::ALL[usize::from(self.chaos.min(3))]
+    }
+
+    /// Whether `mvs_mutators::ALL[i]` is in the pool.
+    pub fn has(self, i: usize) -> bool {
+        i < mvs_mutators::ALL.len() && self.off & (1 << i) == 0
+    }
+
+    /// The options with `mvs_mutators::ALL[i]` in (`on`) or out.
+    #[must_use]
+    pub fn with(self, i: usize, on: bool) -> WheelOptions {
+        if i >= mvs_mutators::ALL.len() {
+            return self;
+        }
+        let off = if on { self.off & !(1 << i) } else { self.off | (1 << i) };
+        WheelOptions { off, ..self }
+    }
+
+    /// The pool's keys, in `mvs_mutators::ALL`'s order.
+    pub fn pool(self) -> Vec<String> {
+        mvs_mutators::ALL.iter().enumerate().filter(|&(i, _)| self.has(i)).map(|(_, m)| m.key.to_owned()).collect()
+    }
+
+    /// Choices a member may send: a listed window and warning, a rate, and a pool of at least one listed mutator.
+    pub fn valid(self) -> bool {
+        let all = if mvs_mutators::ALL.len() >= 64 { u64::MAX } else { (1u64 << mvs_mutators::ALL.len()) - 1 };
+        WHEEL_SECONDS_CHOICES.contains(&self.seconds)
+            && WHEEL_WARN_CHOICES.contains(&self.warn)
+            && self.chaos <= 3
+            && self.off & !all == 0
+            && self.off & all != all
+    }
 }
 
 /// The count of `LOBBY_MUTATORS`' entries, the empty one at 0 with them.
@@ -176,9 +247,8 @@ pub struct LobbyOptions {
     pub stocks: bool,
     pub invited_only: bool,
     pub mutators: MutatorSet,
-    /// (absent on the wire when off, which a reader takes the same)
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub wheel: bool,
+    #[serde(default, skip_serializing_if = "WheelOptions::is_default")]
+    pub wheel: WheelOptions,
 }
 
 impl LobbyOptions {
@@ -188,19 +258,19 @@ impl LobbyOptions {
             OptionKey::Stocks => OptionValue::Bool(self.stocks),
             OptionKey::InvitedOnly => OptionValue::Bool(self.invited_only),
             OptionKey::Mutators => OptionValue::Set(self.mutators),
-            OptionKey::Wheel => OptionValue::Bool(self.wheel),
+            OptionKey::Wheel => OptionValue::Wheel(self.wheel),
         }
     }
 
     /// `set` as the lobby takes a member's request (optionValue): a bool row takes a bool, the mutators a set of
-    /// listed ones; anything else is refused (false).
+    /// listed ones, the wheel valid choices (`WheelOptions::valid`); anything else is refused (false).
     pub fn set(&mut self, key: OptionKey, value: OptionValue) -> bool {
         match (key, value) {
             (OptionKey::Public, OptionValue::Bool(b)) => self.public = b,
             (OptionKey::Stocks, OptionValue::Bool(b)) => self.stocks = b,
             (OptionKey::InvitedOnly, OptionValue::Bool(b)) => self.invited_only = b,
             (OptionKey::Mutators, OptionValue::Set(m)) if MutatorSet::of(m.0).is_some() => self.mutators = m,
-            (OptionKey::Wheel, OptionValue::Bool(b)) => self.wheel = b,
+            (OptionKey::Wheel, OptionValue::Wheel(o)) if o.valid() => self.wheel = o,
             _ => return false,
         }
         true
@@ -230,14 +300,21 @@ pub const LOBBY_MUTATORS: [&str; MUTATOR_CHOICES] = [
     "Mutator_ShrinkBlastBoxLastPoint",
 ];
 
-/// The Chaos Wheel's window, seconds: the match plays one plain, then each has one mutator.
+/// The Chaos Wheel's window by default, seconds: the match plays one plain, then each has one mutator.
 pub const WHEEL_SECONDS: u32 = 20;
-/// How many seconds ahead of a change the Chaos Wheel's next mutator is drawn (the card names it).
+/// How many seconds ahead of a change the Chaos Wheel's next mutator is drawn by default (the card names it).
 pub const WHEEL_WARN: u32 = 3;
 
-/// The Chaos Wheel rule a lobby with the option on starts its match with: the whole pool.
-pub fn wheel_rule() -> WheelWire {
-    WheelWire { pool: mvs_mutators::keys().map(str::to_owned).collect(), seconds: WHEEL_SECONDS, warn: WHEEL_WARN }
+/// The Chaos Wheel rule a lobby starts its match with, None with the wheel off.
+pub fn wheel_rule(o: WheelOptions) -> Option<WheelWire> {
+    let rate = o.rate();
+    o.on.then(|| WheelWire {
+        pool: o.pool(),
+        seconds: o.seconds,
+        warn: o.warn,
+        chaos: (rate != mvs_mutators::ChaosRate::Normal).then(|| rate.key().to_owned()),
+        two: o.two,
+    })
 }
 
 /// The blocker texts of the build (exe strings CustomGameLobbyError_*), in the order of the native table.
@@ -687,7 +764,7 @@ impl LobbyRules {
                 flow: true,
                 allow_hazards: self.allow_hazards,
                 mutators: self.options.mutators.names(),
-                wheel: self.options.wheel.then(wheel_rule),
+                wheel: wheel_rule(self.options.wheel),
             },
             usernames: order.iter().map(|p| p.username.clone()).collect(),
             ids: order.iter().map(|p| p.account_id.clone()).collect(),
@@ -834,20 +911,34 @@ mod tests {
     }
 
     #[test]
-    fn the_wheel_option_puts_the_whole_pool_in_the_set_up() {
+    fn the_wheel_options_make_the_set_ups_rule() {
         let mut r = lobby();
         assert_eq!(r.match_setup().setup.wheel, None);
-        assert!(!r.set_option(OptionKey::Wheel, OptionValue::Set(MutatorSet(2))));
-        assert!(r.set_option(OptionKey::Wheel, OptionValue::Bool(true)));
-        assert_eq!(r.options.get(OptionKey::Wheel), OptionValue::Bool(true));
+        assert!(!r.set_option(OptionKey::Wheel, OptionValue::Bool(true)));
+        let on = WheelOptions { on: true, ..WheelOptions::default() };
+        assert!(r.set_option(OptionKey::Wheel, OptionValue::Wheel(on)));
         let w = r.match_setup().setup.wheel.expect("the rule");
-        assert_eq!((w.pool.len(), w.seconds, w.warn), (13, 20, 3));
-        // every mutator of the pool is one the lobby's own list offers (the menus name it by that list)
-        assert!(w.pool.iter().all(|k| LOBBY_MUTATORS.contains(&k.as_str())));
-        // the lobby's state carries the option to its members
+        assert_eq!(
+            (w.pool.len(), w.seconds, w.warn, w.chaos.as_deref(), w.two),
+            (mvs_mutators::ALL.len(), 20, 3, None, false)
+        );
+        // the choices: a window, a warning, a rate, two at once and a pool without its first
+        let o = WheelOptions { seconds: 45, warn: 5, chaos: 0, two: true, ..on.with(0, false) };
+        assert!(r.set_option(OptionKey::Wheel, OptionValue::Wheel(o)));
+        let w = r.match_setup().setup.wheel.expect("the rule");
+        assert_eq!(
+            (w.pool.len(), w.seconds, w.warn, w.chaos.as_deref(), w.two),
+            (mvs_mutators::ALL.len() - 1, 45, 5, Some("off"), true)
+        );
+        assert!(!w.pool.contains(&mvs_mutators::ALL[0].key.to_owned()));
+        // refused: an unlisted window, an empty pool
+        assert!(!r.set_option(OptionKey::Wheel, OptionValue::Wheel(WheelOptions { seconds: 7, ..on })));
+        let none = (0..mvs_mutators::ALL.len()).fold(on, |o, i| o.with(i, false));
+        assert!(!r.set_option(OptionKey::Wheel, OptionValue::Wheel(none)));
+        // the lobby's state carries the options to its members
         let mut other = LobbyRules::new();
         other.load(&r.data());
-        assert!(other.options.wheel);
+        assert_eq!(other.options.wheel, o);
     }
 
     #[test]

@@ -1,5 +1,5 @@
 //! The port's own Chaos Wheel rule (`mvs_sim::world::wheel`) where the trace match `wheel-combat` cannot show it:
-//! each pool mutator on then off leaves a fighter as it found it, the reworks (Air Show, Freeze Touch, Shields Up), a Giant grown against a wall and under a ceiling,
+//! each pool mutator on then off leaves a fighter as it found it, the reworks (Air Show, Freeze Touch, Shields Up), two at once late in a match, a Giant grown against a wall and under a ceiling,
 //! the clock's start with and without a flow, a stage with no item area, and the rule on four fighters (2v2 and
 //! Free For All).
 
@@ -440,4 +440,31 @@ fn a_fighter_rung_out_before_the_change_has_the_mutator_from_its_respawn() {
     idle(&mut h, 5);
     assert_eq!(h.w.fighter(out).body.size_scale, plain);
     assert_eq!(h.w.fighter(mate).body.size_scale, plain);
+}
+
+#[test]
+fn two_at_once_adds_a_second_mutator_only_late_in_the_match() {
+    // a match under a minute long is late from its start: each change gives two, never the same one
+    let mut s = setup(&POOL, 0.5, true);
+    s.rules = Some(Rules { knockouts_to_win: 99.0, duration: 50.0, stocks: false });
+    s.wheel.as_mut().expect("a wheel").two = true;
+    let Some(mut h) = harness::fresh(&s, 5) else { return };
+    let mut seen = 0;
+    for _ in 0..30 * 60 {
+        if !changes(&mut h, 1).is_empty() {
+            let st = status(&h.w).expect("a status");
+            let (Some(a), Some(b)) = (st.current, st.also) else { panic!("one mutator late: {st:?}") };
+            assert_ne!(a, b);
+            seen += 1;
+        }
+    }
+    assert!(seen > 10, "{seen} changes");
+    // a long match is not late: one at a time
+    let mut s = setup(&POOL, 0.5, true);
+    s.wheel.as_mut().expect("a wheel").two = true;
+    let Some(mut h) = harness::fresh(&s, 5) else { return };
+    for _ in 0..30 * 60 {
+        h.step_recorded();
+        assert_eq!(status(&h.w).and_then(|s| s.also), None);
+    }
 }

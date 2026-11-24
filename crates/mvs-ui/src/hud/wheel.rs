@@ -85,6 +85,8 @@ const PULSE_BAR: f64 = 1.6;
 const PULSE_COUNT: f64 = 0.5;
 const COUNT_W: f64 = 30.0;
 const COUNT_SIZE: f64 = 20.0;
+/// Two at once: the second mutator's line under the name, its size.
+const ALSO_SIZE: f64 = 20.0;
 /// The tiers' colours (`mvs_mutators::Tier`): a drawn mutator's on its name, the bar, the count and the burst.
 const MILD: Rgba = [0.38, 0.78, 1.0, 1.0];
 const WILD: Rgba = [0.74, 0.48, 1.0, 1.0];
@@ -106,6 +108,8 @@ pub struct CardLine {
     /// The whole seconds to the change through the warning.
     pub count: Option<u32>,
     pub motion: Motion,
+    /// Two at once: the second mutator, by `mvs_mutators::ALL` index (the next change's once the reel lands).
+    pub also: Option<usize>,
 }
 
 /// The spinning reel's names around the one in the middle (`CardLine::name`).
@@ -189,7 +193,8 @@ pub fn card_line(h: &WheelHud, pool: &[usize]) -> Option<CardLine> {
                 (motion, Some(ReelLine { above: r.above, below: r.below, frac: r.frac }))
             }
         };
-        return Some(CardLine { label: Label::Next, name: Shown::Mutator(r.name), reel, fill, count, motion });
+        let also = h.also_next.filter(|_| r.landed.is_some());
+        return Some(CardLine { label: Label::Next, name: Shown::Mutator(r.name), reel, fill, count, motion, also });
     }
     let (label, name, motion) = match h.current {
         Some(c) => {
@@ -203,7 +208,8 @@ pub fn card_line(h: &WheelHud, pool: &[usize]) -> Option<CardLine> {
         }
         None => (Label::First, Shown::Rule, Motion::default()),
     };
-    Some(CardLine { label, name, reel: None, fill, count: None, motion })
+    let also = h.also.filter(|_| h.current.is_some());
+    Some(CardLine { label, name, reel: None, fill, count: None, motion, also })
 }
 
 /// The reel at a tick of the warning: the name in the middle and its neighbours, the step it is at (names passed
@@ -269,6 +275,8 @@ pub struct WheelCard {
     bar: WidgetId,
     fill: WidgetId,
     count: WidgetId,
+    /// Two at once: the second mutator's line.
+    also: WidgetId,
     /// The name's and the bar's own colour (the scoreboard's), under the tier colour.
     color: Rgba,
     /// The pool by `mvs_mutators::ALL` index.
@@ -420,7 +428,9 @@ impl WheelCard {
         for w in [room, bar, count_box] {
             t.add(row, w);
         }
-        for w in [label, window, row] {
+        let also = text_like(&mut t, b, "WheelAlso", name_like, ALSO_SIZE);
+        t.widget_mut(also).vis = Vis::Collapsed;
+        for w in [label, window, also, row] {
             t.add(root, w);
         }
         t.widget_mut(root).vis = Vis::Collapsed;
@@ -436,6 +446,7 @@ impl WheelCard {
             bar,
             fill,
             count,
+            also,
             color: name_like.color,
             pool,
             names,
@@ -517,7 +528,14 @@ impl WheelCard {
             (self.name_of(Shown::Mutator(l.above)).to_owned(), self.name_of(Shown::Mutator(l.below)).to_owned())
         });
         let count = line.count.map(|c| c.to_string()).unwrap_or_default();
+        let also = line.also.map(|i| format!("+ {}", self.name_of(Shown::Mutator(i)))).unwrap_or_default();
+        {
+            let x = self.t.widget_mut(self.also);
+            x.vis = if line.also.is_some() { Vis::HitTestInvisible } else { Vis::Collapsed };
+            x.color = line.also.map_or(self.color, tier_color);
+        }
         for (w, s) in [
+            (self.also, also.as_str()),
             (self.label, label),
             (self.name, name.as_str()),
             (self.above, above.as_str()),
@@ -607,7 +625,7 @@ mod tests {
     const POOL: [usize; 13] = [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
 
     fn hud(current: Option<usize>, next: Option<usize>, left: Option<u32>) -> WheelHud {
-        WheelHud { current, next, ticks_left: left, window_ticks: 1200, warn_ticks: 180 }
+        WheelHud { current, next, ticks_left: left, window_ticks: 1200, warn_ticks: 180, ..WheelHud::default() }
     }
 
     #[test]

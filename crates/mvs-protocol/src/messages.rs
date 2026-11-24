@@ -15,12 +15,14 @@ use crate::online::{MatchStartMsg, PlayerCosmetics, PmBegin, PmPick, QueueFoundM
 use crate::profile::{MatchRecord, MatchReportPlayer, ProfileWire, TrackerCounts};
 use crate::setup::MatchSetupWire;
 
-/// A lobby setting's value as `lobby.setOption` carries it: a bool row's true or false, a set row's bits.
+/// A lobby setting's value as `lobby.setOption` carries it: a bool row's true or false, a set row's bits, the
+/// Chaos Wheel's choices.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum OptionWire {
     Bool(bool),
     Number(u32),
+    Wheel(crate::lobby_rules::WheelOptions),
 }
 
 /// What a game sends the host core.

@@ -400,12 +400,7 @@ impl LocalLobby {
             flow: setup.flow,
             allow_hazards: setup.allow_hazards,
             mutators: setup.mutators.clone(),
-            wheel: setup.wheel.as_ref().map(|w| mvs_sim::setup::Wheel {
-                pool: w.pool.clone(),
-                seconds: mvs_sim::math::narrow(f64::from(w.seconds)),
-                warn: mvs_sim::math::narrow(f64::from(w.warn)),
-                chaos: mvs_mutators::ChaosRate::Normal,
-            }),
+            wheel: setup.wheel.as_ref().map(sim_wheel),
             ..MatchSetup::default()
         };
         // the perks each player locked on the pre-match screen, and their pick's fighter and skin
@@ -486,6 +481,21 @@ pub struct MenuCarry {
 
 thread_local! {
     static CARRY: RefCell<MenuCarry> = RefCell::new(MenuCarry::default());
+}
+
+/// The sim's Chaos Wheel rule of a set-up's `wheel` (an unknown rate is the default one).
+pub fn sim_wheel(w: &mvs_protocol::setup::WheelWire) -> mvs_sim::setup::Wheel {
+    mvs_sim::setup::Wheel {
+        pool: w.pool.clone(),
+        seconds: mvs_sim::math::narrow(f64::from(w.seconds)),
+        warn: mvs_sim::math::narrow(f64::from(w.warn)),
+        chaos: w
+            .chaos
+            .as_deref()
+            .and_then(mvs_mutators::ChaosRate::from_key)
+            .unwrap_or(mvs_mutators::ChaosRate::Normal),
+        two: w.two,
+    }
 }
 
 /// `f` on the menus' carry.
