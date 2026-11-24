@@ -130,8 +130,14 @@ impl NotifyVfx {
         let follow = SocketFollow::new(&self.skel, &socket, loc, &rot, scale);
         let team = flag(p, "UseTeamColorParam?");
         let params: &[(&str, f64)] = if team { &[("Team", f64::from(color_index))] } else { &[] };
-        let Some(id) = vfx.spawn_attached(ps, &att([0.0; 3], &mvs_vfx::math::IDENTITY, Some([1.0; 3])), 1.0, params)
-        else {
+        // (the component is at its socket from its creation: a world-space emitter's first burst is pulled back by
+        // the component's move of the tick, PostSpawn 142c19840, and there is none)
+        self.place_body(view, world, left);
+        let at = match follow.eval(&self.body, &self.rig) {
+            Some((loc, rot, scale)) => att(loc, &rot, Some(scale)),
+            None => att([0.0; 3], &mvs_vfx::math::IDENTITY, Some([1.0; 3])),
+        };
+        let Some(id) = vfx.spawn_attached(ps, &at, 1.0, params) else {
             warn_once(format!("preview: notify VFX {ps}: no such system"));
             return;
         };
@@ -211,6 +217,11 @@ mod tests {
         fx.begin(&mut view, &world, 0, &props(&bone), false, 0, &mut player);
         assert!(fx.is_empty(), "socket {bone} on a bone the body lacks");
         fx.begin(&mut view, &world, 1, &props("R_Hand"), false, 0, &mut player);
+        // (spawned at its socket, not moved there on its first tick)
+        let (at, _, _) = fx.live[0].follow.as_ref().unwrap().eval(&fx.body, &fx.rig).expect("the socket's place");
+        let sys = &player.system(fx.live[0].id).unwrap().sys;
+        assert_ne!(at, [0.0; 3]);
+        assert_eq!((sys.loc, sys.old_loc), (at, at));
         fx.begin(&mut view, &world, 1, &props("R_Hand"), true, 0, &mut player);
         assert_eq!(fx.len(), 2, "{fx:?}");
         let first = fx.live[0].id;
