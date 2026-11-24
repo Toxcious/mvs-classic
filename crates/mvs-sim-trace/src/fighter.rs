@@ -1353,6 +1353,8 @@ plain_struct!(mvs_sim::fighter::moves::InputOverrideState {
 
 // `FireWallComp`: `{walls, wait}` and `max` once SetMaxFireWalls wrote it.
 plain_struct!(mvs_sim::combat::shapes::FireWallComp { "walls" = walls, "wait" = wait, "max" ~ max });
+// `ChargeTimer`: a charge under a ChargeMultiplier other than 1 with a section override (Ice Charge's faster charge).
+plain_struct!(mvs_sim::fighter::control::ChargeTimer { "left" = left, "sec" = sec, "ticks" = ticks });
 
 // `holdCharge`: Comp_HoldCharge's variables.
 plain_struct!(mvs_sim::fighter::control::HoldCharge {
@@ -2194,7 +2196,6 @@ impl Plain for mvs_sim::combat::conditions::CondState {
 opaque!(
     mvs_sim::combat::shapes::Carried,
     mvs_sim::fighter::match_side::ActivateRequest,
-    mvs_sim::fighter::control::ChargeTimer,
     mvs_sim::fighter::match_side::DespawnRequest,
     mvs_sim::combat::defense::TimedArmor,
 );

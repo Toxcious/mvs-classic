@@ -39,9 +39,9 @@ team style and with Stock Mode.
 
 - The list: Silly (Random) is the build's `Mutator_RandomMutatorSelector` as the Silly queue plays it (Big Head or
   Grow for every fighter, random items, the final point shrink); then the fighter mutators one by one (Big Head,
-  Grow, Giant, Miniature, Low Gravity, Instant Kill, Grey Health, Unlimited Jumps, Faster Cooldowns, Attacks Break
-  Armor, Extra Air Special, Weaken on Hit, Charge Freeze, Ice Gauntlets) and two world ones (Random Items, Final
-  Point Shrink). Mutators the port does not run yet (Chicken, Heart, Snowball Fight, Exploding Egg, Reindog Buddy,
+  Grow, Giant, Miniature, Low Gravity, Instant Kill, Shields Up, Unlimited Jumps, Ability Frenzy, Heavy Hitters,
+  Air Show, Double Damage, Ice Charge, Freeze Touch) and two world ones (Random Items, Final Point Shrink). Seven of
+  them are the port's reworks of the build's (below), here as on the wheel. Mutators the port does not run yet (Chicken, Heart, Snowball Fight, Exploding Egg, Reindog Buddy,
   Fast Charge: no asset in the build) are not offered.
 - The row is a checklist: a click ticks or unticks a mutator and the list stays up for the next; Off clears it.
   A ticked row is white with a bullet (the menu's faces have no tick mark). The row reads Off, the one mutator's
@@ -55,6 +55,15 @@ team style and with Stock Mode.
   list); the build would start both.
 - The names are the port's own words (`mvs-ui` `menu/custom_text.rs`): the beta's Game.locres has no line for
   them.
+- The reworks: seven of the build's mutators did too little to be seen in a window of the wheel, so the port
+  changes them wherever they are picked (`mvs-sim` `combat/mutator_buffs.rs`, each with its `// Deviation:`):
+  Shields Up (Grey Health: 50 grey health, given again whole after 4 seconds without a hit; the build's 25 once),
+  Ability Frenzy (Faster Cooldowns: cooldowns x0.1; the build's x0.6), Heavy Hitters (Attacks Break Armor: it
+  also launches x1.4), Double Damage (Weaken on Hit: hits deal x2; the build's gave the hit one a Weakened stack),
+  Ice Charge (Charge Freeze: charges fill twice as fast and a hit charged past half freezes; the build's freezes on
+  a full charge), Freeze Touch (Ice Gauntlets: every third hit a fighter lands freezes; the build's gave Superman's
+  ally gauntlet, whose first hit of a life froze) and Air Show (Extra Air Special: air specials never run out in
+  the air; the build's gave one more).
 
 ## Chaos Wheel (`wheel`)
 
@@ -65,9 +74,9 @@ match set-up carries the rule as `wheel: { pool, seconds, warn }` (`mvs-protocol
 one is drawn. The sim's part is `mvs-sim` `world/wheel.rs`. Works in every team style, with Stock Mode and
 beside the Mutators row.
 
-- The pool (`lobby_rules::WHEEL_MUTATORS`): Giant, Miniature, Big Head, Low Gravity, Unlimited Jumps, Faster
-  Cooldowns, Attacks Break Armor, Weaken on Hit, Charge Freeze, Ice Gauntlets, Extra Air Special, Grey Health and
-  Random Items. Not on the wheel: Grow (it grows with damage dealt, which 20 seconds barely shows), Instant Kill
+- The pool (`mvs-mutators`, each with its tier): Mild (sky blue): Giant, Miniature, Low Gravity, Air Show,
+  Shields Up; Wild (violet): Big Head, Unlimited Jumps, Ability Frenzy, Heavy Hitters, Double Damage, Ice Charge,
+  Freeze Touch, Random Items. The reel and the card show a mutator in its tier's colour. Not on the wheel: Grow (it grows with damage dealt, which 20 seconds barely shows), Instant Kill
   (the 200 damage would stay after its window), Silly and Final Point Shrink (whole-match rules).
 - The next mutator is drawn 3 seconds before the change from a random stream of the rule's own (made from the
   match seed, so it moves no other draw of the match). The draw never gives the one that is on, one ticked in the
@@ -75,13 +84,13 @@ beside the Mutators row.
   in Free For All, whose own spawner runs all match.
 - On, every fighter alive gets the mutator's buff as the build's Apply Mutators To Fighter gives it; a fighter
   that respawns inside a window gets it at the respawn. Off, the buff is removed, and the rule takes back what
-  three of them leave behind in the build (a match's mutator never ends there): Low Gravity's override, Extra Air
-  Special's count and the Ice Gauntlets' gauntlet. Grey Health's 25 stays until it is hit off; a Weakened or an
-  Ice stack a window gave runs out by itself; a projectile thrown as a Giant stays big.
+  two of them leave behind in the build (a match's mutator never ends there): Low Gravity's override and Air
+  Show's count. Shields Up's grey health stays until it is hit off; an Ice stack a window gave runs out by itself;
+  a projectile thrown as a Giant stays big.
 - Random Items' window runs the stage's item spawner at a rate of the rule's own (the first item 2 seconds in,
   one every 3 seconds after, no centre safe): the build's rate would give one item in 20 seconds. Items out when
   the window ends stay.
-- A cooldown multiplier's end (Faster Cooldowns, Big Head) multiplies each cooldown's length by new / old, as the
+- A cooldown multiplier's end (Ability Frenzy, Big Head) multiplies each cooldown's length by new / old, as the
   build's buffs end: some lengths come back one float step off (14 seconds as 14.000001).
 - The rule's saved state is by player slot: a mode with more pawns than players (Waves) does not take it.
 - The page's row is Chaos Wheel, Off or On; the Lab's page does not have it. The option's value is a bool, and

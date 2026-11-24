@@ -11,7 +11,7 @@ use mvs_trace::{Obj, Value};
 use crate::conv::{Plain, plain_struct};
 use crate::cx::{Lx, Wx};
 
-plain_struct!(WheelSaved { "air" = air, "gauntlet" = gauntlet, "gravity" = gravity, "held" = held });
+plain_struct!(WheelSaved { "air" = air, "gravity" = gravity, "held" = held });
 
 plain_struct!(WheelState {
     "bag" = bag,

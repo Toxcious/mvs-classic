@@ -79,6 +79,8 @@ pub enum BuffClass {
     MutatorBoostWeakenOnHit,
     MutatorBoostChargeFreeze,
     MutatorBoostIceGauntlets,
+    MutatorBoostCooldownReductionLarge,
+    MutatorBoostAttacksBreakArmor,
     // perks
     BuffRefreshingKnockOut,
     BuffInMemoriam,
@@ -334,7 +336,7 @@ pub enum BuffClass {
 
 impl BuffClass {
     /// Every class, in the order of the variants.
-    pub const ALL: [BuffClass; 287] = [
+    pub const ALL: [BuffClass; 289] = [
         BuffClass::BuffInvisibility,
         BuffClass::BuffInvisibilityFog,
         BuffClass::BuffInvulnerable,
@@ -398,6 +400,8 @@ impl BuffClass {
         BuffClass::MutatorBoostWeakenOnHit,
         BuffClass::MutatorBoostChargeFreeze,
         BuffClass::MutatorBoostIceGauntlets,
+        BuffClass::MutatorBoostCooldownReductionLarge,
+        BuffClass::MutatorBoostAttacksBreakArmor,
         BuffClass::BuffRefreshingKnockOut,
         BuffClass::BuffInMemoriam,
         BuffClass::BuffPerkArmorOnDeath,
@@ -710,6 +714,8 @@ impl BuffClass {
             BuffClass::MutatorBoostWeakenOnHit => "Mutator_Boost_WeakenOnHit_C",
             BuffClass::MutatorBoostChargeFreeze => "Mutator_Boost_ChargeFreeze_C",
             BuffClass::MutatorBoostIceGauntlets => "Mutator_Boost_IceGauntlets_C",
+            BuffClass::MutatorBoostCooldownReductionLarge => "Mutator_Boost_CooldownReductionLarge_C",
+            BuffClass::MutatorBoostAttacksBreakArmor => "Mutator_Boost_AttacksBreakArmor_C",
             BuffClass::BuffRefreshingKnockOut => "Buff_RefreshingKnockOut_C",
             BuffClass::BuffInMemoriam => "Buff_InMemoriam_C",
             BuffClass::BuffPerkArmorOnDeath => "Buff_Perk_ArmorOnDeath_C",

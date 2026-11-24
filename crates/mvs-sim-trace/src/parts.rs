@@ -1185,6 +1185,7 @@ pub(crate) fn ext_put(e: &BuffExt, x: &Wx) -> Value {
         BuffExt::C023ACarBuff(e) => crate::gizmo::car::car_buff_put(e, x),
         BuffExt::ItemCarBuff(e) => crate::items::car::car_buff_put(e, x),
         BuffExt::InstantKill(e) => crate::mutators::instant_kill_put(e, x),
+        BuffExt::Chaos(e) => crate::mutators::chaos_put(e, x),
         BuffExt::GrowWithDamage(e) => crate::mutators::grow_put(e, x),
         BuffExt::TastyBlock(e) => crate::taz::tasty::tasty_block_put(e, x),
         BuffExt::Lick(e) => crate::taz::tasty::lick_put(e, x),
@@ -1496,6 +1497,7 @@ fn ext_load(e: &mut BuffExt, v: &Value, l: &mut Lx) {
         (BuffExt::C023ACarBuff(e), v) => crate::gizmo::car::car_buff_load(e, v, l),
         (BuffExt::ItemCarBuff(e), v) => crate::items::car::car_buff_load(e, v, l),
         (BuffExt::InstantKill(e), v) => crate::mutators::instant_kill_load(e, v, l),
+        (BuffExt::Chaos(e), v) => crate::mutators::chaos_load(e, v, l),
         (BuffExt::GrowWithDamage(e), v) => crate::mutators::grow_load(e, v, l),
         (BuffExt::TastyBlock(e), v) => crate::taz::tasty::tasty_block_load(e, v, l),
         (BuffExt::Lick(e), v) => crate::taz::tasty::lick_load(e, v, l),
@@ -1636,6 +1638,7 @@ fn ext_for(class: BuffClass) -> BuffExt {
         "C023A_Car_Buff_C" => BuffExt::C023ACarBuff(Default::default()),
         "Car_Buff_C" => BuffExt::ItemCarBuff(Default::default()),
         "Mutator_InstantKill_C" => BuffExt::InstantKill(Default::default()),
+        "Mutator_GreyHealth_C" | "Mutator_Boost_IceGauntlets_C" => BuffExt::Chaos(Default::default()),
         "Mutator_GrowWithDamage_C" => BuffExt::GrowWithDamage(Default::default()),
         _ => BuffExt::None,
     }

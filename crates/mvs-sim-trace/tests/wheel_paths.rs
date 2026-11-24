@@ -1,9 +1,10 @@
 //! The port's own Chaos Wheel rule (`mvs_sim::world::wheel`) where the trace match `wheel-combat` cannot show it:
-//! each pool mutator on then off leaves a fighter as it found it, a Giant grown against a wall and under a ceiling,
+//! each pool mutator on then off leaves a fighter as it found it, the reworks (Air Show, Freeze Touch, Shields Up), a Giant grown against a wall and under a ceiling,
 //! the clock's start with and without a flow, a stage with no item area, and the rule on four fighters (2v2 and
 //! Free For All).
 
 use mvs_sim::fighter::FighterId;
+use mvs_sim::registry::signals::{BuffSignal, BuffSignalArg};
 use mvs_sim::setup::{MatchPlayer, MatchSetup, Rules, TeamStyle, Wheel};
 use mvs_sim::world::stage::{RuntimeSolidSpec, add_runtime_solid};
 use mvs_sim::world::wheel::{change_to, status};
@@ -131,36 +132,53 @@ fn each_pool_mutator_on_then_off_leaves_a_fighter_as_it_found_it() {
 }
 
 #[test]
-fn extra_air_special_comes_back_after_a_respawn_inside_its_window() {
+fn air_show_comes_back_after_a_respawn_inside_its_window() {
     let Some(mut h) = landed() else { return };
     let f = h.fighter(0);
     let air = POOL.iter().position(|&k| k == "Mutator_Boost_AdditionalAirSpecial").expect("in the pool");
     let before = h.w.fighter(f).air.air_special_max_set;
     change_to(&mut h.w, Some(air));
-    assert_eq!(mvs_sim::fighter::control::air_special_max(&h.w, f), 3.0);
-    // a ring-out and the respawn inside the window: the build's each-life +1 on a reset pawn
+    assert_eq!(mvs_sim::fighter::control::air_special_max(&h.w, f), 99.0);
+    // a ring-out and the respawn inside the window: the new life's mutator sets it again
     mvs_sim::combat::buffs::defeat_buffs(&mut h.w, f);
     mvs_sim::world::flow::respawn(&mut h.w, f);
-    assert_eq!(mvs_sim::fighter::control::air_special_max(&h.w, f), 3.0);
+    assert_eq!(mvs_sim::fighter::control::air_special_max(&h.w, f), 99.0);
     change_to(&mut h.w, None);
     assert_eq!(h.w.fighter(f).air.air_special_max_set, before);
 }
 
 #[test]
-fn the_ice_gauntlets_window_ends_its_own_gauntlet_only() {
+fn freeze_touch_ices_every_third_hit() {
     let Some(mut h) = landed() else { return };
     let (sup, sh) = (h.fighter(0), h.fighter(1));
     let ice = POOL.iter().position(|&k| k == "Mutator_Boost_IceGauntlets").expect("in the pool");
-    let gauntlet = h.w.lit("Buff_SupermanAllyIceGauntlet_C");
+    let cls = h.w.lit("Buff_Ice_C");
     change_to(&mut h.w, Some(ice));
-    let live = |w: &World, f: FighterId| {
-        w.fighter(f).buffs.buffs.iter().filter(|b| b.cls == gauntlet && b.frames > 0.0).count()
+    let iced = |w: &World, f: FighterId| w.fighter(f).buffs.buffs.iter().any(|b| b.cls == cls && b.frames > 0.0);
+    let hit = |w: &mut World| {
+        let arg = BuffSignalArg { victim: Some(sh), ..BuffSignalArg::default() };
+        mvs_sim::combat::buffs::buff_signal(w, sup, BuffSignal::HitEnemy, arg);
     };
-    assert_eq!(live(&h.w, sup), 1);
-    assert_eq!(live(&h.w, sh), 1);
-    change_to(&mut h.w, None);
-    assert_eq!(live(&h.w, sup), 0);
-    assert_eq!(live(&h.w, sh), 0);
+    hit(&mut h.w);
+    hit(&mut h.w);
+    assert!(!iced(&h.w, sh), "two hits give no Ice");
+    hit(&mut h.w);
+    assert!(iced(&h.w, sh), "the third hit gives Ice");
+}
+
+#[test]
+fn shields_up_refills_after_a_quiet_spell() {
+    let Some(mut h) = landed() else { return };
+    let f = h.fighter(0);
+    let grey = POOL.iter().position(|&k| k == "Mutator_GreyHealth").expect("in the pool");
+    change_to(&mut h.w, Some(grey));
+    let shield = |w: &World| w.fighter(f).stats.temp_health.iter().map(|p| p.amount).sum::<Real>();
+    assert_eq!(shield(&h.w), 50.0);
+    h.w.fighter_mut(f).stats.temp_health.iter_mut().for_each(|p| p.amount = 10.0);
+    idle(&mut h, 120);
+    assert_eq!(shield(&h.w), 10.0, "no refill within the quiet spell");
+    idle(&mut h, 130);
+    assert_eq!(shield(&h.w), 50.0, "given again whole after 4 s");
 }
 
 /// A Floor box of the play plane with its sim left, right, bottom and top (sim x = -UE Y, sim y = UE Z).

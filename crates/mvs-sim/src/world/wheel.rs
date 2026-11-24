@@ -15,18 +15,18 @@
 //! What the build never does to a mutator, and the rule does:
 //! - it ends a fighter mutator in the middle of a life (`buffs::remove_buff`, the build's destroy path, whose end
 //!   pass puts back what the state manager computes from the live buffs: size, head size, cooldowns, jumps, moves);
-//! - it takes back what three of them leave on the pawn past their buff's end: Low Gravity's OverrideGravity, Extra
-//!   Air Special's AirSpecialMax + 1 and the Ice Gauntlets mutator's gauntlet buff;
+//! - it takes back what two of them leave on the pawn past their buff's end: Low Gravity's OverrideGravity and Air
+//!   Show's AirSpecialMax;
 //! - it runs Random Items' spawner for a window alone, at a quicker rate of its own and with no centre item, then
 //!   stops it (the items already out stay).
 //!
-//! Left as the build leaves them at a ring-out: Grey Health's pack (its 25 grey health stays until it is hit off),
-//! a Weakened or an Ice that Weaken on Hit or Charge Freeze gave (each runs out by itself), and the Giant buff a
-//! fighter's spawned actor took (`combat::elem::grant_spawned_buffs`: a projectile thrown as a Giant stays big).
+//! Left as the build leaves them at a ring-out: Shields Up's pack (its grey health stays until it is hit off), an
+//! Ice that Ice Charge or Freeze Touch gave (it runs out by itself), and the Giant buff a fighter's spawned actor
+//! took (`combat::elem::grant_spawned_buffs`: a projectile thrown as a Giant stays big).
 
 use crate::Real;
 use crate::State;
-use crate::combat::buffs::{self, BuffRef};
+use crate::combat::buffs;
 use crate::events::Event;
 use crate::fighter::FighterId;
 use crate::math;
@@ -44,7 +44,6 @@ pub const ITEM_EVERY: Real = 3.0;
 /// The classes whose end needs the rule's own tail (`end_window`), and the one world mutator the rule runs.
 const LOW_GRAVITY: &str = "Mutator_LowGravity_C";
 const AIR_SPECIAL: &str = "Mutator_Boost_AdditionalAirSpecial_C";
-const ICE_GAUNTLETS: &str = "Mutator_Boost_IceGauntlets_C";
 const RANDOM_ITEMS: &str = "Mutator_RandomItemSpawns_C";
 
 /// What a fighter held before the window's mutator came on, of what the rule puts back at its end.
@@ -56,8 +55,6 @@ pub struct WheelSaved {
     pub air: Option<Real>,
     /// `moves.gravity_override`.
     pub gravity: bool,
-    /// A live Buff_SupermanAllyIceGauntlet_C (a Superman team mate's pellet gave it).
-    pub gauntlet: bool,
 }
 
 /// The rule's state. Its fields are the sim track's.
@@ -353,12 +350,7 @@ fn give(w: &mut World, f: FighterId, cls: Name) {
         }
     } else {
         let fr = w.fighter(f);
-        let saved = WheelSaved {
-            held: true,
-            air: fr.air.air_special_max_set,
-            gravity: fr.moves.gravity_override,
-            gauntlet: live_gauntlet(w, f).is_some(),
-        };
+        let saved = WheelSaved { held: true, air: fr.air.air_special_max_set, gravity: fr.moves.gravity_override };
         state_mut(w).saved[s] = saved;
     }
     buffs::spawn_buff(w, f, cls, 0.0, Some(0), Some(f), true, None);
@@ -395,27 +387,8 @@ fn end_window(w: &mut World) {
             // AirSpecialMax + 1 at its BeginPlay is never taken back in the build (each life's mutator adds one
             // more); the rule puts the value back.
             AIR_SPECIAL if saved.held => w.fighter_mut(f).air.air_special_max_set = saved.air,
-            // The gauntlet the mutator gave (its own SpawnBuffActor with the pawn as the Instigator, no life timer)
-            // stays for the life in the build; the rule ends it with the mutator, unless the fighter held one before
-            // the window (a team mate Superman's: the mutator's spawn refreshed that one).
-            ICE_GAUNTLETS if saved.held && !saved.gauntlet => end_own_gauntlet(w, f),
             _ => {}
         }
-    }
-}
-
-/// The live Buff_SupermanAllyIceGauntlet_C on `f`. The port keeps no Instigator on it (`FighterBuff::src` is
-/// set for a few classes only), so the mutator's and a team mate's are told apart by what the fighter held before.
-fn live_gauntlet(w: &World, f: FighterId) -> Option<BuffRef> {
-    let cls = crate::name!("Buff_SupermanAllyIceGauntlet_C");
-    let b = w.fighter(f).buffs.buffs.iter().find(|b| b.cls == cls && b.frames > 0.0)?;
-    Some(BuffRef { fighter: f, serial: b.serial })
-}
-
-/// The Ice Gauntlets mutator's gauntlet on `f`, ended.
-fn end_own_gauntlet(w: &mut World, f: FighterId) {
-    if let Some(b) = live_gauntlet(w, f) {
-        buffs::end_buff(w, f, b);
     }
 }
 

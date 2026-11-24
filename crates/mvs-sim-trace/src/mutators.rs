@@ -3,13 +3,14 @@
 
 use mvs_sim::combat::elem::ElemExt;
 use mvs_sim::combat::grow_with_damage::GrowExt;
-use mvs_sim::combat::mutator_buffs::InstantKillExt;
+use mvs_sim::combat::mutator_buffs::{ChaosExt, InstantKillExt};
 use mvs_trace::Value;
 
 use crate::conv::{Plain, plain_struct};
 use crate::cx::{Lx, Wx};
 
 plain_struct!(InstantKillExt { "left" = left });
+plain_struct!(ChaosExt { "damage" = damage, "hits" = hits, "quiet" = quiet, "shield" = shield });
 plain_struct!(GrowExt { "dealt" = dealt });
 
 /// Mutator_InstantKill_C's extension.
@@ -19,6 +20,16 @@ pub fn instant_kill_put(e: &InstantKillExt, x: &Wx) -> Value {
 
 /// [`instant_kill_put`]'s inverse.
 pub fn instant_kill_load(e: &mut InstantKillExt, v: &Value, l: &mut Lx) {
+    e.load_value(v, l);
+}
+
+/// The reworked mutators' extension (Shields Up, Freeze Touch).
+pub fn chaos_put(e: &ChaosExt, x: &Wx) -> Value {
+    e.to_value(x)
+}
+
+/// [`chaos_put`]'s inverse.
+pub fn chaos_load(e: &mut ChaosExt, v: &Value, l: &mut Lx) {
     e.load_value(v, l);
 }
 

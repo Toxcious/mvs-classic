@@ -234,6 +234,8 @@ pub enum BuffExt {
     ItemCarBuff(crate::items::car::ItemCarBuffExt),
     /// `Mutator_InstantKill_C`: `{ left }` (`combat::mutator_buffs`).
     InstantKill(crate::combat::mutator_buffs::InstantKillExt),
+    /// The port's reworked mutators (Freeze Touch, Shields Up): `ChaosExt` (`combat::mutator_buffs`).
+    Chaos(crate::combat::mutator_buffs::ChaosExt),
     /// `Mutator_GrowWithDamage_C`: `{ dealt }` (`combat::grow_with_damage`).
     GrowWithDamage(crate::combat::grow_with_damage::GrowExt),
 }
