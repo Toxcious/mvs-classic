@@ -13,6 +13,7 @@ mod conv;
 pub mod coverage;
 mod creature;
 mod cx;
+pub mod dodgeball;
 mod events;
 mod fighter;
 mod finn;
@@ -380,6 +381,7 @@ pub fn setup_of(v: &serde_json::Value) -> Result<MatchSetup, String> {
             }
             "mode" => s.mode = Some(mode_of(v)?.0),
             "wheel" => s.wheel = Some(wheel::setup_of(v)?),
+            "dodgeball" => s.dodgeball = Some(dodgeball::setup_of(v)?),
             k => return Err(format!("the set-up's {k} (no rule to read it)")),
         }
     }

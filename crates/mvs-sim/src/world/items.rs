@@ -1524,27 +1524,17 @@ fn spawn_pending(w: &mut World) {
     let ar = w.item_area.as_ref().expect("the area");
     let cls = ar.items[usize::try_from(crate::math::to_int32(k)).expect("an index")];
     let (py, pz, start) = (ar.pending_y, ar.pending_z, ar.start);
-    let cls_s = w.names.str(cls).to_owned();
-    let src = items_part(w).and_then(|d| d.actors.get_index_of(&cls_s)).map(|a| DefSrc::Items(idx(a)));
-    let ok = match w.registry.actors.get(&cls_s) {
-        Some(e) => matches!(e.hooks, ActorHooks::Item(_)) && e.ownerless,
-        None => false,
-    };
-    match (src, ok) {
-        (Some(src), true) => {
-            let it = spawn_world_item(w, cls, src, 0.0 - py, pz);
-            let data = Arc::clone(&w.data);
-            if let Some(it) = it
-                && !item(w, it).dead
-                && truthy(ItemDef::at(&data, src).p, "HitBoxOn?")
-            {
-                item_mut(w, it).hit_on = true;
-            }
+    match area_item_src(w, cls) {
+        Some(src) => {
+            spawn_area_item(w, cls, src, 0.0 - py, pz);
         }
-        _ => warn_text(
-            w,
-            &format!("MapRandomActorSpawnArea: item class {cls_s} not ported for a spawn with no owner (skipped)"),
-        ),
+        None => {
+            let cls_s = w.names.str(cls).to_owned();
+            warn_text(
+                w,
+                &format!("MapRandomActorSpawnArea: item class {cls_s} not ported for a spawn with no owner (skipped)"),
+            );
+        }
     }
     let alpha = min(max((game_time(w) - start) / TIME_TILL_FASTEST_SPAWN, 0.0), 1.0);
     let rate = MAX_ITEM_SPAWN_TIME + (alpha * (MIN_ITEM_SPAWN_TIME - MAX_ITEM_SPAWN_TIME));
@@ -1554,6 +1544,29 @@ fn spawn_pending(w: &mut World) {
     if let Some(ar) = w.item_area.as_mut() {
         ar.timer_at = at;
     }
+}
+
+/// The data of an item class of the items part (`ItemsData.actors`) the area may spawn: one the port runs with no
+/// owner. `None` for another (the caller warns).
+pub fn area_item_src(w: &World, cls: Name) -> Option<DefSrc> {
+    let cls_s = w.names.str(cls);
+    let src = items_part(w).and_then(|d| d.actors.get_index_of(cls_s)).map(|a| DefSrc::Items(idx(a)))?;
+    let ok = match w.registry.actors.get(cls_s) {
+        Some(e) => matches!(e.hooks, ActorHooks::Item(_)) && e.ownerless,
+        None => false,
+    };
+    ok.then_some(src)
+}
+
+/// `spawnPending`'s spawn of the class at (x, y): `spawn_world_item`, then BPI_UpdateHitbox (HitBoxOn? of the class
+/// default). `None` where FindTeleportSpot found no spot. The port's own Dodgeball rule drops its items through it.
+pub fn spawn_area_item(w: &mut World, cls: Name, src: DefSrc, x: Real, y: Real) -> Option<ItemId> {
+    let it = spawn_world_item(w, cls, src, x, y)?;
+    let data = Arc::clone(&w.data);
+    if !item(w, it).dead && truthy(ItemDef::at(&data, src).p, "HitBoxOn?") {
+        item_mut(w, it).hit_on = true;
+    }
+    Some(it)
 }
 
 /// `itemDef(w, it)?.components`: the item class's component templates.

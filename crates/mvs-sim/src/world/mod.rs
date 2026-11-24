@@ -553,6 +553,9 @@ impl World {
         stage::timers(w);
         each(w, Ps, blast::rescue_tick);
         each(w, Ps, blast::check_blast);
+        if w.dodgeball.is_some() {
+            dodgeball::put_back(w); // the port's own Dodgeball rule: behind every move of the tick
+        }
         pawns::first_ticks(w, pawns::FirstTicks::Leftover);
         w.scratch.step_at = 0;
 

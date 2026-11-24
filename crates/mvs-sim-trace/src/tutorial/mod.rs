@@ -35,16 +35,18 @@ use mvs_trace::{Obj, Value};
 use crate::conv::{Plain, as_list, as_obj, check_keys, int, num, obj, text};
 use crate::cx::{Lx, Wx};
 
-/// The World's rest keys of a tutorial (none outside one).
+/// The World's rest keys of a tutorial, and the run-time solids of any World: a tutorial's, or the port's own
+/// Dodgeball barrier (`mvs_sim::world::dodgeball`), whose spec and flags are the rule's constants and which the
+/// World's reset makes again before a load.
 pub fn rest_put(w: &World, x: &Wx, o: &mut Vec<(&'static str, Value)>) {
-    let Some(run) = &w.tutorial else { return };
-    o.push(("tutorial", run_put(w, run, x)));
     if let Some(rs) = &w.runtime_solids {
         o.push(("runtimeSolids", Value::List(rs.iter().map(|s| solid_put(s, x)).collect())));
-        if !rs.is_empty() {
+        if w.tutorial.is_some() && !rs.is_empty() {
             x.unrecorded("a run-time solid's spec and flags");
         }
     }
+    let Some(run) = &w.tutorial else { return };
+    o.push(("tutorial", run_put(w, run, x)));
     let pc = &w.pawn_ctl;
     let ctl = pc
         .ctl
