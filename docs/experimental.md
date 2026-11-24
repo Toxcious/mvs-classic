@@ -81,7 +81,7 @@ beside the Mutators row.
   Shields Up, Moon Jump, Heavyweight, Vampire; Wild (violet): Big Head, Unlimited Jumps, Ability Frenzy, Heavy
   Hitters, Double Damage, Ice Charge, Freeze Touch, Random Items, Grow, Featherweight, Dodge Frenzy, Projectile
   Party, Lava Floor, Ghosts; Chaos (hot orange): Sudden Death (Instant Kill), Shrinking Arena (Final Point
-  Shrink), Bomb Rain. The reel and the card show a mutator in its tier's colour. Not on the wheel: Silly (a
+  Shrink), Bomb Rain, and the events Damage Swap, Shuffle, Fresh Start, Underdog, Hot Potato, Body Swap. The reel and the card show a mutator in its tier's colour. Not on the wheel: Silly (a
   whole-match rule).
 - On the wheel, two of the build's mutators end with their window: Sudden Death's 200 damage is taken back off a
   fighter alive at the end (a hit taken in the window stays), and Shrinking Arena plays Final Point Shrink's
@@ -95,6 +95,14 @@ beside the Mutators row.
   for a flash of 8 ticks each second). Bomb Rain (dynamite and mines) and Projectile Party (thrown items) run the
   item spawner as Random Items' window does, with that share of its list and one item every 2 seconds; they are
   the wheel's only, and never on at once with Random Items or each other.
+- The wheel's events (`mvs-sim` `world/wheel_events.rs`, the wheel's only) act at a window's start, some also at
+  its end: Damage Swap (the live player with the most damage and the one with the least trade it), Shuffle (every
+  live player moved to another's place, its motion stopped), Fresh Start (every damage halved), Underdog (the
+  player with the fewest ring-outs, then the most damage, is Giant with Double Damage for the window), Hot Potato
+  (a random player holds a bomb, a "HOT POTATO!" pop text over it each second; damage the holder deals hands the
+  bomb on; the holder at the window's end takes 15 damage and a launch straight up, credited to the one who passed
+  it), Body Swap (2v2 only: teammates trade fighters for the window, each player's input and bot driving the
+  other's; score and teams stay as they are).
 - The next mutator is drawn 3 seconds before the change from a random stream of the rule's own (made from the
   match seed, so it moves no other draw of the match). The draw never gives the one that is on, one ticked in the
   Mutators row (it is on all match), or one the match cannot run: Random Items on a stage with no item area, or

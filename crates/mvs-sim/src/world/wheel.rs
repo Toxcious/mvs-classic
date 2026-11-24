@@ -41,6 +41,7 @@ use crate::names::Name;
 use crate::rng::Rng;
 use crate::setup::{MatchSetup, Wheel};
 use crate::world::own_rules::{self, Rule};
+use crate::world::wheel_events::{self, WheelEvent};
 use crate::world::{World, blast, flow, items, mutators};
 
 /// A Random Items window's first item, in seconds into the window. The build's spawner gives its first 12.5 s after
@@ -99,6 +100,12 @@ pub struct WheelState {
     pub items: bool,
     /// By player slot.
     pub saved: Vec<WheelSaved>,
+    /// The events' (`wheel_events`): Underdog's player slot, Hot Potato's holder and the slot that passed it to it,
+    /// -1 for none; Body Swap on.
+    pub underdog: i32,
+    pub potato: i32,
+    pub potato_by: i32,
+    pub swap: bool,
 }
 
 /// What the app and the HUD read of the rule each frame (`status`). The indexes are into the set-up's pool
@@ -162,6 +169,10 @@ pub fn new_state(setup: &MatchSetup, seed: i32) -> Option<WheelState> {
         over: false,
         items: false,
         saved: setup.players.iter().map(|_| WheelSaved::default()).collect(),
+        underdog: -1,
+        potato: -1,
+        potato_by: -1,
+        swap: false,
     })
 }
 
@@ -196,6 +207,9 @@ fn runnable(w: &World, i: usize) -> bool {
     }
     if let Some(r) = Rule::of_key(&wheel(w).pool[i]) {
         return r.items().is_none() || items_runnable(w);
+    }
+    if let Some(e) = WheelEvent::of_key(&wheel(w).pool[i]) {
+        return wheel_events::runnable(w, e);
     }
     let Some(cls) = class_of(w, i) else { return false };
     if mutators::match_fighter_classes(w).iter().any(|c| c == cls) {
@@ -351,6 +365,7 @@ pub fn wheel_latent(w: &mut World) {
     if w.wheel.is_none() || state(w).over {
         return;
     }
+    wheel_events::latent(w);
     let tick = w.flow.tick;
     if state(w).from < 0 {
         if !started(w) {
@@ -457,6 +472,10 @@ fn items_list(w: &World, i: usize) -> Option<Vec<Name>> {
 /// it, Shrinking Arena's shrink started. An own rule with no spawner needs nothing: the sim reads it.
 fn begin_window(w: &mut World) {
     for i in on_indexes(w) {
+        if let Some(e) = WheelEvent::of_key(&wheel(w).pool[i]) {
+            wheel_events::begin(w, e);
+            continue;
+        }
         if let Some(list) = items_list(w, i) {
             start_items(w, &list);
             continue;
@@ -478,6 +497,7 @@ fn begin_window(w: &mut World) {
 /// A window's end: each of its mutators off every fighter (`buffs::remove_buff`: K2_DestroyActor, its EndPlay and
 /// the state manager's end pass), then the rule's own tail; or Random Items' spawner stopped.
 fn end_window(w: &mut World) {
+    wheel_events::end(w);
     for i in on_indexes(w) {
         if runs_items(w, i) {
             stop_items(w);

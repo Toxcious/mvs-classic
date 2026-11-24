@@ -62,6 +62,13 @@ pub const ALL: &[Mutator] = &[
     wheel_only("Chaos_ProjectileParty", Tier::Wild),
     m("Chaos_LavaFloor", Tier::Wild),
     m("Chaos_Ghosts", Tier::Wild),
+    // the events: at a window's start (and end), the wheel's alone (`mvs_sim::world::wheel_events`)
+    wheel_only("Chaos_DamageSwap", Tier::Chaos),
+    wheel_only("Chaos_Shuffle", Tier::Chaos),
+    wheel_only("Chaos_FreshStart", Tier::Chaos),
+    wheel_only("Chaos_Underdog", Tier::Chaos),
+    wheel_only("Chaos_HotPotato", Tier::Chaos),
+    wheel_only("Chaos_BodySwap", Tier::Chaos),
 ];
 
 /// The list's index of `key`.

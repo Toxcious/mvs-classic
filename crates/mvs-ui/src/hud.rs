@@ -1833,6 +1833,8 @@ impl Hud {
             }
             // Buff_TransferDebuffs @1067-1571.
             PopKind::Transferred => queued(fighter, &x.transferred, [0.0, 1.0, 0.204562, 1.0], 1.0, [0.0, 0.0, 250.0]),
+            // (the port's own Chaos Wheel's Hot Potato: the Chaos tier's orange, shown at once each second)
+            PopKind::HotPotato => now1(custom_text::HOT_POTATO, 0.9, [1.0, 0.35, 0.05, 1.0], [0.0, 0.0, 300.0]),
             // Comp_Pawn_HitBoxHandler SpawnDodgePopText @0-1014: called directly on every machine.
             PopKind::Dodged => {
                 let (mut p, q) = now1(&x.dodged, 0.5, focus, [0.0, 0.0, 300.0]);

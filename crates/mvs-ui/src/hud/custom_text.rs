@@ -36,6 +36,8 @@ pub const WHEEL_RULE: &str = "CHAOS WHEEL";
 pub const WHEEL_FIRST: &str = "GET READY";
 /// (Chaos Wheel) The card's label once the next mutator is drawn.
 pub const WHEEL_NEXT: &str = "NEXT";
+/// (Chaos Wheel) Hot Potato's pop text over the bomb's holder.
+pub const HOT_POTATO: &str = "HOT POTATO!";
 
 /// (online) The plate over the scoreboard portrait of a player whose link dropped (the referee's away).
 pub const AWAY: &str = "Away";

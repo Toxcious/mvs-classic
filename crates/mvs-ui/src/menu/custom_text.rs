@@ -105,6 +105,12 @@ pub fn wheel_name(key: &str) -> &'static str {
         "Chaos_ProjectileParty" => "Projectile Party",
         "Chaos_LavaFloor" => "Lava Floor",
         "Chaos_Ghosts" => "Ghosts",
+        "Chaos_DamageSwap" => "Damage Swap",
+        "Chaos_Shuffle" => "Shuffle",
+        "Chaos_FreshStart" => "Fresh Start",
+        "Chaos_Underdog" => "Underdog",
+        "Chaos_HotPotato" => "Hot Potato",
+        "Chaos_BodySwap" => "Body Swap",
         _ => "",
     }
 }

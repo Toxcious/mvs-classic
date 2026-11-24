@@ -129,8 +129,10 @@ pub fn taken_knockback(w: &World) -> Real {
     k
 }
 
-/// Vampire, behind a damage record: `dealer` heals its share of `damage` dealt to another fighter.
+/// Behind a damage record: Hot Potato's pass (`wheel_events::potato_dealt`), then Vampire: `dealer` heals its
+/// share of `damage` dealt to another fighter.
 pub fn damage_dealt(w: &mut World, f: FighterId, damage: Real, dealer: Option<FighterId>) {
+    crate::world::wheel_events::potato_dealt(w, f, damage, dealer);
     let Some(d) = dealer.filter(|&d| d != f && damage > 0.0) else { return };
     if w.fighter(d).life.is_minion || !on(w, Rule::Vampire) {
         return;

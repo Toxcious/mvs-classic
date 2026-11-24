@@ -27,6 +27,7 @@ pub mod stage_actors;
 pub mod stage_query;
 pub mod wall_bp;
 pub mod wheel;
+pub mod wheel_events;
 
 pub use blast::{BlastBounds, KoBox, Shrunk};
 pub use flow::{BonusTracker, MatchState, Timer, TimerCmd, VoShared};
