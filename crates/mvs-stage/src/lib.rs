@@ -28,6 +28,8 @@ pub enum LayoutError {
     NoBlastBox,
     #[error("the piece {piece} is baked but comes from the stage {stage}: a borrowed piece is movable")]
     BakedFromOtherStage { piece: String, stage: String },
+    #[error("the piece {piece} is movable but its material {material} has no movable base pass: it would not draw")]
+    NoMovablePass { piece: String, material: String },
     #[error("hide {instance}: the kept block {block} names it")]
     HiddenInBlock { instance: String, block: String },
     #[error("{0}")]

@@ -100,6 +100,26 @@ pub fn blast_corners(w: &World) -> BlastCorners {
     }
 }
 
+/// A blast box's bounds in sim axes (x = -Y, y = Z).
+pub fn bounds_of(bb: &mvs_data::stage::BlastBox) -> BlastBounds {
+    BlastBounds {
+        left: math::narrow(-bb.y[1]),
+        right: math::narrow(-bb.y[0]),
+        bottom: math::narrow(bb.z[0]),
+        top: math::narrow(bb.z[1]),
+    }
+}
+
+/// The outer blast box (`blastOuter`) of the blast box's bounds `b` at the match's start (no shrink).
+pub fn outer_of(b: BlastBounds) -> BlastBounds {
+    BlastBounds {
+        left: b.left - 2.0 * C::BLAST_PAD_SIDE,
+        right: b.right + 2.0 * C::BLAST_PAD_SIDE,
+        bottom: b.bottom - 2.0 * C::BLAST_PAD_BOTTOM,
+        top: b.top + 2.0 * C::BLAST_PAD_TOP,
+    }
+}
+
 /// `setBlastShrink`: the boxes at shrink `a` (0..1).
 pub fn set_blast_shrink(w: &mut World, a: Real) {
     w.flow.blast_shrink = a;

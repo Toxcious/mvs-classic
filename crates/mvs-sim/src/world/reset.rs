@@ -5,7 +5,6 @@ use crate::Real;
 use crate::actors::ActorRef;
 use crate::chars::CharState;
 use crate::combat::{buffs, perks};
-use crate::consts as C;
 use crate::events::Event;
 use crate::fighter::common::latent_frames;
 use crate::fighter::{self, FighterId, StagePlatform, anim, control, match_side, moves};
@@ -63,19 +62,9 @@ pub fn construct(w: &mut World) {
         half_extent: v3(&s.half_extent).map(crate::math::narrow),
         jump_out_buffer_top: crate::math::narrow(s.jump_out_buffer_top),
     });
-    let b = blast::BlastBounds {
-        left: crate::math::narrow(-bb.y[1]),
-        right: crate::math::narrow(-bb.y[0]),
-        bottom: crate::math::narrow(bb.z[0]),
-        top: crate::math::narrow(bb.z[1]),
-    };
+    let b = blast::bounds_of(bb);
     w.stage.blast = b;
-    w.stage.blast_outer = blast::BlastBounds {
-        left: b.left - 2.0 * C::BLAST_PAD_SIDE,
-        right: b.right + 2.0 * C::BLAST_PAD_SIDE,
-        bottom: b.bottom - 2.0 * C::BLAST_PAD_BOTTOM,
-        top: b.top + 2.0 * C::BLAST_PAD_TOP,
-    };
+    w.stage.blast_outer = blast::outer_of(b);
     // UE yaw -90 faces -Y = sim +x.
     let pt = |e: &mvs_data::stage::StageStart| SpawnPoint {
         x: crate::math::narrow(-e.loc[1]),

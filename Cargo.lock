@@ -937,6 +937,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "mvs-stage-editor"
+version = "0.1.8"
+dependencies = [
+ "mvs-app",
+ "mvs-collision",
+ "mvs-data",
+ "mvs-render",
+ "mvs-sim",
+ "mvs-stage",
+ "mvs-store",
+ "mvs-ui",
+ "mvs-view",
+]
+
+[[package]]
 name = "mvs-store"
 version = "0.1.8"
 dependencies = [

@@ -6,6 +6,7 @@
 
 pub mod bindings;
 pub mod bundle;
+pub mod canvas;
 pub mod element;
 pub mod hud;
 pub mod key_names;

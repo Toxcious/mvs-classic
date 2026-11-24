@@ -2251,11 +2251,13 @@ impl MatchLoop {
             let at: Vec<_> = self.world.players.iter().map(|&f| self.poser.hud_point(&self.world, f, alpha)).collect();
             if let Some(t) = self.lab.as_mut().and_then(|l| l.menu.tools.as_mut()) {
                 let mut o = crate::shapes::Overlay {
-                    camera: &camera,
-                    size,
-                    list: &mut s.list,
-                    fonts: &mut *fonts,
-                    layer: TOP_LAYER - 1,
+                    canvas: mvs_ui::canvas::Canvas {
+                        camera: &camera,
+                        size,
+                        list: &mut s.list,
+                        fonts: &mut *fonts,
+                        layer: TOP_LAYER - 1,
+                    },
                     at: &at,
                     alpha: f64::from(alpha),
                 };

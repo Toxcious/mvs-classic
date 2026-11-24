@@ -511,7 +511,7 @@ fn v3(v: &[f64]) -> [Real; 3] {
 }
 
 /// A solid's shape as `section` reads it.
-pub(crate) fn shape_of(d: &StageSolidData) -> SolidShape {
+pub fn shape_of(d: &StageSolidData) -> SolidShape {
     let (c, e) = (v3(&d.center), v3(&d.half_extent));
     match d.kind {
         SolidKind::Box => SolidShape::Box { c: c.map(f64::from), e: e.map(f64::from) },

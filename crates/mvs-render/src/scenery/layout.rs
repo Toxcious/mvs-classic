@@ -21,19 +21,52 @@ fn read_scenery(store: &mvs_store::Store, key: &str) -> Result<Scenery> {
     Ok(JsonBin::split(b"MVSC", &bytes, &entry)?.parse::<SceneryHeader>(&entry)?.scenery)
 }
 
-/// [`apply`] with the borrowed pieces' stages read from `store`.
+/// [`apply`] with the borrowed pieces' stages and the movable pieces' materials read from `store`.
 pub(super) fn apply_from_store(s: &mut Scenery, layout: &Layout, store: &mvs_store::Store) -> Result<()> {
     let mut read = |key: &str| read_scenery(store, key).map_err(|e| LayoutError::Invalid(e.to_string()));
-    apply(s, layout, &mut read).map_err(|e| bad(&format!("layout {}", layout.key), e.to_string()))
+    let mut pack = None;
+    let mut movable = |path: &str| {
+        let invalid = |why: String| LayoutError::Invalid(format!("material {path}: {why}"));
+        if pack.is_none() {
+            pack = Some(store.kind("material").map_err(|e| invalid(e.to_string()))?);
+        }
+        match mvs_material::read_entry(pack.as_ref().expect("opened above"), path) {
+            Ok(mvs_material::Entry::Material(m)) => Ok(movable_draws(&m)),
+            Ok(_) => Err(invalid("not a material".to_owned())),
+            Err(e) => Err(invalid(e.to_string())),
+        }
+    };
+    apply(s, layout, &mut read, &mut movable).map_err(|e| bad(&format!("layout {}", layout.key), e.to_string()))
+}
+
+/// Whether a piece made movable draws with the material `m`: a translucent one draws in the translucent pass, an
+/// opaque or masked one needs the movable base pass ([`has_movable_base_pass`]).
+fn movable_draws(m: &mvs_material::Material) -> bool {
+    !matches!(m.state.blend.as_str(), "BLEND_Opaque" | "BLEND_Masked") || has_movable_base_pass(m)
 }
 
 /// The layout over the base's scenery `s`: hides, blocks and pieces. A piece comes from the instance of its stage's
-/// entry as the file has it (a hidden base instance may be copied); `source` reads another stage's entry.
+/// entry as the file has it (a hidden base instance may be copied); `source` reads another stage's entry;
+/// `movable` says whether a material (its object path) draws on a movable piece: a movable piece with one that
+/// does not is refused.
 pub(super) fn apply(
     s: &mut Scenery,
     layout: &Layout,
     source: &mut dyn FnMut(&str) -> std::result::Result<Scenery, LayoutError>,
+    movable: &mut dyn FnMut(&str) -> std::result::Result<bool, LayoutError>,
 ) -> std::result::Result<(), LayoutError> {
+    let mut check_movable = |i: &Instance, p: &Piece| -> std::result::Result<(), LayoutError> {
+        if p.light != Light::Movable {
+            return Ok(());
+        }
+        for m in i.materials.iter().flatten() {
+            let path = m.split_once('?').map_or(m.as_str(), |x| x.0);
+            if !movable(path)? {
+                return Err(LayoutError::NoMovablePass { piece: layout.piece_name(p), material: path.to_owned() });
+            }
+        }
+        Ok(())
+    };
     let invalid = |why: String| Err(LayoutError::Invalid(why));
     mvs_stage::check(layout)?;
     for h in &layout.hide {
@@ -96,6 +129,7 @@ pub(super) fn apply(
                 return invalid(format!("the piece {name} moves {}, which the scenery has not (or hides)", p.instance));
             };
             place(i, p);
+            check_movable(i, p)?;
             continue;
         }
         let src = if stage == layout.base {
@@ -136,6 +170,7 @@ pub(super) fn apply(
         // (a copy is no stage part's: only the component's shadow flag of its own fields)
         i.fields.retain(|k, _| k == "castShadow");
         place(&mut i, p);
+        check_movable(&i, p)?;
         if receiver {
             s.decal_receivers.push(s.instances.len() as u32);
         }

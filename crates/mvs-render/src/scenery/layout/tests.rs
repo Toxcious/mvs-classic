@@ -54,11 +54,15 @@ fn no_source(key: &str) -> std::result::Result<Scenery, LayoutError> {
     Err(LayoutError::Invalid(format!("no stage {key}")))
 }
 
+fn all_draw(_: &str) -> std::result::Result<bool, LayoutError> {
+    Ok(true)
+}
+
 #[test]
 fn hides_remap_the_receivers_and_a_platform_piece_is_added() {
     let mut s = base();
     let l = layout(serde_json::json!({ "hide": ["Main", "Slab", "Arm", "Donut", "Fire"] }));
-    apply(&mut s, &l, &mut no_source).expect("applied");
+    apply(&mut s, &l, &mut no_source, &mut all_draw).expect("applied");
     let names: Vec<&str> = s.instances.iter().map(|i| i.name.as_str()).collect();
     assert_eq!(names, ["Ship", "S.StaticMesh"]);
     // the receiver was third, now first
@@ -79,7 +83,7 @@ fn a_movable_piece_drops_its_lightmap() {
     let mut s = base();
     let l = layout(serde_json::json!({ "hide": ["Main", "Slab", "Arm", "Donut"],
         "pieces": [{ "instance": "Slab", "loc": [0, 0, 0], "light": "movable", "platform": "S", "floating": true }] }));
-    apply(&mut s, &l, &mut no_source).expect("applied");
+    apply(&mut s, &l, &mut no_source, &mut all_draw).expect("applied");
     let p = s.instances.last().expect("the piece");
     assert!(p.lm.is_none());
     assert_eq!(p.materials, [Some("/Game/M.M?ctx=locallm".to_owned()), Some("/Game/T.T?ctx=local".to_owned())]);
@@ -87,10 +91,29 @@ fn a_movable_piece_drops_its_lightmap() {
 }
 
 #[test]
+fn refuses_a_movable_piece_whose_material_lacks_the_pass() {
+    // (the base's second material lacks the movable base pass)
+    let mut lacks_t = |path: &str| Ok(path != "/Game/T.T");
+    let pieces = serde_json::json!({ "hide": ["Main", "Slab", "Arm", "Donut"],
+        "pieces": [{ "instance": "Slab", "loc": [0, 0, 0], "light": "movable", "platform": "S" }] });
+    let e = apply(&mut base(), &layout(pieces), &mut no_source, &mut lacks_t);
+    let want = LayoutError::NoMovablePass { piece: "S.StaticMesh".into(), material: "/Game/T.T".into() };
+    assert_eq!(e, Err(want));
+    // a base piece moved in place, made movable
+    let moved = serde_json::json!({ "hide": ["Main", "Arm", "Donut"], "platforms": [],
+        "pieces": [{ "instance": "Slab", "loc": [0, 0, 0], "light": "movable" }] });
+    let e = apply(&mut base(), &layout(moved), &mut no_source, &mut lacks_t);
+    assert!(matches!(e, Err(LayoutError::NoMovablePass { .. })), "{e:?}");
+    // the same pieces baked are not asked about
+    let baked = serde_json::json!({ "hide": ["Main", "Slab", "Arm", "Donut"] });
+    apply(&mut base(), &layout(baked), &mut no_source, &mut lacks_t).expect("a baked piece");
+}
+
+#[test]
 fn refuses_a_hide_a_kept_block_names() {
     let mut s = base();
     let l = layout(serde_json::json!({ "hide": ["Ship", "Arm", "Donut"] }));
-    let e = apply(&mut s, &l, &mut no_source);
+    let e = apply(&mut s, &l, &mut no_source, &mut all_draw);
     assert_eq!(e, Err(LayoutError::HiddenInBlock { instance: "Ship".into(), block: "ship".into() }));
 }
 
@@ -98,17 +121,17 @@ fn refuses_a_hide_a_kept_block_names() {
 fn refuses_a_hidden_skeletal_mesh_with_an_instance_on_it() {
     let mut s = base();
     let l = layout(serde_json::json!({ "hide": ["Arm"] }));
-    assert!(matches!(apply(&mut s, &l, &mut no_source), Err(LayoutError::Invalid(_))));
+    assert!(matches!(apply(&mut s, &l, &mut no_source, &mut all_draw), Err(LayoutError::Invalid(_))));
 }
 
 #[test]
 fn refuses_an_unknown_hide_and_block() {
     let mut s = base();
     let l = layout(serde_json::json!({ "hide": ["Nope"] }));
-    assert!(matches!(apply(&mut s, &l, &mut no_source), Err(LayoutError::Invalid(_))));
+    assert!(matches!(apply(&mut s, &l, &mut no_source, &mut all_draw), Err(LayoutError::Invalid(_))));
     let mut s = base();
     let l = layout(serde_json::json!({ "blocks": ["nope"], "hide": [] }));
-    assert!(matches!(apply(&mut s, &l, &mut no_source), Err(LayoutError::Invalid(_))));
+    assert!(matches!(apply(&mut s, &l, &mut no_source, &mut all_draw), Err(LayoutError::Invalid(_))));
 }
 
 #[test]
@@ -123,7 +146,7 @@ fn a_borrowed_piece_takes_its_stages_mesh() {
         o.instances.push(serde_json::from_value(instance("Rock", "slab")).expect("rock"));
         Ok(o)
     };
-    apply(&mut s, &l, &mut other).expect("applied");
+    apply(&mut s, &l, &mut other, &mut all_draw).expect("applied");
     let p = s.instances.last().expect("the piece");
     // the base's `slab` is another mesh: the key is renamed
     assert_eq!(p.mesh, "other:slab");
