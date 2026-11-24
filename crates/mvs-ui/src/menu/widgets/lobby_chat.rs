@@ -119,23 +119,9 @@ impl LobbyChat {
             "VerticalBox",
             "LobbyChat",
             json!({}),
-            json!({ "Size": { "SizeRule": "ESlateSizeRule::Fill" }, "Padding": { "Top": 10, "Bottom": 24 } }),
+            json!({ "Size": { "SizeRule": "ESlateSizeRule::Fill" }, "Padding": { "Top": 8, "Bottom": 12 } }),
             "VerticalBoxSlot",
         );
-        let title = plain(
-            cx,
-            "TextBlock",
-            "LobbyChatTitle",
-            json!({
-                "Text": { "CultureInvariantString": custom_text::CHAT_LOBBY_TITLE },
-                "Font": font("Display 1", 30.0),
-                "ColorAndOpacity": specified(text_c),
-                "TextTransformPolicy": "ETextTransformPolicy::ToUpper",
-            }),
-            json!({ "Padding": { "Bottom": 8 } }),
-            "VerticalBoxSlot",
-        );
-        cx.view.tree_mut().add(root, title);
         let body = plain(
             cx,
             "Border",

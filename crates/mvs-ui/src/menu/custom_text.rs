@@ -372,8 +372,7 @@ pub const PM_LEFT: &str = "A player has disconnected.";
 pub const PM_LEFT_NAMED: &str = "{username} has disconnected";
 // ---- the online lobby (menu/lobby/net.rs, widgets/lobby_chat.rs, custom_game.rs, custom_browser.rs) ----
 
-/// The lobby's chat: its heading, the input's hint, the notes of a player who came in or went.
-pub const CHAT_LOBBY_TITLE: &str = "LOBBY CHAT";
+/// The lobby's chat: the input's hint, the notes of a player who came in or went.
 pub const CHAT_LOBBY_HINT: &str = "Press Enter to chat";
 pub const CHAT_JOINED: &str = "joined the lobby";
 pub const CHAT_LEFT: &str = "left the lobby";
