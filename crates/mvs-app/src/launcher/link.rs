@@ -339,11 +339,11 @@ pub fn forward(url: &str, o: &Options) -> u8 {
 }
 
 /// `mvs-launcher --link <url>` with the launcher's other options: the link's code to the game; the exit code. A
-/// link that cannot be followed says why on stderr only.
-// Deviation: Windows shows why in a message box, as a click on a link from the desktop has no terminal; here it goes
-// to stderr only until SDL's message box is there (Task 7).
+/// link that cannot be followed says why on stderr and in SDL's message box (a click on a link has no terminal),
+/// which SDL shows without its video started.
 #[cfg(not(windows))]
 pub fn forward(url: &str, o: &Options) -> u8 {
+    use sdl3_sys::messagebox::{SDL_MESSAGEBOX_WARNING, SDL_ShowSimpleMessageBox};
     match route(url, o, &mut RealOs) {
         Ok(r) => {
             eprintln!("mvs-launcher: --link: {r:?}");
@@ -351,6 +351,18 @@ pub fn forward(url: &str, o: &Options) -> u8 {
         }
         Err(why) => {
             eprintln!("mvs-launcher: --link: {why}");
+            let text = std::ffi::CString::new(why.replace('\0', "")).unwrap_or_default();
+            eprintln!("mvs-launcher: --link: showing the message box");
+            // SAFETY: a modal box with no parent, on the launcher's main thread, its strings alive through the call.
+            let shown = unsafe {
+                SDL_ShowSimpleMessageBox(
+                    SDL_MESSAGEBOX_WARNING,
+                    c"MVS Classic".as_ptr(),
+                    text.as_ptr(),
+                    std::ptr::null_mut(),
+                )
+            };
+            eprintln!("mvs-launcher: --link: the message box closed (shown: {shown})");
             1
         }
     }

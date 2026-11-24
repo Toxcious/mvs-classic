@@ -128,7 +128,7 @@ enum Placement {
     /// Borderless over the primary display.
     FullScreen,
     /// The launcher's: `page` at the display's scale, made smaller to fit its work area down to `least` of that,
-    /// centred there; frameless and of a fixed size.
+    /// centered there; frameless and of a fixed size.
     Launcher { page: [u32; 2], least: f32 },
 }
 
@@ -202,7 +202,7 @@ impl Window {
     }
 
     /// The launcher's window (window.ts openLauncher): frameless and of a fixed size, `page` at the display's scale
-    /// or smaller to fit, down to `least` of it; centred on the work area of the display under the pointer.
+    /// or smaller to fit, down to `least` of it; centered on the work area of the display under the pointer.
     pub fn launcher(title: &str, page: [u32; 2], least: f32) -> Result<Window> {
         Self::open(title, Placement::Launcher { page, least })
     }
@@ -214,7 +214,7 @@ impl Window {
         DRAG_RIGHT.store(i32::try_from(right).unwrap_or(i32::MAX), Ordering::Relaxed);
     }
 
-    /// The window minimised to the taskbar.
+    /// The window minimized to the taskbar.
     pub fn minimize(&self) {
         // SAFETY: the window's own pointer.
         unsafe { SDL_MinimizeWindow(self.win) };
@@ -225,7 +225,18 @@ impl Window {
         BACKGROUND.load(Ordering::Relaxed) || self.flags().0 & SDL_WINDOW_INPUT_FOCUS.0 != 0
     }
 
-    /// Whether the window is minimised.
+    /// Whether SDL's left button is down with the pointer's focus on this window (the launcher's pointer; Windows'
+    /// reads the button while its window is the foreground one). SDL's button state is the pointer's, kept for the
+    /// window it is over (or holds, while a button is down), so the mouse's focus is the test.
+    pub fn left_down(&self) -> bool {
+        // SAFETY: plain reads of SDL's mouse state, updated by the window's pump on this thread.
+        unsafe {
+            SDL_GetMouseFocus() == self.win
+                && SDL_GetMouseState(std::ptr::null_mut(), std::ptr::null_mut()).0 & SDL_BUTTON_LMASK.0 != 0
+        }
+    }
+
+    /// Whether the window is minimized.
     pub fn minimized(&self) -> bool {
         self.flags().0 & SDL_WINDOW_MINIMIZED.0 != 0
     }
@@ -393,7 +404,7 @@ impl Window {
                         *resized = Some(s);
                     }
                     // (display.ts settle's 'resized': a framed window's new size is what borderless returns to; a
-                    // maximised one keeps the size it had)
+                    // maximized one keeps the size it had)
                     if self.mode == WindowMode::Windowed
                         && s[0] > 0
                         && s[1] > 0
@@ -582,11 +593,11 @@ impl Window {
     }
 
     /// The window put in `mode` on `display` (None: the one it is on): framed at `size` (client pixels; None: its own
-    /// windowed size), centred in the display's work area and kept inside it, or borderless over the whole display,
+    /// windowed size), centered in the display's work area and kept inside it, or borderless over the whole display,
     /// where `size` is the one it returns to (app/src/display.ts: setMode, setSize, setDisplay, place, contentDip).
     /// The swap chain follows the size event it sends.
     // Deviation: no exclusive full screen (EWindowMode Fullscreen): borderless covers the display, as the TS port did.
-    // Deviation: Wayland does not let a program place its window: a framed window is not centred (the compositor
+    // Deviation: Wayland does not let a program place its window: a framed window is not centered (the compositor
     // places it), and borderless goes to the display the compositor gives.
     pub fn set_window_mode(
         &mut self,

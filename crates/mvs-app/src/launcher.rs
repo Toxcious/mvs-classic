@@ -1271,9 +1271,8 @@ impl Launcher {
             GetForegroundWindow() == host.window.hwnd
                 && (GetAsyncKeyState(i32::from(VK_LBUTTON.0)) as u16 & 0x8000) != 0
         };
-        // Unverified: stub, replaced in Task 7 (the left button is never down)
         #[cfg(not(windows))]
-        let down = false;
+        let down = host.window.left_down();
         let click = self.was_down && !down && at.is_some();
         self.was_down = down;
         mvs_ui::launcher::draw::Pointer { at, down, click, wheel }

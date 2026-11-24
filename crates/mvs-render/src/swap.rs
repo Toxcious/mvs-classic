@@ -152,10 +152,11 @@ impl SwapChain {
         unsafe {
             WaitForSingleObjectEx(self.latency, timeout_ms, true);
         }
-        // Unverified: DXVK-native has no waitable object (GetFrameLatencyWaitableObject is null there, and there is
-        // no WaitForSingleObjectEx): its Present blocks instead, in SyncFrameLatency (d3d11_swapchain.cpp:707-739),
+        // DXVK-native has no waitable object (GetFrameLatencyWaitableObject is null there, and there is no
+        // WaitForSingleObjectEx): its Present blocks instead, in SyncFrameLatency (d3d11_swapchain.cpp:707-739),
         // until the frame `dxgi.maxFrameLatency` back is shown, and mvs_d3d::set_linux_wsi caps that at 1, the one
-        // frame queued Windows' wait keeps (local/gates/0b-swap.md; checked in the run of plan Task 7).
+        // frame queued Windows' wait keeps. DXVK's info log shows the cap applied: "Found config env:
+        // dxgi.maxFrameLatency = 1".
         #[cfg(not(windows))]
         let _ = timeout_ms;
         if self.pace_next {

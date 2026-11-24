@@ -244,11 +244,65 @@ pub fn pick_folder(hwnd: HWND, title: &str) -> Option<PathBuf> {
     }
 }
 
-/// The folder picker over `hwnd`, titled `title`: none yet on Linux.
-// Unverified: stub, replaced in Task 7
+/// The folder picker over `hwnd` (the launcher's `SDL_Window*`), titled `title`: the folder chosen, None when the
+/// player closed it or SDL could not show one. SDL answers through a callback, from its event pump (the desktop's
+/// portal, over D-Bus) or from a thread of its own (zenity), so this pumps SDL's events until it has answered.
+/// `SDL_PumpEvents` only gathers the events into SDL's queue, so what comes meanwhile (a key, a click, a close) is
+/// still there for the window's next `pump`.
+// Deviation: modal on the launcher's thread, as on Windows, so the page stops drawing while it is open (Electron's
+// dialog left the page running).
 #[cfg(not(windows))]
-pub fn pick_folder(_hwnd: HWND, _title: &str) -> Option<PathBuf> {
-    None
+pub fn pick_folder(hwnd: HWND, title: &str) -> Option<PathBuf> {
+    use std::ffi::{CStr, CString, OsStr, c_char, c_int, c_void};
+    use std::os::unix::ffi::OsStrExt;
+    use std::sync::mpsc::{Sender, channel};
+
+    use sdl3_sys::dialog::{
+        SDL_FILEDIALOG_OPENFOLDER, SDL_PROP_FILE_DIALOG_TITLE_STRING, SDL_PROP_FILE_DIALOG_WINDOW_POINTER,
+        SDL_ShowFileDialogWithProperties,
+    };
+    use sdl3_sys::events::SDL_PumpEvents;
+    use sdl3_sys::properties::{
+        SDL_CreateProperties, SDL_DestroyProperties, SDL_SetPointerProperty, SDL_SetStringProperty,
+    };
+
+    /// SDL's answer: the first folder of the list (null: an error; empty: closed), sent on the channel `userdata`.
+    unsafe extern "C" fn answered(userdata: *mut c_void, list: *const *const c_char, _filter: c_int) {
+        // SAFETY: `userdata` is the boxed sender given to SDL below, which calls this once; the list and its strings
+        // are SDL's until this returns, so the path is copied out here.
+        unsafe {
+            let tx = Box::from_raw(userdata.cast::<Sender<Option<PathBuf>>>());
+            let first = if list.is_null() { std::ptr::null() } else { *list };
+            let path = (!first.is_null()).then(|| PathBuf::from(OsStr::from_bytes(CStr::from_ptr(first).to_bytes())));
+            let _ = tx.send(path);
+        }
+    }
+
+    let title = CString::new(title.replace('\0', "")).unwrap_or_default();
+    let (tx, rx) = channel();
+    // SAFETY: the properties outlive the dialog (destroyed once it has answered) and hold the window, alive while the
+    // launcher waits here, and the title, alive through the wait; the sender is SDL's until the callback takes it.
+    unsafe {
+        let props = SDL_CreateProperties();
+        if props == 0 {
+            return None;
+        }
+        SDL_SetPointerProperty(props, SDL_PROP_FILE_DIALOG_WINDOW_POINTER, hwnd.0);
+        SDL_SetStringProperty(props, SDL_PROP_FILE_DIALOG_TITLE_STRING, title.as_ptr());
+        let userdata = Box::into_raw(Box::new(tx)).cast::<c_void>();
+        SDL_ShowFileDialogWithProperties(SDL_FILEDIALOG_OPENFOLDER, Some(answered), userdata, props);
+        let answer = loop {
+            match rx.try_recv() {
+                Ok(a) => break a,
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => break None,
+                Err(std::sync::mpsc::TryRecvError::Empty) => {}
+            }
+            SDL_PumpEvents();
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        };
+        SDL_DestroyProperties(props);
+        answer
+    }
 }
 
 /// Opens `target` (a folder in Explorer, a URL in its handler).
@@ -297,11 +351,27 @@ pub fn copy_text_foreground(text: &str) -> Result<(), String> {
     copy_text(hwnd, text)
 }
 
-/// `text` on the clipboard for the window that has the keyboard: not yet on Linux.
-// Unverified: stub, replaced in Task 7
+/// `text` on the clipboard (a menu's Copy, clicked in the game's window). SDL's clipboard is the program's, held by
+/// SDL's video, with no window to name as its owner (Windows' `OpenClipboard` takes the foreground window).
 #[cfg(not(windows))]
-pub fn copy_text_foreground(_text: &str) -> Result<(), String> {
-    Err("not built yet".to_owned())
+pub fn copy_text_foreground(text: &str) -> Result<(), String> {
+    set_clipboard(text)
+}
+
+/// `text` on SDL's clipboard, up to a nul as Windows' reader stops there; SDL's video must be running (a window is
+/// open).
+#[cfg(not(windows))]
+fn set_clipboard(text: &str) -> Result<(), String> {
+    let text = std::ffi::CString::new(text.split('\0').next().unwrap_or_default()).unwrap_or_default();
+    // SAFETY: SDL copies the nul-terminated string, alive through the call.
+    if unsafe { sdl3_sys::clipboard::SDL_SetClipboardText(text.as_ptr()) } {
+        Ok(())
+    } else {
+        // SAFETY: SDL_GetError returns a nul-terminated string SDL owns.
+        let why = unsafe { std::ffi::CStr::from_ptr(sdl3_sys::error::SDL_GetError()) }.to_string_lossy().into_owned();
+        // (SDL's Wayland side fails with no error where the compositor offers no clipboard, gamescope's for one)
+        Err(if why.is_empty() { "SDL could not set the clipboard".to_owned() } else { why })
+    }
 }
 
 /// `text` on the clipboard (the guide's Copy: navigator.clipboard.writeText).
@@ -335,11 +405,10 @@ pub fn copy_text(hwnd: HWND, text: &str) -> Result<(), String> {
     }
 }
 
-/// `text` on the clipboard: not yet on Linux.
-// Unverified: stub, replaced in Task 7
+/// `text` on the clipboard (the guide's Copy: navigator.clipboard.writeText); SDL's clipboard names no window.
 #[cfg(not(windows))]
-pub fn copy_text(_hwnd: HWND, _text: &str) -> Result<(), String> {
-    Err("not built yet".to_owned())
+pub fn copy_text(_hwnd: HWND, text: &str) -> Result<(), String> {
+    set_clipboard(text)
 }
 
 /// The clipboard's text (a menu text box's Ctrl+V, the port's own); None when it holds no text or will not open.
@@ -369,11 +438,25 @@ pub fn paste_text(hwnd: HWND) -> Option<String> {
     }
 }
 
-/// The clipboard's text: none yet on Linux.
-// Unverified: stub, replaced in Task 7
+/// The clipboard's text (a menu text box's Ctrl+V, the port's own); None when it holds no text. SDL's clipboard
+/// names no window.
 #[cfg(not(windows))]
 pub fn paste_text(_hwnd: HWND) -> Option<String> {
-    None
+    use sdl3_sys::clipboard::{SDL_GetClipboardText, SDL_HasClipboardText};
+    // SAFETY: SDL's copy of the text, nul-terminated (empty on a failure), read and then freed with SDL_free as SDL
+    // asks.
+    unsafe {
+        if !SDL_HasClipboardText() {
+            return None;
+        }
+        let p = SDL_GetClipboardText();
+        if p.is_null() {
+            return None;
+        }
+        let text = std::ffi::CStr::from_ptr(p).to_string_lossy().into_owned();
+        sdl3_sys::stdinc::SDL_free(p.cast());
+        Some(text)
+    }
 }
 
 /// A shortcut the settings make (bridge.ts ShortcutKind).
@@ -668,5 +751,21 @@ mod tests {
         assert!(lines.contains(&"Type=Application") && lines.contains(&"Name=MVS Classic"));
         assert!(names_exe(&text, exe));
         assert!(!names_exe(&text, Path::new("/elsewhere/MVSC Launcher.exe")));
+    }
+
+    /// SDL's clipboard keeps a non-ASCII text through a copy and a paste. It needs a display (run it in a headless
+    /// gamescope, once with `SDL_VIDEO_DRIVER=x11` and once with `wayland`).
+    #[cfg(not(windows))]
+    #[test]
+    #[ignore = "needs a display"]
+    fn clipboard_round_trip() {
+        // SAFETY: SDL's video started on this test's thread, which makes every SDL call below.
+        assert!(unsafe { sdl3_sys::init::SDL_Init(sdl3_sys::init::SDL_INIT_VIDEO) }, "SDL_Init");
+        // SAFETY: SDL_GetCurrentVideoDriver returns a nul-terminated name SDL owns while video runs.
+        let driver = unsafe { std::ffi::CStr::from_ptr(sdl3_sys::video::SDL_GetCurrentVideoDriver()) };
+        eprintln!("video driver: {}", driver.to_string_lossy());
+        let text = "MVS Classic tést ✓";
+        copy_text(HWND(std::ptr::null_mut()), text).unwrap();
+        assert_eq!(paste_text(HWND(std::ptr::null_mut())).as_deref(), Some(text));
     }
 }
