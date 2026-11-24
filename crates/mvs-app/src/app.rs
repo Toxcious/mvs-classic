@@ -130,6 +130,8 @@ pub struct Shell {
     pub online_feed: Option<String>,
     /// (the port's own, dev) `--wheel`: the matches of `crate::wheel::switched` run this Chaos Wheel rule.
     pub wheel: Option<mvs_sim::setup::Wheel>,
+    /// (the port's own, dev) `--dodgeball`: the matches of `crate::dodgeball::switched` run the Dodgeball rule.
+    pub dodgeball: bool,
     want_ui: bool,
     want_audio: bool,
     audio_backend: Backend,
@@ -183,6 +185,7 @@ impl Shell {
             net: None,
             online_feed: None,
             wheel: None,
+            dodgeball: false,
             want_ui: o.ui,
             want_audio: o.audio,
             audio_backend: if o.audio_offline { Backend::Offline } else { Backend::Wasapi },

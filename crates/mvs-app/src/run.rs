@@ -611,6 +611,12 @@ impl MatchLoop {
             eprintln!("mvs: --wheel: {} mutators, {} second windows", rule.pool.len(), rule.seconds);
             prepared = None;
         }
+        // (the port's own, dev) `--dodgeball`, the same way
+        if sh.dodgeball && crate::dodgeball::switched(&kind, &setup) && setup.dodgeball.is_none() {
+            setup.dodgeball = Some(mvs_sim::setup::Dodgeball::PLAY);
+            eprintln!("mvs: --dodgeball: the rule is on");
+            prepared = None;
+        }
         // (a match prepared off the frame began its load at its job: `PrepareJob::of`)
         if prepared.is_none() {
             sh.begin_load();
@@ -2230,6 +2236,19 @@ impl MatchLoop {
                 let show = t.show;
                 crate::shapes::draw(&mut o, &mut t.shapes, &mut self.world, &show);
             }
+        }
+        // (the port's own) Dodgeball's barrier, under the HUD.
+        if let Some(b) = mvs_sim::world::dodgeball::barrier(&self.world) {
+            let mut o = crate::shapes::Overlay {
+                camera: &camera,
+                size,
+                list: &mut s.list,
+                fonts: &mut *fonts,
+                layer: crate::dodgeball::BARRIER_LAYER,
+                at: &[],
+                alpha: f64::from(alpha),
+            };
+            crate::shapes::barrier(&mut o, b.map(f64::from));
         }
         // PreTravel's fade to black, over everything.
         if let Some(t) = self.fade_start {

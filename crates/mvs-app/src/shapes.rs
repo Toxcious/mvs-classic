@@ -37,6 +37,9 @@ const SOLID: Hex = [0xbf, 0x5a, 0xf2];
 const GROUND: Hex = [0x30, 0xd1, 0x58];
 const PLATFORM: Hex = [0x34, 0xc7, 0xb9];
 const BLAST: Hex = [0xff, 0x45, 0x3a];
+/// Dodgeball's barrier: a neutral white sheet.
+const BARRIER: Hex = [0xf2, 0xf2, 0xf7];
+const BARRIER_EDGE_ALPHA: f64 = 0.6;
 /// The outer blast box: BLAST at 0x80 alpha ('#ff453a80').
 const BLAST_OUTER_ALPHA: f64 = 128.0 / 255.0;
 const SPAWN: Hex = [0x0a, 0x84, 0xff];
@@ -748,6 +751,12 @@ fn stage_shapes(o: &mut Overlay<'_>, w: &World) {
         o.cross(f64::from(p.x), f64::from(p.y), SPAWN);
         o.label(f64::from(p.x), f64::from(p.y), &[format!("respawn {}", i + 1)], SPAWN, 8.0);
     }
+}
+
+/// (the port's own) Dodgeball's barrier (`mvs_sim::world::dodgeball::barrier`: left, right, bottom, top): a flat
+/// see-through sheet over the picture, until the stage draws one.
+pub fn barrier(o: &mut Overlay<'_>, b: [f64; 4]) {
+    o.rect(b[0], b[1], b[2], b[3], BARRIER, BARRIER_EDGE_ALPHA, false, true);
 }
 
 /// A fighter's state label over its head, moved up past an earlier one's it would overlap.
