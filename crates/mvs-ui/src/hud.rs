@@ -1063,7 +1063,7 @@ impl Hud {
         for e in events {
             self.event(w, e, now, real);
         }
-        self.observe_wheel(now);
+        self.observe_wheel();
         // BaseFighter AddPopTextToQueue / ApplyPopText: one text at a time per pawn, the next after the shown one's
         // lifetime.
         for q in &mut self.pop_queues {
@@ -1227,19 +1227,16 @@ impl Hud {
     }
 
     /// (the port's own) The Chaos Wheel after a step's events, off the status the app set for it: the roll's sound
-    /// when the next mutator is drawn, and at the change its sound and the mutator's name shown as the Silly
-    /// selector shows its pick (`mutator_pop`), in the menus' words.
-    fn observe_wheel(&mut self, now: f64) {
+    /// when the next mutator is drawn and the change's at the change. The card shows the change itself (its landing
+    /// and its punch): no text over the screen repeats the name.
+    fn observe_wheel(&mut self) {
         let Some(c) = &mut self.wheel_card else { return };
         let (rolled, changed) = c.observe(self.wheel.as_ref());
         if rolled {
             self.sounds.push(wheel::ROLL_SOUND.to_owned());
         }
-        if let Some(m) = changed {
+        if changed.is_some() {
             self.sounds.push(wheel::CHANGE_SOUND.to_owned());
-            let name = crate::menu::custom_text::MUTATORS.get(m).copied().unwrap_or_default();
-            let p = mutator_pop(name, SELECTOR_POP.0, SELECTOR_POP.1);
-            self.pops.add(p, now, &mut self.order);
         }
     }
 
@@ -2215,10 +2212,10 @@ mod tests {
     }
 
     /// A Lab HUD with the Chaos Wheel (pool `[4, 6]`, Giant and Low Gravity) and one without it: the card under the
-    /// clock, the scoreboard where it is without the card, the roll's and the change's sounds and the change's pop
-    /// text, and the world mutators' texts (needs the dev store).
+    /// clock, the scoreboard where it is without the card, the roll's and the change's sounds with no text over the
+    /// screen, and the world mutators' texts (needs the dev store).
     #[test]
-    fn a_wheel_card_stands_under_the_clock_and_pops_at_the_change() {
+    fn a_wheel_card_stands_under_the_clock_and_shows_the_change() {
         use mvs_sim::setup::{MatchPlayer, MatchSetup};
         let Ok(store) = mvs_store::Store::open(mvs_store::dev_store_dir()) else { return };
         let player = |c: &str| MatchPlayer { character: Some(c.to_owned()), ..MatchPlayer::default() };
@@ -2284,14 +2281,11 @@ mod tests {
         step(&mut hud, Some(status(None, Some(6), Some(180))), 4.0);
         step(&mut hud, Some(status(None, Some(6), Some(179))), 4.1);
         assert_eq!(hud.take_sounds(), vec![wheel::ROLL_SOUND.to_owned()]);
-        // the change: its sound and the name over the screen, as the Silly selector's pick
+        // the change: its sound, the card's name and no text over the screen
         let before = hud.pops.pops().len();
         step(&mut hud, Some(status(Some(6), None, Some(1200))), 5.0);
         assert_eq!(hud.take_sounds(), vec![wheel::CHANGE_SOUND.to_owned()]);
-        let pops = hud.pops.pops();
-        assert_eq!(pops.len(), before + 1);
-        let p = &pops[before].p;
-        assert_eq!((p.text.as_str(), p.place.clone(), p.scale, p.lifetime), ("Low Gravity", Place::Viewport, 2.0, 5.0));
+        assert_eq!(hud.pops.pops().len(), before);
         draw(&mut hud, 5.0);
         let card = hud.wheel_card.as_ref().unwrap();
         assert_eq!(card.t.widget(card.t.find("WheelName")).text, "LOW GRAVITY");
