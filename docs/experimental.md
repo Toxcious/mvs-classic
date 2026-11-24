@@ -78,9 +78,9 @@ out when off). The sim's part is `mvs-sim` `world/wheel.rs`. Works in every team
 beside the Mutators row.
 
 - The pool (`mvs-mutators`, each with its tier): Mild (sky blue): Giant, Miniature, Low Gravity, Air Show,
-  Shields Up, Moon Jump, Heavyweight, Vampire; Wild (violet): Big Head, Unlimited Jumps, Ability Frenzy, Heavy
+  Shields Up, Moon Jump, Heavyweight, Vampire, Magnet; Wild (violet): Big Head, Unlimited Jumps, Ability Frenzy, Heavy
   Hitters, Double Damage, Ice Charge, Freeze Touch, Random Items, Grow, Featherweight, Dodge Frenzy, Projectile
-  Party, Lava Floor, Ghosts; Chaos (hot orange): Sudden Death (Instant Kill), Shrinking Arena (Final Point
+  Party, Lava Floor, Ghosts, Turbo, Slow Motion, Ice Rink, Wind; Chaos (hot orange): Sudden Death (Instant Kill), Shrinking Arena (Final Point
   Shrink), Bomb Rain, and the events Damage Swap, Shuffle, Fresh Start, Underdog, Hot Potato, Body Swap. The reel and the card show a mutator in its tier's colour. Not on the wheel: Silly (a
   whole-match rule).
 - On the wheel, two of the build's mutators end with their window: Sudden Death's 200 damage is taken back off a
@@ -92,7 +92,11 @@ beside the Mutators row.
   Featherweight and Heavyweight (every fighter takes x1.5 or x0.6 knockback), Vampire (damage a fighter deals heals
   half of it off its own), Dodge Frenzy (a dodge spends no dodge meter, air dodges never run out), Lava Floor (1
   damage every half second on the ground), Ghosts (a fighter is not drawn but while it attacks, is in hitstun, or
-  for a flash of 8 ticks each second). Bomb Rain (dynamite and mines) and Projectile Party (thrown items) run the
+  for a flash of 8 ticks each second), Turbo and Slow Motion (the whole match runs 1.3 or 0.7 ticks a frame:
+  a frame runs the whole ticks it owes, so the picture moves in uneven steps; a press on a frame that runs no tick
+  is kept for the next), Ice Rink (the ground keeps a tenth of its friction and braking: walks slide and turns are
+  slow), Wind (every live player drifts 300 units a second, left for 10 seconds, then right, and so on) and Magnet
+  (every live player drifts 200 units a second toward the stage's middle). Bomb Rain (dynamite and mines) and Projectile Party (thrown items) run the
   item spawner as Random Items' window does, with that share of its list and one item every 2 seconds; they are
   the wheel's only, and never on at once with Random Items or each other.
 - The wheel's events (`mvs-sim` `world/wheel_events.rs`, the wheel's only) act at a window's start, some also at

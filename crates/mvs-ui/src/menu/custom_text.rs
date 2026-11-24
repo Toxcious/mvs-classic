@@ -50,7 +50,7 @@ pub fn mutator_count(n: usize) -> String {
     format!("{n} Mutators")
 }
 /// The mutators row's values, in the order of mvs_protocol::lobby_rules::LOBBY_MUTATORS: Off clears the list.
-pub const MUTATORS: [&str; 25] = [
+pub const MUTATORS: [&str; 30] = [
     "Off",
     "Silly (Random)",
     "Big Head",
@@ -76,6 +76,11 @@ pub const MUTATORS: [&str; 25] = [
     "Dodge Frenzy",
     "Lava Floor",
     "Ghosts",
+    "Turbo",
+    "Slow Motion",
+    "Ice Rink",
+    "Wind",
+    "Magnet",
 ];
 /// The name of a Chaos Wheel mutator (`mvs_mutators::ALL`'s keys); "" for a key not on the list.
 pub fn wheel_name(key: &str) -> &'static str {
@@ -105,6 +110,11 @@ pub fn wheel_name(key: &str) -> &'static str {
         "Chaos_ProjectileParty" => "Projectile Party",
         "Chaos_LavaFloor" => "Lava Floor",
         "Chaos_Ghosts" => "Ghosts",
+        "Chaos_Turbo" => "Turbo",
+        "Chaos_SlowMotion" => "Slow Motion",
+        "Chaos_IceRink" => "Ice Rink",
+        "Chaos_Wind" => "Wind",
+        "Chaos_Magnet" => "Magnet",
         "Chaos_DamageSwap" => "Damage Swap",
         "Chaos_Shuffle" => "Shuffle",
         "Chaos_FreshStart" => "Fresh Start",
