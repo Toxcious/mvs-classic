@@ -4,6 +4,8 @@
 # Epic's SDK and credentials (MVS_EOS_DLL, MVS_EOS_CREDENTIALS) and the notices, zips and guards. Out: target/dist.
 #   powershell -NoProfile -File tools/release-fetch.ps1 -Version 0.2.0 [-Wait] [-NoEos] [-Repo <owner>/<repo>]
 # -Wait waits for a run still going. Arguments after the named ones go to mvs-dist build (`--store <dir>`).
+# (no positional binding: an argument for mvs-dist such as `--store` must not land in -Repo)
+[CmdletBinding(PositionalBinding = $false)]
 param(
     [Parameter(Mandatory = $true)][string]$Version,
     [string]$Repo = 'Toxcious/mvs-classic',
