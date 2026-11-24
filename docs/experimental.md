@@ -108,8 +108,9 @@ builds the rule itself, as it builds a queue match's tables).
   player with the fewest ring-outs, then the most damage, is Giant with Double Damage for the window), Hot Potato
   (a random player holds a bomb, a "HOT POTATO!" pop text over it each second; damage the holder deals hands the
   bomb on; the holder at the window's end takes 15 damage and a launch straight up, credited to the one who passed
-  it), Body Swap (2v2 only: teammates trade fighters for the window, each player's input and bot driving the
-  other's; score and teams stay as they are).
+  it), Body Swap (each player drives an opponent's fighter for the window, its damage and place with it, while
+  the score and the stock lives stay with the player; the name tags and outlines follow the player; one who runs
+  out of lives while swapped keeps the swap to the match's end).
 - The next mutator is drawn 3 seconds before the change from a random stream of the rule's own (made from the
   match seed, so it moves no other draw of the match). The draw never gives the one that is on, one ticked in the
   Mutators row (it is on all match), or one the match cannot run: Random Items on a stage with no item area, or

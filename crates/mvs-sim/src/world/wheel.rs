@@ -101,11 +101,15 @@ pub struct WheelState {
     /// By player slot.
     pub saved: Vec<WheelSaved>,
     /// The events' (`wheel_events`): Underdog's player slot, Hot Potato's holder and the slot that passed it to it,
-    /// -1 for none; Body Swap on.
+    /// -1 for none.
     pub underdog: i32,
     pub potato: i32,
     pub potato_by: i32,
-    pub swap: bool,
+    /// Body Swap: by player slot, the slot whose fighter it drives (empty: off), and each slot's own team from before
+    /// the swap. `swap_kept`: a player ran out of lives while swapped, so the swap stays to the match's end.
+    pub swap: Vec<i32>,
+    pub swap_teams: Vec<i32>,
+    pub swap_kept: bool,
 }
 
 /// What the app and the HUD read of the rule each frame (`status`). The indexes are into the set-up's pool
@@ -172,7 +176,9 @@ pub fn new_state(setup: &MatchSetup, seed: i32) -> Option<WheelState> {
         underdog: -1,
         potato: -1,
         potato_by: -1,
-        swap: false,
+        swap: Vec::new(),
+        swap_teams: Vec::new(),
+        swap_kept: false,
     })
 }
 
@@ -379,6 +385,8 @@ pub fn wheel_latent(w: &mut World) {
     }
     if w.flow.match_over {
         state_mut(w).over = true;
+        // (the results read each player's own fighter: its team back)
+        wheel_events::swap_back(w);
         return;
     }
     let window = window_ticks(w);

@@ -130,35 +130,70 @@ fn hot_potato_passes_on_damage_and_blasts_its_holder_at_the_end() {
     assert!(top > y0 + 300.0, "launched up: {y0} -> {top}");
 }
 
+fn team(w: &World, f: FighterId) -> i32 {
+    w.fighter(f).team.team
+}
+
 #[test]
-fn body_swap_trades_teammates_inputs_for_the_window() {
-    let Some(mut h) = landed(TeamStyle::TwoVsTwo) else { return };
-    let fs: Vec<FighterId> = (0..4).map(|n| h.fighter(n)).collect();
-    let mate = |w: &World, s: usize| {
-        let t = w.fighter(fs[s]).team.team;
-        (0..4).find(|&o| o != s && w.fighter(fs[o]).team.team == t).expect("a teammate")
-    };
-    let m0 = mate(&h.w, 0);
+fn body_swap_trades_opponents_with_their_damage_but_keeps_teams_and_lives() {
+    let Some(mut h) = landed(TeamStyle::OneVsOne) else { return };
+    let fs: Vec<FighterId> = (0..2).map(|n| h.fighter(n)).collect();
+    let teams = [team(&h.w, fs[0]), team(&h.w, fs[1])];
+    h.w.fighter_mut(fs[0]).stats.damage = 50.0;
+    h.w.fighter_mut(fs[1]).stats.damage = 100.0;
+    h.w.flow.stocks = Some(vec![3, 1]);
+    assert!(wheel_events::runnable(&h.w, wheel_events::WheelEvent::BodySwap));
     change_to(&mut h.w, Some(at("Chaos_BodySwap")));
-    assert_eq!(controlled(&h.w, 0), fs[m0]);
-    assert_eq!(wheel_events::input_slot(&h.w, m0), 0);
-    // slot 0 holds right: its teammate moves, slot 0's own fighter does not
-    let (x0, xm) = (h.w.fighter(fs[0]).body.x, h.w.fighter(fs[m0]).body.x);
-    let mut i = vec![InputState::default(); 4];
+    assert_eq!(controlled(&h.w, 0), fs[1]);
+    assert_eq!(controlled(&h.w, 1), fs[0]);
+    assert_eq!(wheel_events::input_slot(&h.w, 1), 0);
+    // the damage stays with the fighter; its team and lives are its driver's
+    assert_eq!((damage(&h.w, fs[0]), damage(&h.w, fs[1])), (50.0, 100.0));
+    assert_eq!((team(&h.w, fs[1]), team(&h.w, fs[0])), (teams[0], teams[1]));
+    assert_eq!(h.w.flow.stocks, Some(vec![1, 3]));
+    assert!(!wheel_events::runnable(&h.w, wheel_events::WheelEvent::BodySwap), "not again while on");
+    // slot 0 holds right: the opponent's fighter moves, slot 0's own does not
+    let (x0, x1) = (h.w.fighter(fs[0]).body.x, h.w.fighter(fs[1]).body.x);
+    let mut i = vec![InputState::default(); 2];
     i[0].x = 1.0;
     for _ in 0..30 {
         h.step(&i);
     }
-    assert!(h.w.fighter(fs[m0]).body.x > xm + 50.0, "the teammate walks right");
+    assert!(h.w.fighter(fs[1]).body.x > x1 + 50.0, "the opponent's fighter walks right");
     assert!((h.w.fighter(fs[0]).body.x - x0).abs() < 1.0, "the own fighter stands");
     change_to(&mut h.w, None);
     assert_eq!(controlled(&h.w, 0), fs[0]);
+    assert_eq!((team(&h.w, fs[0]), team(&h.w, fs[1])), (teams[0], teams[1]));
+    assert_eq!(h.w.flow.stocks, Some(vec![3, 1]));
 }
 
 #[test]
-fn body_swap_is_drawn_only_in_a_2v2() {
-    let Some(h) = landed(TeamStyle::OneVsOne) else { return };
+fn body_swap_pairs_each_player_with_an_opponent_in_a_2v2() {
+    let Some(mut h) = landed(TeamStyle::TwoVsTwo) else { return };
+    let fs: Vec<FighterId> = (0..4).map(|n| h.fighter(n)).collect();
+    let teams: Vec<i32> = fs.iter().map(|&f| team(&h.w, f)).collect();
+    change_to(&mut h.w, Some(at("Chaos_BodySwap")));
+    for s in 0..4 {
+        let to = fs.iter().position(|&f| f == controlled(&h.w, s)).expect("a player's fighter");
+        assert_ne!(to, s, "slot {s} swapped");
+        assert_ne!(teams[to], teams[s], "slot {s} drives an opponent");
+        assert_eq!(controlled(&h.w, to), fs[s], "a pair");
+        assert_eq!(team(&h.w, fs[to]), teams[s], "the fighter on its driver's team");
+    }
+    change_to(&mut h.w, None);
+    assert_eq!(fs.iter().map(|&f| team(&h.w, f)).collect::<Vec<_>>(), teams);
+}
+
+#[test]
+fn a_body_swap_stays_once_a_swapped_player_is_out_of_lives() {
+    let Some(mut h) = landed(TeamStyle::OneVsOne) else { return };
+    let fs: Vec<FighterId> = (0..2).map(|n| h.fighter(n)).collect();
+    h.w.flow.stocks = Some(vec![3, 1]);
+    change_to(&mut h.w, Some(at("Chaos_BodySwap")));
+    // slot 1, driving slot 0's fighter, loses its last life there
+    h.w.flow.stocks.as_mut().expect("lives")[0] = 0;
+    change_to(&mut h.w, None);
+    assert_eq!(controlled(&h.w, 1), fs[0], "the swap stays");
+    assert!(h.w.wheel.as_ref().expect("the wheel").swap_kept);
     assert!(!wheel_events::runnable(&h.w, wheel_events::WheelEvent::BodySwap));
-    let Some(h) = landed(TeamStyle::TwoVsTwo) else { return };
-    assert!(wheel_events::runnable(&h.w, wheel_events::WheelEvent::BodySwap));
 }

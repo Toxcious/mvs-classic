@@ -492,6 +492,8 @@ pub struct Hud {
     pawns: Vec<Option<Fid>>,
     slot_of: Vec<usize>,
     huds: Vec<AttachedBottom>,
+    /// (the port's own) By fighter (player index), the player driving it: the Chaos Wheel's Body Swap.
+    drivers: Vec<usize>,
     tops: Vec<AttachedTop>,
     /// What a pawn attached later is made of: the prototypes (the bottom's with UI_FinnCharge in customContainer
     /// and its root, when the bundle has the class), the preferences at build, context 5 and the players' names.
@@ -825,6 +827,7 @@ impl Hud {
             players,
             team_colors,
             huds,
+            drivers: (0..n).collect(),
             tops,
             sent: vec![Sent::fresh(); n],
             facing_left: vec![false; n],
@@ -1050,6 +1053,7 @@ impl Hud {
                 self.detach(id);
             }
         }
+        self.follow_drivers(w);
         // (a pawn record's op lists go with the pawn)
         self.ui_ops.retain(|&id, _| w.by_id(id).is_some());
         self.ability_ops.retain(|&id, _| w.by_id(id).is_some());
@@ -1234,6 +1238,35 @@ impl Hud {
     /// when the next mutator is drawn, a click at each name the reel passes, the landing's when the spin lands and
     /// the change's at the change. The card shows the change itself (its landing and its punch): no text over the
     /// screen repeats the name.
+    /// (the port's own) The Chaos Wheel's Body Swap: each fighter's widgets (attached and fixed) show the player
+    /// driving it, and the fixed slots the lives it holds (its driver's).
+    fn follow_drivers(&mut self, w: &World) {
+        if self.setup.mode == MODE_WAVES || w.wheel.is_none() {
+            return;
+        }
+        let n = self.players.len().min(w.players.len()).min(self.drivers.len());
+        let ctx5 = self.setup.mode == 5;
+        let mut changed = false;
+        for k in 0..n {
+            let d = mvs_sim::world::wheel_events::input_slot(w, k);
+            if self.drivers[k] == d || d >= self.players.len() {
+                continue;
+            }
+            changed = true;
+            self.drivers[k] = d;
+            let b = &self.players[d];
+            if let Some(h) = self.huds.get_mut(k) {
+                h.rebind(b, &self.ui, ctx5, &self.names);
+            }
+            self.scoreboard.rebind(k, b, &self.names);
+        }
+        if changed && let Some(l) = &w.flow.stocks {
+            for (k, &x) in l.iter().enumerate().take(n) {
+                self.scoreboard.stocks(k, i64::from(x));
+            }
+        }
+    }
+
     fn observe_wheel(&mut self) {
         let Some(c) = &mut self.wheel_card else { return };
         let seen = c.observe(self.wheel.as_ref());
@@ -2227,6 +2260,37 @@ mod tests {
     /// A Lab HUD with the Chaos Wheel (pool `[0, 3]`, Giant and Low Gravity) and one without it: the card under the
     /// clock, the scoreboard where it is without the card, the roll's and the change's sounds with no text over the
     /// screen, and the world mutators' texts (needs the dev store).
+    #[test]
+    fn a_body_swap_shows_each_fighter_under_its_driver() {
+        use mvs_sim::setup::{MatchPlayer, MatchSetup, Wheel};
+        let Ok(store) = mvs_store::Store::open(mvs_store::dev_store_dir()) else { return };
+        let player = |c: &str| MatchPlayer { character: Some(c.to_owned()), ..MatchPlayer::default() };
+        let ms = MatchSetup {
+            players: vec![player("shaggy"), player("superman")],
+            wheel: Some(Wheel { seconds: 10_000.0, ..Wheel::of(vec!["Chaos_BodySwap".to_owned()]) }),
+            ..MatchSetup::default()
+        };
+        let Some(mut h) = mvs_sim_trace::harness::fresh(&ms, 1) else { return };
+        let bundle = Bundle::load(&store, "hud").expect("the hud bundle");
+        let text = GameText::load(&store).expect("the game text");
+        let mut s = setup(1, &[0, 1], &[false, false]);
+        s.players[0].username = "Alpha".to_owned();
+        s.players[1].username = "Bravo".to_owned();
+        let mut hud = Hud::new(&bundle, &text, &h.w, &s).expect("the HUD");
+        let name = |hud: &Hud, k: usize| {
+            let t = &hud.huds[k].t;
+            t.widget(t.find_in(t.find("UI_IGv3_Username"), "nameLabel")).text.clone()
+        };
+        hud.observe(&h.w, &[], 1.0, 1.0);
+        assert_eq!((name(&hud, 0), name(&hud, 1)), ("Alpha".to_owned(), "Bravo".to_owned()));
+        mvs_sim::world::wheel::change_to(&mut h.w, Some(0));
+        hud.observe(&h.w, &[], 2.0, 2.0);
+        assert_eq!((name(&hud, 0), name(&hud, 1)), ("Bravo".to_owned(), "Alpha".to_owned()), "the drivers' names");
+        mvs_sim::world::wheel::change_to(&mut h.w, None);
+        hud.observe(&h.w, &[], 3.0, 3.0);
+        assert_eq!((name(&hud, 0), name(&hud, 1)), ("Alpha".to_owned(), "Bravo".to_owned()), "back");
+    }
+
     #[test]
     fn a_wheel_card_stands_under_the_clock_and_shows_the_change() {
         use mvs_sim::setup::{MatchPlayer, MatchSetup};

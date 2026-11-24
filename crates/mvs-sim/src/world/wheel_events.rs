@@ -9,7 +9,6 @@ use crate::combat::buffs;
 use crate::events::{Event, PopKind};
 use crate::fighter::FighterId;
 use crate::rng::Rng;
-use crate::setup::TeamStyle;
 use crate::world::World;
 
 /// One of the wheel's events.
@@ -67,10 +66,13 @@ pub const POTATO_KNOCK_BACK: Real = 2600.0;
 pub const POTATO_SCALING: Real = 12.0;
 pub const POTATO_POP_EVERY: i32 = 60;
 
-/// Whether the event may be drawn in this match: two live players at least; Body Swap only in a 2v2.
+/// Whether the event may be drawn in this match: two live players at least; Body Swap with two players of
+/// different teams to pair and no swap on.
 pub fn runnable(w: &World, e: WheelEvent) -> bool {
     match e {
-        WheelEvent::BodySwap => w.setup.team_style == TeamStyle::TwoVsTwo && w.players.len() == 4,
+        WheelEvent::BodySwap => {
+            w.wheel.as_ref().is_some_and(|s| s.swap.is_empty() && !s.swap_kept) && swap_map(w).is_some()
+        }
         _ => w.players.len() >= 2,
     }
 }
@@ -126,7 +128,7 @@ pub fn begin(w: &mut World, e: WheelEvent) {
             st.potato_by = -1;
             pop_potato(w);
         }
-        WheelEvent::BodySwap => w.wheel.as_mut().expect("the wheel's state").swap = true,
+        WheelEvent::BodySwap => body_swap(w),
     }
 }
 
@@ -134,7 +136,6 @@ pub fn begin(w: &mut World, e: WheelEvent) {
 pub fn end(w: &mut World) {
     let (underdog, potato, by) = {
         let st = w.wheel.as_mut().expect("the wheel's state");
-        st.swap = false;
         let out = (st.underdog, st.potato, st.potato_by);
         st.underdog = -1;
         st.potato = -1;
@@ -151,6 +152,7 @@ pub fn end(w: &mut World) {
     if let Some(f) = player_at(w, potato).filter(|&f| w.fighter(f).life.dead <= 0.0) {
         blast(w, f, player_at(w, by));
     }
+    end_swap(w);
 }
 
 /// Damage Swap: the live player with the most damage and the one with the least (the first in slot order on a tie)
@@ -285,20 +287,118 @@ fn blast(w: &mut World, f: FighterId, by: Option<FighterId>) {
     );
 }
 
-/// The fighter player slot `slot`'s input drives: its own, or under Body Swap its teammate's. The app's bots think
-/// for this fighter.
-pub fn controlled(w: &World, slot: usize) -> FighterId {
-    let own = w.players[slot];
-    if !w.wheel.as_ref().is_some_and(|s| s.swap) {
-        return own;
+/// Body Swap's pairs, by player slot the slot whose fighter it would drive, or None with no pair to make. The
+/// players with lives left are taken a team at a time in turn (teams in slot order: a 2v2 gives A, B, A, B) and
+/// paired off two by two, a pair of teammates left as it is; one left over joins the last pair in a ring of three
+/// when it is on neither's team (Free For All of three).
+fn swap_map(w: &World) -> Option<Vec<i32>> {
+    let n = w.players.len();
+    let team = |s: usize| w.fighter(w.players[s]).team.team;
+    let out = |s: usize| w.flow.stocks.as_ref().is_some_and(|l| l.get(life(w, w.players[s])).is_none_or(|&x| x <= 0));
+    let mut groups: Vec<(i32, Vec<usize>)> = Vec::new();
+    for s in (0..n).filter(|&s| !out(s)) {
+        match groups.iter_mut().find(|g| g.0 == team(s)) {
+            Some(g) => g.1.push(s),
+            None => groups.push((team(s), vec![s])),
+        }
     }
-    let team = w.fighter(own).team.team;
-    w.players.iter().copied().find(|&p| p != own && w.fighter(p).team.team == team).unwrap_or(own)
+    let most = groups.iter().map(|g| g.1.len()).max().unwrap_or(0);
+    let order: Vec<usize> = (0..most).flat_map(|k| groups.iter().filter_map(move |g| g.1.get(k).copied())).collect();
+    let mut map: Vec<i32> = (0..n).map(|s| i32::try_from(s).expect("a slot")).collect();
+    let at = |s: usize| i32::try_from(s).expect("a slot");
+    for &[a, b] in order.as_chunks::<2>().0 {
+        if team(a) != team(b) {
+            map[a] = at(b);
+            map[b] = at(a);
+        }
+    }
+    if let [.., a, b, c] = order[..]
+        && order.len() % 2 == 1
+        && map[a] == at(b)
+        && team(c) != team(a)
+        && team(c) != team(b)
+    {
+        map[a] = at(b);
+        map[b] = at(c);
+        map[c] = at(a);
+    }
+    map.iter().enumerate().any(|(s, &t)| t != at(s)).then_some(map)
 }
 
-/// The player slot whose input drives the player in slot `slot` (Body Swap's inverse of `controlled`; the swap is
-/// its own inverse).
+/// A fighter's place in the stock rule's lives (`flow.stocks`).
+fn life(w: &World, f: FighterId) -> usize {
+    usize::try_from(w.fighter(f).id).expect("a player id")
+}
+
+/// Body Swap's start: each player drives the fighter `swap_map` pairs it with, and the fighter takes its driver's
+/// team and lives (the score and the lives stay with the player; the damage, the place and the character with the
+/// fighter).
+fn body_swap(w: &mut World) {
+    let Some(map) = swap_map(w) else { return };
+    let home: Vec<i32> = w.players.iter().map(|&f| w.fighter(f).team.team).collect();
+    let lives = w.flow.stocks.clone();
+    for (s, &t) in map.iter().enumerate() {
+        let (own, body) = (w.players[s], w.players[usize::try_from(t).expect("a slot")]);
+        w.fighter_mut(body).team.team = home[s];
+        if let Some(l) = &lives {
+            let x = l[life(w, own)];
+            let at = life(w, body);
+            w.flow.stocks.as_mut().expect("the stock rule")[at] = x;
+        }
+    }
+    let st = w.wheel.as_mut().expect("the wheel's state");
+    st.swap = map;
+    st.swap_teams = home;
+}
+
+/// Body Swap's end at its window's: control, teams and lives back, unless a player ran out of lives while swapped,
+/// when the swap stays to the match's end (its fighter is out, and the one it left goes on with its driver).
+fn end_swap(w: &mut World) {
+    let Some(st) = w.wheel.as_ref().filter(|s| !s.swap.is_empty() && !s.swap_kept) else { return };
+    let out = w.flow.stocks.as_ref().is_some_and(|l| {
+        st.swap
+            .iter()
+            .enumerate()
+            .any(|(s, &t)| usize::try_from(t).is_ok_and(|t| t != s && l[life(w, w.players[t])] <= 0))
+    });
+    if out {
+        w.wheel.as_mut().expect("the wheel's state").swap_kept = true;
+    } else {
+        swap_back(w);
+    }
+}
+
+/// Body Swap undone: each player's own fighter, team and lives back (at the window's end, and at the match's for
+/// the results).
+pub fn swap_back(w: &mut World) {
+    let Some(st) = w.wheel.as_mut() else { return };
+    if st.swap.is_empty() {
+        return;
+    }
+    let map = std::mem::take(&mut st.swap);
+    let home = std::mem::take(&mut st.swap_teams);
+    st.swap_kept = false;
+    let lives = w.flow.stocks.clone();
+    for (s, &t) in map.iter().enumerate() {
+        let (own, body) = (w.players[s], w.players[usize::try_from(t).expect("a slot")]);
+        w.fighter_mut(own).team.team = home[s];
+        if let Some(l) = &lives {
+            let x = l[life(w, body)];
+            let at = life(w, own);
+            w.flow.stocks.as_mut().expect("the stock rule")[at] = x;
+        }
+    }
+}
+
+/// The fighter player slot `slot`'s input drives: its own, or under Body Swap the one it is paired with. The app's
+/// bots think for this fighter.
+pub fn controlled(w: &World, slot: usize) -> FighterId {
+    let to = w.wheel.as_ref().and_then(|s| s.swap.get(slot)).and_then(|&t| usize::try_from(t).ok());
+    w.players[to.unwrap_or(slot)]
+}
+
+/// The player slot whose input drives the fighter of slot `slot` (Body Swap's inverse of `controlled`).
 pub fn input_slot(w: &World, slot: usize) -> usize {
-    let f = controlled(w, slot);
-    w.players.iter().position(|&p| p == f).unwrap_or(slot)
+    let Some(st) = w.wheel.as_ref().filter(|s| !s.swap.is_empty()) else { return slot };
+    st.swap.iter().position(|&t| usize::try_from(t) == Ok(slot)).unwrap_or(slot)
 }

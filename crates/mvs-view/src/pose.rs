@@ -1515,12 +1515,19 @@ impl ViewPoser {
     // ---- placing and presenting the views -------------------------------------------------------------------
 
     fn place_views(&mut self, w: &World) {
-        let ViewPoser { clips, recs, .. } = self;
+        let ViewPoser { clips, recs, colours, .. } = self;
         for r in recs.iter_mut() {
             let clips = clips.get_mut(&r.key).expect("the view's clips");
             if r.minion.is_some() {
                 place_minion(r, clips, w);
             } else {
+                // (the port's own Chaos Wheel's Body Swap: the outline is the driving player's)
+                let slot =
+                    usize::try_from(mvs_sim::world::pawns::slot_of(w, r.fid)).ok().filter(|&s| s < w.players.len());
+                if let Some(c) = slot.and_then(|s| colours.get(mvs_sim::world::wheel_events::input_slot(w, s))) {
+                    r.colour.stencil = c.stencil;
+                    r.colour.outline = c.outline;
+                }
                 place_view(r, clips, w);
             }
         }

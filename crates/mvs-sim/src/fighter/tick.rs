@@ -106,7 +106,7 @@ pub fn platforms_of_frame(w: &mut World, f: FighterId) {
 /// `players`; every other pawn takes its controller's input.
 pub fn begin_frame(w: &mut World, f: FighterId) {
     let inp = match w.players.iter().position(|&x| x == f) {
-        // (the port's own Chaos Wheel's Body Swap drives a player with its teammate's input)
+        // (the port's own Chaos Wheel's Body Swap drives a player with its opponent's input)
         Some(i) => w.scratch.inputs.get(crate::world::wheel_events::input_slot(w, i)).copied().unwrap_or(NO_INPUT),
         None => {
             // (the inputs taken out for the call: a demo controller's input writes the World)

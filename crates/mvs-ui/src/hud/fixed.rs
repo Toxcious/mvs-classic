@@ -915,7 +915,24 @@ impl Scoreboard {
         s.score.score(&mut self.t, left, false, false);
         if left <= 0 {
             self.t.widget_mut(s.w).opacity = OUT_OPACITY;
+        } else {
+            // (the port's own Chaos Wheel's Body Swap hands a slot lives again)
+            self.t.widget_mut(s.w).opacity = 1.0;
         }
+    }
+
+    /// (the port's own) The Chaos Wheel's Body Swap: a fighter's slot shows the player driving it (the colours,
+    /// username and number; the fighter's portrait, percentage and cooldowns stay).
+    pub fn rebind(&mut self, player: usize, b: &BrokerPlayer, names: &PlayerNumbers) {
+        let Some(s) = self.slots.get_mut(player).and_then(Option::as_mut) else { return };
+        let t = &mut self.t;
+        s.portrait.on_color(t, b);
+        let u = t.find_in(s.portrait.w, "usernameLabel");
+        t.widget_mut(u).text = b.username.clone();
+        s.score.on_color(t, b);
+        s.percentage.on_color(t, b.team, b.focus, b.is_me);
+        s.meter.on_color(t, b.team);
+        s.meter.set_player(t, &names.local_play_username(b.index));
     }
 
     /// The broker's percentage, grey percentage and evade calls for a player's slot.

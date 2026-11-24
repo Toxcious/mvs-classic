@@ -1234,7 +1234,7 @@ impl MatchLoop {
         // (a bot's slot is the controller's; it thinks before the step)
         for (slot, bot) in self.bots.iter_mut().enumerate() {
             if let Some(bot) = bot {
-                // (the fighter the slot's input drives: under the Chaos Wheel's Body Swap its teammate's)
+                // (the fighter the slot's input drives: under the Chaos Wheel's Body Swap its opponent's)
                 let me = mvs_sim::world::wheel_events::controlled(&self.world, slot);
                 self.inputs[slot] = bot.think(&mut self.world, me);
             }
