@@ -152,10 +152,16 @@ jobs:
           eos="$RUNNER_TEMP/eos"
           mkdir -p "$eos"
           printf '%s' "$EOS_CREDENTIALS" > "$eos/eos.json"
-          gpg --batch --yes --quiet --pinentry-mode loopback --passphrase "$EOS_SDK_PASSPHRASE"             --output "$eos/EOSSDK-Win64-Shipping.dll" --decrypt release/EOSSDK-Win64-Shipping.dll.gpg
+          # (the passphrase is hex: a line break it was stored with is dropped)
+          pass=$(printf '%s' "$EOS_SDK_PASSPHRASE" | tr -d '\r\n')
+          gpg --batch --yes --quiet --pinentry-mode loopback --passphrase "$pass" \
+            --output "$eos/EOSSDK-Win64-Shipping.dll" --decrypt release/EOSSDK-Win64-Shipping.dll.gpg
           export MVS_EOS_DLL="$eos/EOSSDK-Win64-Shipping.dll" MVS_EOS_CREDENTIALS="$eos/eos.json"
           cargo build --release --locked -p mvs-dist --bin mvs-dist
-          target/release/mvs-dist.exe build --version "$version"             --feed "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/latest"             --programs programs --relay-linux relay-linux/mvs-relay --self-check self-check.json --eos --out dist
+          target/release/mvs-dist.exe build --version "$version" \
+            --feed "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/latest" \
+            --programs programs --relay-linux relay-linux/mvs-relay \
+            --self-check self-check.json --eos --out dist
           rm -rf "$eos"
           mkdir zips
           cp dist/*.zip zips/
