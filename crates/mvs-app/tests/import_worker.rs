@@ -176,6 +176,24 @@ fn detect_finds_the_depots_of_every_library() {
     let _ = std::fs::remove_dir_all(&d);
 }
 
+/// The PID of a process that has exited.
+#[cfg(windows)]
+fn exited_process() -> u32 {
+    let mut gone = std::process::Command::new("cmd").args(["/c", "exit"]).spawn().unwrap();
+    let pid = gone.id();
+    gone.wait().unwrap();
+    pid
+}
+
+/// The PID of a process that has exited.
+#[cfg(not(windows))]
+fn exited_process() -> u32 {
+    let mut gone = std::process::Command::new("true").spawn().unwrap();
+    let pid = gone.id();
+    gone.wait().unwrap();
+    pid
+}
+
 #[test]
 fn state_before_setup_and_a_killed_runs_leftovers() {
     let root = scratch("state");
@@ -195,9 +213,7 @@ fn state_before_setup_and_a_killed_runs_leftovers() {
         kinds: Default::default(),
     };
     mvs_store::write_manifest(&store, &m).unwrap();
-    let mut gone = std::process::Command::new("cmd").args(["/c", "exit"]).spawn().unwrap();
-    let pid = gone.id();
-    gone.wait().unwrap();
+    let pid = exited_process();
     std::fs::write(
         store.join("import.lock"),
         format!("{{\"pid\":{pid},\"started\":\"2026-11-09T00:00:00.000Z\",\"nonce\":\"0123456789abcdef\"}}"),

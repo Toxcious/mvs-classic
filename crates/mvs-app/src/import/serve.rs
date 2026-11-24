@@ -473,6 +473,7 @@ mod tests {
         assert_eq!(grouped, built);
     }
 
+    #[cfg(windows)]
     #[test]
     fn paths_inside() {
         assert!(inside(Path::new(r"D:\Beta\data"), Path::new(r"d:\beta")));
