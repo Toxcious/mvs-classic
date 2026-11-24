@@ -8,7 +8,7 @@
 //!   to the launcher beside it, which plays at once when the game is ready)
 //! mvs [--data <dir>] [--store <dir>] [--size 1920x1080] [--full-screen] [--adapter <text>] [--seed <n>] [--no-ui]
 //!   [--replay <trace match> [--trace-out <file>]] [--real-pace] [--shot <tick>[,..]] [--out <dir>] [--throttle <rate>]
-//!   [--bench <secs>] [--stage <key>] [--stage-layout <file>] [--shot-results <secs>] [--press-results <secs>] [--no-audio] [--input-script <jsonl>] [--menu-tape <out>]
+//!   [--bench <secs>] [--stage <key>] [--stage-layout <file>] [--bots <level>] [--shot-results <secs>] [--press-results <secs>] [--no-audio] [--input-script <jsonl>] [--menu-tape <out>]
 //!   [--shot-frames <frame>[,..]] [--live-loads] [--audio-tape <file>]
 //!   [--waves endless|100 [--character <key>] [--waves-bot <level>]]   (a Waves run on `--stage`, cast from `--seed`)
 //!   [--wheel [--wheel-seconds <n>]]   (with `--play` too: the Chaos Wheel rule in the command line's match, a Lab and Local Play;
@@ -60,7 +60,7 @@ const USAGE: &str = "mvs --version\nmvs --self-test [--data <dir>] [--store <dir
 mvs --play --store <dir> [--data <dir>] [--size 1920x1080] [--full-screen] [--adapter <text>] [--no-audio] [--mute | --sound] [--background | --foreground] [--online-defaults <file>]\n\
 mvs [--data <dir>] [--store <dir>] [--size 1920x1080] [--full-screen] [--adapter <text>] [--seed <n>] [--no-ui] \
 [--replay <trace match> [--trace-out <file>]] [--real-pace] [--shot <tick>[,..]] [--out <dir>] [--throttle <rate>] \
-[--bench <secs>] [--stage <key>] [--stage-layout <file>] [--shot-results <secs>] [--no-audio] [--input-script <jsonl>] [--menu-tape <out>] [--shot-frames <frame>[,..]] \
+[--bench <secs>] [--stage <key>] [--stage-layout <file>] [--bots <level>] [--shot-results <secs>] [--no-audio] [--input-script <jsonl>] [--menu-tape <out>] [--shot-frames <frame>[,..]] \
 [--live-loads] [--audio-tape <file>] [--waves endless|100 [--character <key>] [--waves-bot <level>]] [--wheel [--wheel-seconds <n>]]\n[--relay <addr> (--host | --join <lobby>) [--key <file>] [--feed <trace match>]]\n\
 [--online-config <file> [--direct-loopback] [--online-open host|join:<code>|queue:<mode>[,..]] [--online-lag <ms>] \
 [--online-desync-at <tick>] [--feed <trace match>]]
@@ -128,6 +128,9 @@ struct Args {
     character: Option<String>,
     /// (dev) `--waves-bot <level>`: a match bot of that level in the Waves run's player seat (a run that lasts).
     waves_bot: Option<u8>,
+    /// (dev) `--bots <level>`: every player of the command line's match a match bot of that level (a match that
+    /// plays itself, on a custom stage's layout say).
+    bots: Option<u8>,
     /// (the port's own, dev) `--wheel`: the Chaos Wheel rule in the matches of `mvs_app::wheel::switched`.
     wheel: bool,
     /// (dev) `--wheel-seconds <n>`: `--wheel` with a window of that many seconds (a picture of a change needs no
@@ -244,6 +247,7 @@ fn parse(mut it: impl Iterator<Item = String>) -> Result<Args, String> {
         waves: None,
         character: None,
         waves_bot: None,
+        bots: None,
         wheel: false,
         wheel_seconds: None,
     };
@@ -314,6 +318,10 @@ fn parse(mut it: impl Iterator<Item = String>) -> Result<Args, String> {
                     return Err(format!("--character: {v} is not a roster key"));
                 }
                 a.character = Some(v);
+            }
+            "--bots" => {
+                let v = it.next().ok_or("--bots: no value")?;
+                a.bots = Some(v.parse().map_err(|_| format!("--bots: {v} is not a bot level"))?);
             }
             "--waves-bot" => {
                 let v = it.next().ok_or("--waves-bot: no value")?;
@@ -413,6 +421,9 @@ fn parse(mut it: impl Iterator<Item = String>) -> Result<Args, String> {
     }
     if a.wheel && (a.waves.is_some() || a.replay.is_some()) {
         return Err("--wheel: not with --waves or --replay".to_owned());
+    }
+    if a.bots.is_some() && (a.play || a.replay.is_some() || a.waves.is_some() || relay.is_some()) {
+        return Err("--bots: not with --play, --replay, --waves or --relay".to_owned());
     }
     if (a.character.is_some() || a.waves_bot.is_some()) && a.waves.is_none() {
         return Err("--character, --waves-bot: no --waves".to_owned());
@@ -623,6 +634,12 @@ fn run(a: Args) -> mvs_app::Result<()> {
                 }
                 None => {
                     let mut start = MatchStart::default_match(a.seed);
+                    if let Some(level) = a.bots {
+                        for p in &mut start.setup.players {
+                            p.bot = true;
+                            p.difficulty = Some(mvs_sim::Real::from(level));
+                        }
+                    }
                     start.stage.clone_from(&a.stage);
                     start.layout.clone_from(&a.layout);
                     start
