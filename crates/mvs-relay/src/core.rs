@@ -11,7 +11,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use indexmap::{IndexMap, IndexSet};
 use mvs_host::{HostEvent, HostOptions, HostWhy, RefereeStart, SessionKind};
-use mvs_protocol::match_wire::RESUME_MS;
+use mvs_protocol::match_wire::{MAX_SLOTS, RESUME_MS};
 use mvs_protocol::names::{BAD_WORDS, Profanity, clean_name};
 use mvs_protocol::p2p_frame::{FRAME_OPEN, MessageJoiner, Taken as Frame, host_bye, split_message};
 use mvs_protocol::referee::{Referee, RefereeOut, SlotNews};
@@ -38,6 +38,9 @@ pub const HOST_KNOCK_WAIT_MS: f64 = 12000.0;
 /// this long: its knocks meanwhile are dropped, so a bye and a knock cannot give it the core's budgets of a new link.
 /// `mvs-net`'s RELINK_MS (`service/hosting.rs` relink_wait). Unverified: the port's own number.
 pub const HOST_RELINK_MS: f64 = 5000.0;
+/// A player sent a match's packet in this long (ms) counts toward its sender's match bytes limit (`fan_out`): a game sends
+/// each player of its match a packet a tick or more, and the beat (CLOCK_MS) while nothing is new.
+pub const MATCH_FAN_MS: f64 = 1000.0;
 const MAX_TEXT: usize = 128;
 const MAX_SEARCH: usize = 100;
 const MAX_INVITE_BYTES: usize = 500;
@@ -181,6 +184,9 @@ struct Player {
     invited: TokenBucket,
     invited_by: IndexMap<String, f64>,
     bytes: [TokenBucket; 2],
+    /// The players it sent a match's packet (channel 1) lately, and when it last did: its channel 1 rate is the limit's
+    /// for each (`fan_out`).
+    match_to: IndexMap<String, f64>,
     /// What the online list shows of it (`None`: none sent yet, so not listed and invited as any id), when it last
     /// changed, and its online list asks taken.
     presence: Option<Presence>,
@@ -822,7 +828,7 @@ impl Core {
             r#match: m.match_id,
             ids,
             slots,
-            referee: Some(Referee::new(&humans, m.tick0)),
+            referee: Some(Referee::new(usize::try_from(m.slots).unwrap_or(0), &humans, m.tick0)),
             live: true,
             busy: false,
             out: Vec::new(),
@@ -1541,6 +1547,7 @@ impl Core {
                 TokenBucket::per_second(l.message_bytes_per_second, now, 2.0),
                 TokenBucket::per_second(l.match_bytes_per_second, now, 2.0),
             ],
+            match_to: IndexMap::new(),
             presence: None,
             presence_at: 0.0,
             whos: TokenBucket::per_minute(l.who_per_minute, now),
@@ -1735,7 +1742,8 @@ impl Core {
         if bytes.len() as f64 > self.limits.packet_bytes {
             return self.drop_player(me, "packet too long");
         }
-        if !self.players[me].bytes[usize::from(channel)].take(bytes.len() as f64, now) {
+        let times = if channel == 1 { self.fan_out(me, to, now) } else { 1.0 };
+        if !self.players[me].bytes[usize::from(channel)].take_times(bytes.len() as f64, now, times) {
             // a match's packets may be lost on the way, so one over the rate is; a message may not, so its sender goes
             if channel == 1 {
                 return;
@@ -1787,6 +1795,24 @@ impl Core {
             self.unrecord(to);
         }
         self.after_packet(to, me, taken);
+    }
+
+    /// How many times the match bytes limit player `me` may send at `now`, a match's packet to `to` among them: once
+    /// for each other player it sent one in the last [`MATCH_FAN_MS`] (`to` one when a player that shares a lobby with
+    /// it or sent it first), [`MAX_SLOTS`] - 1 at the most. A guest sends its referee alone; a game that referees its
+    /// own match over the relay sends each of its humans the ruled streams of all.
+    fn fan_out(&mut self, me: &str, to: &str, now: f64) -> f64 {
+        let known = to != me
+            && self.players.get(to).is_some_and(|q| !q.gone)
+            && (self.players[me].heard.contains(to) || self.shares_lobby(me, to));
+        let p = self.players.get_mut(me).expect("a player");
+        p.match_to.retain(|_, at| now - *at < MATCH_FAN_MS);
+        if known {
+            p.match_to.insert(to.to_string(), now);
+        }
+        #[allow(clippy::cast_precision_loss, reason = "a count of eight at the most")]
+        let n = p.match_to.len().clamp(1, MAX_SLOTS - 1) as f64;
+        n
     }
 
     /// A channel-0 data frame read from the session's connection, whatever its handle, one dropped for a dead handle

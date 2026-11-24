@@ -691,7 +691,7 @@ mod tests {
         let data = Arc::new(GameData::load(&store, &refs, mvs_sim_trace::TRACE_STAGE).expect("the gamedata kind"));
         let world = || World::new(data.clone(), 5, &setup).expect("binds");
         let way = Way { latency: 3.0 * TICK_MS, ..Way::PERFECT };
-        let mut net = SimNet::new(&[0, 1], Ways { up: way, down: way }, 0.0, 3);
+        let mut net = SimNet::new(2, &[0, 1], Ways { up: way, down: way }, 0.0, 3);
         let mut peers: Vec<(World, Session, Recorded)> = (0..2)
             .map(|me| {
                 let w = world();

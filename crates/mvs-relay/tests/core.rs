@@ -8,10 +8,11 @@ use std::rc::Rc;
 
 use common::*;
 use mvs_protocol::match_wire::{
-    ALL_TICKS, INPUT_BYTES, INPUT_HEADER, MAX_SLOTS, MSG_INPUT, MSG_RULED, NO_END, RESUME_MS, SILENT_MS, packet_fits,
-    runs,
+    ALL_TICKS, INPUT_BYTES, INPUT_DELAY, InputHeader, MAX_SLOTS, MSG_INPUT, MSG_RULED, NO_END, RESUME_MS, SILENT_MS,
+    TICK_MS, input_header, input_packet, packet_fits, runs,
 };
 use mvs_protocol::messages::HostWhy;
+use mvs_protocol::referee::{Referee, RefereeOut, SlotNews};
 use mvs_protocol::relay_wire::{RELAY_INFO_BYTES, SHORT_ALPHABET, SHORT_LEN, ServerMessage, WHO_LIMIT};
 use mvs_relay::core::{CorePlayer, RING_FRAMES, Taken};
 use mvs_relay::limits::{DEFAULT_LIMITS, RelayLimits};
@@ -680,18 +681,18 @@ fn limits_bytes_per_second_per_channel_packet_size() {
 // ---- the referees of the matches a host core opens
 
 /// An input packet of a slot for `count` ticks from `tick`, each input's last byte `mark`; acknowledging every ruled
-/// tick (so that the referee never finds its peer behind).
-fn input(slot: u8, tick: u32, mark: u8, count: u8) -> Vec<u8> {
-    let mut p = vec![0u8; INPUT_HEADER + usize::from(count) * INPUT_BYTES];
+/// tick (so that the referee never finds its peer behind); `n` the match's slots.
+fn input(n: usize, slot: u8, tick: u32, mark: u8, count: u8) -> Vec<u8> {
+    let mut p = vec![0u8; input_header(n) + usize::from(count) * INPUT_BYTES];
     p[0] = MSG_INPUT;
     p[1] = slot;
     p[2..6].copy_from_slice(&tick.to_le_bytes());
     p[6] = count;
-    for k in 0..MAX_SLOTS {
+    for k in 0..n {
         p[11 + 4 * k..15 + 4 * k].copy_from_slice(&ALL_TICKS.to_le_bytes());
     }
     for k in 0..usize::from(count) {
-        p[INPUT_HEADER + (k + 1) * INPUT_BYTES - 1] = mark;
+        p[input_header(n) + (k + 1) * INPUT_BYTES - 1] = mark;
     }
     p
 }
@@ -707,7 +708,7 @@ struct FromReferee {
 fn from_referee(f: &Fake, rid: &str) -> FromReferee {
     let mut out = FromReferee::default();
     for (channel, from, b) in f.packets() {
-        if from != rid || channel != 1 || b[0] != MSG_RULED || !packet_fits(&b) {
+        if from != rid || channel != 1 || b[0] != MSG_RULED || !packet_fits(&b, MAX_SLOTS) {
             continue;
         }
         for run in runs(&b) {
@@ -844,7 +845,7 @@ fn a_player_lost_at_a_send_is_parked_and_sent_nothing_more() {
     let (RefWorld { mut w, a, b, c, .. }, m) = ref_match();
     let rid = m.rid.clone();
     a.f.0.borrow_mut().lose_from = Some(rid.clone());
-    w.packet(&a, 1, &rid, &input(m.slots[0], 2, 1, 1));
+    w.packet(&a, 1, &rid, &input(m.n, m.slots[0], 2, 1, 1));
     assert_eq!((w.core.matches(), w.core.parked()), (1, 1));
     assert_eq!((a.f.npackets(), b.f.npackets(), c.f.npackets()), (1, 1, 1));
     w.later(1000.0);
@@ -855,7 +856,7 @@ fn a_player_lost_at_a_send_is_parked_and_sent_nothing_more() {
     let (RefWorld { w: mut w2, a: a2, b: b2, c: c2, .. }, m) = ref_match();
     let wid = m.rid.clone();
     b2.f.0.borrow_mut().lose_from = Some(wid.clone());
-    w2.packet(&a2, 1, &wid, &input(m.slots[0], 2, 1, 1));
+    w2.packet(&a2, 1, &wid, &input(m.n, m.slots[0], 2, 1, 1));
     assert_eq!(w2.core.matches(), 1);
     assert_eq!(b2.f.npackets(), 1);
     assert_eq!(c2.f.npackets(), 1);
@@ -871,8 +872,8 @@ fn a_refereed_match_inputs_in_the_ruled_streams_out_to_every_human() {
     let m = open(&mut w, &host, &[&a, &b]);
     let (rid, sa, sb) = (m.rid.clone(), m.slots[0], m.slots[1]);
     assert_eq!(rid, format!("{host}.m{}", m.r#match), "the referee is the relay's, of the host core's match");
-    w.packet(&a, 1, &rid, &input(sa, 2, 11, 3));
-    w.packet(&b, 1, &rid, &input(sb, 2, 22, 2));
+    w.packet(&a, 1, &rid, &input(m.n, sa, 2, 11, 3));
+    w.packet(&b, 1, &rid, &input(m.n, sb, 2, 22, 2));
     for x in [&a, &b] {
         let r = from_referee(&x.f, &rid);
         assert_eq!([2, 3, 4].map(|t| r.inputs.get(&(sa, t)).copied()), [Some(11); 3], "a's slot ruled at once");
@@ -882,8 +883,8 @@ fn a_refereed_match_inputs_in_the_ruled_streams_out_to_every_human() {
     assert_eq!(c.f.npackets(), 0, "nothing to a player not in the match");
     // (the slot is the sender's: a packet that names another slot, or one from a player not in the match, is dropped)
     let before = (a.f.npackets(), b.f.npackets());
-    w.packet(&b, 1, &rid, &input(sa, 5, 33, 1));
-    w.packet(&c, 1, &rid, &input(sa, 5, 44, 1));
+    w.packet(&b, 1, &rid, &input(m.n, sa, 5, 33, 1));
+    w.packet(&c, 1, &rid, &input(m.n, sa, 5, 44, 1));
     assert_eq!((a.f.npackets(), b.f.npackets()), before, "dropped");
     assert!(c.f.take().is_empty(), "a channel 1 one unanswered");
     w.packet(&c, 0, &rid, &[1]);
@@ -902,9 +903,9 @@ fn a_cores_leaver_and_end_reach_its_referee() {
     let rid = m.rid.clone();
     let (sa, sb, sc) = (m.slots[0], m.slots[1], m.slots[2]);
     w.later(100.0);
-    w.packet(&a, 1, &rid, &input(sa, 2, 1, 6));
-    w.packet(&b, 1, &rid, &input(sb, 2, 2, 6));
-    w.packet(&c, 1, &rid, &input(sc, 2, 3, 6));
+    w.packet(&a, 1, &rid, &input(m.n, sa, 2, 1, 6));
+    w.packet(&b, 1, &rid, &input(m.n, sb, 2, 2, 6));
+    w.packet(&c, 1, &rid, &input(m.n, sc, 2, 3, 6));
     for x in [&a, &b, &c] {
         x.f.clear_packets();
     }
@@ -915,7 +916,7 @@ fn a_cores_leaver_and_end_reach_its_referee() {
     w.later(1.0);
     assert_eq!(from_referee(&b.f, &rid).ends.get(&sc), Some(&8), "the leaver's end told at the next pump");
     c.f.clear_packets();
-    w.packet(&c, 1, &rid, &input(sc, 8, 9, 1));
+    w.packet(&c, 1, &rid, &input(m.n, sc, 8, 9, 1));
     w.later(1000.0);
     assert_eq!(c.f.npackets(), 0, "the leaver is sent nothing");
     assert!(!from_referee(&a.f, &rid).inputs.contains_key(&(sc, 8)), "its packets are dropped");
@@ -936,7 +937,7 @@ fn a_cores_leaver_and_end_reach_its_referee() {
     }
     assert_eq!(c.f.take(), vec![closed_msg(&lobby, "destroyed")], "the leaver was told before");
     a.f.clear_packets();
-    w.packet(&a, 1, &rid, &input(sa, 8, 1, 1));
+    w.packet(&a, 1, &rid, &input(m.n, sa, 8, 1, 1));
     assert_eq!(a.f.npackets(), 0, "a packet to a closed referee goes nowhere");
 }
 
@@ -1087,8 +1088,8 @@ fn a_leader_parked_mid_match_is_away_to_the_core_and_back_at_its_resume() {
     w.cut(&a);
     for _ in 0..(SILENT_MS / 500.0) as usize + 4 {
         w.later(500.0);
-        w.packet(&b, 1, &rid, &input(sb, 2, 2, 1));
-        w.packet(&c, 1, &rid, &input(sc, 2, 3, 1));
+        w.packet(&b, 1, &rid, &input(m.n, sb, 2, 2, 1));
+        w.packet(&c, 1, &rid, &input(m.n, sc, 2, 3, 1));
     }
     assert!(a.f.take().is_empty(), "a parked seat is told nothing");
     assert_eq!(w.core.matches(), 1, "its match goes on");
@@ -1105,9 +1106,9 @@ fn a_leader_parked_mid_match_is_away_to_the_core_and_back_at_its_resume() {
     let (a2, _, resumed) = w.rejoin("ra", Some(a.f.got0()));
     assert!(resumed.is_some(), "the seat resumed");
     for _ in 0..5 {
-        w.packet(&a2, 1, &rid, &input(sa, 2, 1, 1));
-        w.packet(&b, 1, &rid, &input(sb, 2, 2, 1));
-        w.packet(&c, 1, &rid, &input(sc, 2, 3, 1));
+        w.packet(&a2, 1, &rid, &input(m.n, sa, 2, 1, 1));
+        w.packet(&b, 1, &rid, &input(m.n, sb, 2, 2, 1));
+        w.packet(&c, 1, &rid, &input(m.n, sc, 2, 3, 1));
         w.later(100.0);
     }
     for f in [&b.f, &c.f] {
@@ -1124,14 +1125,14 @@ fn a_slot_back_before_resume_ms_stays_in_the_match() {
     let (sa, sb, sc) = (m.slots[0], m.slots[1], m.slots[2]);
     for _ in 0..((RESUME_MS - 2000.0) / 500.0) as usize {
         w.later(500.0);
-        w.packet(&a, 1, &rid, &input(sa, 2, 1, 1));
-        w.packet(&c, 1, &rid, &input(sc, 2, 3, 1));
+        w.packet(&a, 1, &rid, &input(m.n, sa, 2, 1, 1));
+        w.packet(&c, 1, &rid, &input(m.n, sc, 2, 3, 1));
     }
     assert!(a.f.host_has("match.away"), "b away to the core, the others told");
     for _ in 0..(RESUME_MS / 500.0) as usize {
         w.later(500.0);
         for (x, s) in [(&a, sa), (&b, sb), (&c, sc)] {
-            w.packet(x, 1, &rid, &input(s, 2, 1, 1));
+            w.packet(x, 1, &rid, &input(m.n, s, 2, 1, 1));
         }
     }
     assert!(b.f.take().is_empty(), "b is not out of the match");
@@ -1148,8 +1149,8 @@ fn a_gone_slot_is_out_of_the_cores_match_and_the_referees() {
     let (sa, sc) = (m.slots[0], m.slots[2]);
     for _ in 0..(RESUME_MS / 500.0) as usize + 4 {
         w.later(500.0);
-        w.packet(&a, 1, &rid, &input(sa, 2, 1, 1));
-        w.packet(&c, 1, &rid, &input(sc, 2, 3, 1));
+        w.packet(&a, 1, &rid, &input(m.n, sa, 2, 1, 1));
+        w.packet(&c, 1, &rid, &input(m.n, sc, 2, 3, 1));
     }
     assert!(w.logs.borrow().iter().any(|l| *l == format!("{host} match silent Nrb")), "{:?}", w.logs.borrow());
     assert!(b.f.host_has("match.left"), "the core told it out");
@@ -1353,4 +1354,121 @@ fn short_code_misses_are_charged_per_48() {
     assert_eq!(w.refusal(&d, json!({ "op": "join", "lobby": short })), "EOS_LimitExceeded", "the /48 is spent");
     let e = w.join_at("re", "2001:db8:bb:1::5");
     assert_eq!(w.req(&e, json!({ "op": "join", "lobby": short }))["owner"], "ra", "another /48");
+}
+
+// ---- a game that referees its own match over the relay
+
+/// What a game's referee sends, by slot.
+#[derive(Default)]
+struct Sends(Vec<(usize, Vec<u8>)>);
+
+impl RefereeOut for Sends {
+    fn send(&mut self, slot: usize, bytes: &[u8]) {
+        self.0.push((slot, bytes.to_vec()));
+    }
+    fn news(&mut self, _: usize, _: SlotNews) {}
+}
+
+/// A human of a game-refereed match: what it has of each stream (the first tick it lacks, the ticks ahead of it), and
+/// its input packets sent.
+struct Human {
+    slot: usize,
+    have: Vec<u32>,
+    early: Vec<BTreeMap<u32, ()>>,
+    seq: u8,
+}
+
+impl Human {
+    fn take(&mut self, b: &[u8]) {
+        for run in runs(b) {
+            let s = usize::from(run.head.slot);
+            for k in 0..u32::from(run.head.count) {
+                if run.head.first + k >= self.have[s] {
+                    self.early[s].insert(run.head.first + k, ());
+                }
+            }
+            while self.early[s].remove(&self.have[s]).is_some() {
+                self.have[s] += 1;
+            }
+        }
+    }
+
+    /// Its input packet for `tick`, acknowledging what it has.
+    fn packet(&mut self, n: usize, tick: i64) -> Vec<u8> {
+        let mut acks = [0u32; MAX_SLOTS];
+        acks[..n].copy_from_slice(&self.have);
+        let first = u32::try_from(tick.max(0)).unwrap() + INPUT_DELAY;
+        #[allow(clippy::cast_possible_truncation, reason = "a test's slots")]
+        let h = InputHeader { slot: self.slot as u8, first, count: 1, stamp: 0, acks, seq: self.seq };
+        self.seq = self.seq.wrapping_add(1);
+        input_packet(&h, n, &[[self.slot as u8 + 1; INPUT_BYTES]])
+    }
+}
+
+/// A game refereeing an eight-slot match over the relay (as the dev link's host does) sends each of the seven others
+/// the ruled streams of all: with one packet in twenty lost each way, its sends past the losses it repairs stay within
+/// the relay's match bytes limit (the limit's rate for each player it sends), and none is dropped there.
+#[test]
+fn a_game_refereeing_eight_slots_over_the_relay_is_not_cut_by_its_bytes_limit() {
+    let n = MAX_SLOTS;
+    let mut w = World::new(DEFAULT_LIMITS);
+    let ps: Vec<P> = (0..n).map(|i| w.join_at(&format!("r{i}"), &format!("10.0.0.{}", i + 1))).collect();
+    w.together(&ps.iter().collect::<Vec<_>>());
+    let mut r = Referee::new(n, &(0..n).collect::<Vec<_>>(), w.t);
+    let mut hs: Vec<Human> = (0..n)
+        .map(|slot| Human { slot, have: vec![INPUT_DELAY; n], early: vec![BTreeMap::new(); n], seq: 0 })
+        .collect();
+    // (a lost packet: one in twenty, by a fixed sequence)
+    let mut seed: u64 = 7;
+    let mut lost = move || {
+        seed = seed.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1_442_695_040_888_963_407);
+        (seed >> 33).is_multiple_of(20)
+    };
+    let (mut sent, mut got, mut bytes) = (0usize, 0usize, 0usize);
+    let ticks: i32 = 900;
+    for _ in 0..ticks {
+        w.wait(TICK_MS);
+        let now = w.t;
+        let mut out = Sends::default();
+        // (the referee game's own input, and what came to it through the relay, each pumped as it comes)
+        let own = hs[0].packet(n, r.tick(now));
+        r.receive(0, &own, now, &mut out);
+        r.pump(now, &mut out);
+        for (_, from, b) in ps[0].f.packets() {
+            let slot: usize = from[1..].parse().unwrap();
+            if !lost() {
+                r.receive(slot, &b, now, &mut out);
+                r.pump(now, &mut out);
+            }
+        }
+        ps[0].f.clear_packets();
+        r.pump(now, &mut out);
+        for (slot, b) in out.0 {
+            if slot == 0 {
+                hs[0].take(&b);
+                continue;
+            }
+            sent += 1;
+            bytes += b.len();
+            w.packet(&ps[0], 1, &ps[slot].id, &b);
+        }
+        for slot in 1..n {
+            for (_, _, b) in ps[slot].f.packets() {
+                if !lost() {
+                    hs[slot].take(&b);
+                }
+            }
+            got += ps[slot].f.npackets();
+            ps[slot].f.clear_packets();
+            let p = hs[slot].packet(n, r.tick(now));
+            w.packet(&ps[slot], 1, "r0", &p);
+        }
+    }
+    #[allow(clippy::cast_precision_loss, reason = "a test's counts")]
+    let rate = bytes as f64 / (f64::from(ticks) * TICK_MS / 1000.0);
+    eprintln!("the referee game sent {sent} packets, {rate:.0} bytes a second; {got} came through");
+    assert_eq!(got, sent, "packets the relay dropped over the match bytes limit");
+    assert!(rate > DEFAULT_LIMITS.match_bytes_per_second, "more than one player's limit, {rate:.0} B/s");
+    let line = r.tick(w.t) - 30;
+    assert!(hs.iter().all(|h| h.have.iter().all(|&t| i64::from(t) >= line)), "every stream ruled through");
 }

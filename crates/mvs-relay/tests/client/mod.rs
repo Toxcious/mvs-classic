@@ -18,7 +18,7 @@ use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 use mvs_protocol::match_wire::{
-    ALL_TICKS, INPUT_BYTES, INPUT_HEADER, MAX_SLOTS, MSG_INPUT, MSG_RULED, packet_fits, runs,
+    ALL_TICKS, INPUT_BYTES, MAX_SLOTS, MSG_INPUT, MSG_RULED, input_header, packet_fits, runs,
 };
 use mvs_protocol::relay_seal::{DatagramOpener, KxSecret, SealedReader, TxSeal, datagram_token, derive, shared, split};
 use mvs_protocol::relay_wire::{
@@ -557,19 +557,19 @@ pub fn lobby_of(v: &Value) -> String {
     v["value"]["lobby"].as_str().unwrap().to_string()
 }
 
-/// An input packet of a slot for `count` ticks from `tick`, each input's last byte `mark`; acknowledging every ruled
-/// tick.
-pub fn input(slot: u8, tick: u32, mark: u8, count: u8) -> Vec<u8> {
-    let mut p = vec![0u8; INPUT_HEADER + usize::from(count) * INPUT_BYTES];
+/// An input packet of a slot of a match of `n` slots for `count` ticks from `tick`, each input's last byte `mark`;
+/// acknowledging every ruled tick.
+pub fn input(n: usize, slot: u8, tick: u32, mark: u8, count: u8) -> Vec<u8> {
+    let mut p = vec![0u8; input_header(n) + usize::from(count) * INPUT_BYTES];
     p[0] = MSG_INPUT;
     p[1] = slot;
     p[2..6].copy_from_slice(&tick.to_le_bytes());
     p[6] = count;
-    for k in 0..MAX_SLOTS {
+    for k in 0..n {
         p[11 + 4 * k..15 + 4 * k].copy_from_slice(&ALL_TICKS.to_le_bytes());
     }
     for k in 0..usize::from(count) {
-        p[INPUT_HEADER + (k + 1) * INPUT_BYTES - 1] = mark;
+        p[input_header(n) + (k + 1) * INPUT_BYTES - 1] = mark;
     }
     p
 }
@@ -589,7 +589,7 @@ pub fn wire_ruled(c: &Client, rid: &str, handle: &mut u32) -> BTreeMap<(u8, u32)
             continue;
         }
         let p = read_packet(&g.body).unwrap();
-        if p.handle != *handle || p.bytes.first() != Some(&MSG_RULED) || !packet_fits(p.bytes) {
+        if p.handle != *handle || p.bytes.first() != Some(&MSG_RULED) || !packet_fits(p.bytes, MAX_SLOTS) {
             continue;
         }
         for run in runs(p.bytes) {

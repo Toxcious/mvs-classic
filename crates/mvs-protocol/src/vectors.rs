@@ -95,11 +95,13 @@ pub const TAPE_PROTOCOL: u32 = 23;
 /// A tape of [`dir`] as [`read`] gives it, with every `"proto"` (a hello's) and `"server"` (a refusal's) of
 /// [`TAPE_PROTOCOL`] moved to this build's [`crate::version::PROTOCOL`] (in the tape's JSON, in the message texts it
 /// holds and in the bytes it holds as `{ "$bytes": hex }`), so a new PROTOCOL needs no new tape. Another number (an
-/// old game's hello) stays. The queue name is moved as [`read`] moves it. The message texts' lobby mutator is moved to this build's set too ([`move_mutators`]), and
-/// their lobby style to this build's ([`move_styles`]).
+/// old game's hello) stays. The queue name is moved as [`read`] moves it. The message texts' lobby mutator is moved to
+/// this build's set too ([`move_mutators`]), their lobby style to this build's ([`move_styles`]), and the input
+/// packets' headers to their match's slots ([`move_acks`]).
 pub fn read_tape(name: &str) -> Option<serde_json::Value> {
-    let v = read(name)?;
-    Some(move_protocol(v))
+    let mut v = move_protocol(read(name)?);
+    move_acks(&mut v);
+    Some(v)
 }
 
 fn move_protocol(v: serde_json::Value) -> serde_json::Value {
@@ -246,4 +248,106 @@ fn move_key_bytes(s: &[u8], key: &str, now: u32) -> Vec<u8> {
         }
     }
     out
+}
+
+/// The ack fields of the tape's input packets: the oracle's header held one per slot of four, whatever the match's
+/// size, and no sequence byte (`match_wire::input_header` holds one ack per slot of the match, then the byte).
+const TAPE_SLOTS: usize = 4;
+/// The oracle's input packet header: 11 bytes and four acks.
+const TAPE_INPUT_HEADER: usize = 11 + 4 * TAPE_SLOTS;
+/// The ack the netproc tape's own peers send for every slot (its `HAS_ALL`: past any ruled line).
+const TAPE_HAS_ALL: u32 = 0xffff_fff0;
+
+/// Every `events` list of a tape with its input packets' headers cut to the slots of the match they belong to (the
+/// player count of the last match start (`match.start`, `pm.begin`) before them in the list, in a message text or a
+/// frame's bytes; four before any start) and a sequence byte of 0 after the acks (the oracle's had none: the referee
+/// reads no hole in a run of equal ones).
+fn move_acks(v: &mut serde_json::Value) {
+    use serde_json::Value;
+    match v {
+        Value::Object(o) => {
+            for (k, x) in o.iter_mut() {
+                match x {
+                    Value::Array(events) if k == "events" => {
+                        let mut slots = None;
+                        for e in events.iter_mut() {
+                            cut_acks(e, &mut slots);
+                        }
+                    }
+                    x => move_acks(x),
+                }
+            }
+        }
+        Value::Array(a) => a.iter_mut().for_each(move_acks),
+        _ => {}
+    }
+}
+
+/// One event of [`move_acks`]: a start sets `slots`, an input packet is cut to it.
+fn cut_acks(v: &mut serde_json::Value, slots: &mut Option<usize>) {
+    use serde_json::Value;
+    match v {
+        Value::Object(o) => o.values_mut().for_each(|x| cut_acks(x, slots)),
+        Value::Array(a) => a.iter_mut().for_each(|x| cut_acks(x, slots)),
+        Value::String(s) => {
+            let bytes = hex_bytes(s);
+            if let Some(n) =
+                start_players(s).or_else(|| bytes.as_deref().and_then(|b| start_players(&String::from_utf8_lossy(b))))
+            {
+                *slots = Some(n);
+            } else if let (n, Some(b)) = (slots.unwrap_or(TAPE_SLOTS), bytes)
+                && n <= TAPE_SLOTS
+                && tape_input(&b)
+            {
+                let (to, from) = (11 + 4 * n, TAPE_INPUT_HEADER);
+                let dropped = &b[to..from];
+                // (an ack of a slot past the match says nothing: none, or the tape's peers' has-all)
+                assert!(
+                    dropped.chunks(4).all(|a| matches!(u32::from_le_bytes([a[0], a[1], a[2], a[3]]), 0 | TAPE_HAS_ALL)),
+                    "a tape input packet acks slots past its match's {n}: {s}"
+                );
+                let cut: Vec<u8> = b[..to].iter().chain(&[0]).chain(&b[from..]).copied().collect();
+                *s = cut.iter().map(|x| format!("{x:02x}")).collect();
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Bytes as hex, None for a text that is not.
+fn hex_bytes(h: &str) -> Option<Vec<u8>> {
+    if h.is_empty() || !h.len().is_multiple_of(2) {
+        return None;
+    }
+    (0..h.len() / 2).map(|i| h.get(2 * i..2 * i + 2).and_then(|x| u8::from_str_radix(x, 16).ok())).collect()
+}
+
+/// An input packet of the oracle's: its header of [`TAPE_SLOTS`] and its count's inputs, no more.
+fn tape_input(b: &[u8]) -> bool {
+    use crate::match_wire::{INPUT_BYTES, MAX_RUN, MSG_INPUT};
+    let head = TAPE_INPUT_HEADER;
+    b.len() >= head
+        && b[0] == MSG_INPUT
+        && usize::from(b[6]) <= MAX_RUN
+        && b.len() == head + usize::from(b[6]) * INPUT_BYTES
+}
+
+/// The player count of a match start's text (from its first `{`, a frame's own bytes before it): its first `players`
+/// list. None for a text that is no start.
+fn start_players(s: &str) -> Option<usize> {
+    use serde_json::Value;
+    fn players(v: &Value) -> Option<usize> {
+        match v {
+            Value::Object(o) => {
+                o.get("players").and_then(Value::as_array).map(Vec::len).or_else(|| o.values().find_map(players))
+            }
+            Value::Array(a) => a.iter().find_map(players),
+            _ => None,
+        }
+    }
+    if !s.contains("\"t\":\"match.start\"") && !s.contains("\"t\":\"pm.begin\"") {
+        return None;
+    }
+    let v: Value = serde_json::Deserializer::from_str(&s[s.find('{')?..]).into_iter().next()?.ok()?;
+    players(&v)
 }

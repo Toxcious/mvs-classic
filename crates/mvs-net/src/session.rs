@@ -64,6 +64,35 @@ pub const CHECKSUM_EVERY: u32 = 30;
 /// prediction takes no candidate (one past KEEP_BEHIND of the snapshot could never be taken) and goes back as before.
 pub const KEEP_BEHIND: u32 = 8;
 
+// A rollback goes back to the snapshot, up to keep_behind ticks behind the confirmed line, and runs again to the shown
+// line, up to max_prediction ticks past it: the deepest rollback is the two together (24 ticks at four slots or fewer).
+
+/// [`MAX_PREDICTION`] in a match of more than [`SMALL_MATCH_SLOTS`] slots, with [`BIG_MATCH_KEEP_BEHIND`]: the deepest
+/// rollback is 16 ticks. A tick of eight fighters costs about 2.4x one of four (measured with Hard bots: a 16-tick
+/// rollback at eight took 15 to 16 ms on a good PC, a whole 60 Hz frame, against 6 ms at four), so a big match
+/// resimulates no more than those 16 ticks and a very late peer waits a moment sooner instead. Each game's own
+/// setting: the referee and the packets are the same, the match plays out the same. Deviation: the port's own (the
+/// beta has no match of more than four).
+pub const BIG_MATCH_PREDICTION: u32 = 10;
+/// [`KEEP_BEHIND`] in a match of more than [`SMALL_MATCH_SLOTS`] slots, with [`BIG_MATCH_PREDICTION`]: the deepest
+/// rollback 10 + 6 = 16 ticks, the depth measured at eight fighters (see [`BIG_MATCH_PREDICTION`]). Deviation: the
+/// port's own.
+pub const BIG_MATCH_KEEP_BEHIND: u32 = 6;
+/// The most slots of a match that keeps [`MAX_PREDICTION`] and [`KEEP_BEHIND`].
+pub const SMALL_MATCH_SLOTS: usize = 4;
+
+/// The prediction limit of a match of `slots` slots: [`MAX_PREDICTION`], [`BIG_MATCH_PREDICTION`] past
+/// [`SMALL_MATCH_SLOTS`].
+pub fn max_prediction_for(slots: usize) -> u32 {
+    if slots > SMALL_MATCH_SLOTS { BIG_MATCH_PREDICTION } else { MAX_PREDICTION }
+}
+
+/// The snapshot's lag of a match of `slots` slots: [`KEEP_BEHIND`], [`BIG_MATCH_KEEP_BEHIND`] past
+/// [`SMALL_MATCH_SLOTS`].
+pub fn keep_behind_for(slots: usize) -> u32 {
+    if slots > SMALL_MATCH_SLOTS { BIG_MATCH_KEEP_BEHIND } else { KEEP_BEHIND }
+}
+
 /// The referee's clock is read from the ruled packets of the last CLOCK_WINDOW_MS: the one whose round trip was the
 /// shortest gives the referee's clock at its arrival but for its way here (half that round trip).
 const CLOCK_WINDOW_MS: f64 = 5000.0;
@@ -85,21 +114,24 @@ pub enum SlotKind {
 /// `SessionConfig` but the World, the bots and the callbacks (passed to the calls).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SessionConfig {
-    /// One per fighter; exactly one [`SlotKind::Local`], at most `MAX_SLOTS`.
+    /// One per fighter, the match's slots (the length of its input headers); exactly one [`SlotKind::Local`], at most
+    /// [`MAX_SLOTS`].
     pub slots: Vec<SlotKind>,
     /// The smallest input delay: at least [`INPUT_DELAY`] (where the referee starts the streams).
     pub delay: u32,
     pub max_prediction: u32,
     /// Confirmed ticks the snapshot may fall behind the confirmed line while a predicted line that held is kept
-    /// ([`KEEP_BEHIND`]); 0: every frame that confirms a tick goes back to the snapshot (the checks' comparison: the
+    /// ([`keep_behind_for`]); 0: every frame that confirms a tick goes back to the snapshot (the checks' comparison: the
     /// shown line, its events and the packets are the same either way). A match with a bot keeps none.
     pub keep_behind: u32,
 }
 
 impl SessionConfig {
-    /// The defaults for these slots.
+    /// The defaults for these slots (the prediction limit and the snapshot's lag by their count: [`max_prediction_for`],
+    /// [`keep_behind_for`]).
     pub fn new(slots: Vec<SlotKind>) -> SessionConfig {
-        SessionConfig { slots, delay: INPUT_DELAY, max_prediction: MAX_PREDICTION, keep_behind: KEEP_BEHIND }
+        let (max_prediction, keep_behind) = (max_prediction_for(slots.len()), keep_behind_for(slots.len()));
+        SessionConfig { slots, delay: INPUT_DELAY, max_prediction, keep_behind }
     }
 }
 
@@ -249,6 +281,8 @@ pub struct Session {
     mine: BTreeMap<u32, InputState>,
     /// The last tick an input was sent for.
     sent: u32,
+    /// The input packets sent (wrapping): each one's sequence byte.
+    seq: u8,
     /// The first tick of the run of own inputs that ends at `sent` (a gap starts a new one).
     stream_from: u32,
     /// The frame of the last miss, raise or lowering: LOWER_AFTER frames on, the delay goes down.
@@ -364,6 +398,7 @@ impl Session {
             early: vec![indexmap::IndexMap::new(); n],
             mine: BTreeMap::new(),
             sent: INPUT_DELAY - 1,
+            seq: 0,
             stream_from: INPUT_DELAY,
             quiet: 0,
             miss_from: 0,
@@ -476,7 +511,7 @@ impl Session {
     /// `receive`: a packet from the referee: rulings of any human slot (this peer's own come back too) with the
     /// referee's clock, or another peer's checksum passed on. A packet that is not one (`packet_fits`) is dropped.
     pub fn receive(&mut self, bytes: &[u8], now: f64) {
-        if !packet_fits(bytes) {
+        if !packet_fits(bytes, self.cfg.slots.len()) {
             return;
         }
         if bytes[0] == MSG_RULED {
@@ -923,10 +958,12 @@ impl Session {
             count: u8::try_from(count).expect("a run of MAX_RUN at the most"),
             stamp: to_uint32(round(now)),
             acks,
+            seq: self.seq,
         };
+        self.seq = self.seq.wrapping_add(1);
         let inputs: Vec<WireInput> =
             (from..from + count).map(|t| encode(self.mine.get(&t).expect("an input of mine not ruled yet"))).collect();
-        self.outbox.push(input_packet(&h, &inputs));
+        self.outbox.push(input_packet(&h, self.cfg.slots.len(), &inputs));
     }
 
     /// The state hash after `ticks` confirmed ticks: kept, sent, and compared with what the others sent for it.

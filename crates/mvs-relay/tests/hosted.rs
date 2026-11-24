@@ -4,7 +4,7 @@
 mod common;
 
 use common::*;
-use mvs_protocol::match_wire::{INPUT_BYTES, INPUT_HEADER, MSG_INPUT, RESUME_MS};
+use mvs_protocol::match_wire::{INPUT_BYTES, MSG_INPUT, RESUME_MS, input_header};
 use mvs_protocol::p2p_frame::split_message;
 use mvs_protocol::relay_wire::QUEUE_HOST;
 use mvs_relay::core::{BAD, Core, HOST_KNOCK_WAIT_MS, HOST_RELINK_MS};
@@ -15,9 +15,9 @@ fn hosting() -> World {
     World::hosting(DEFAULT_LIMITS, true)
 }
 
-/// A one-tick input of a slot (the referee hears its human).
-fn input(slot: u8) -> Vec<u8> {
-    let mut p = vec![0u8; INPUT_HEADER + INPUT_BYTES];
+/// A one-tick input of a slot of a match of `n` slots (the referee hears its human).
+fn input(n: usize, slot: u8) -> Vec<u8> {
+    let mut p = vec![0u8; input_header(n) + INPUT_BYTES];
     p[0] = MSG_INPUT;
     p[1] = slot;
     p[2..6].copy_from_slice(&2u32.to_le_bytes());
@@ -344,7 +344,7 @@ fn a_frozen_leader_is_gone_from_its_match_then_its_seat_and_lobby_end() {
     let (a, b) = (w.join("a"), w.join("b"));
     let (lobby, host) = w.hosted_lobby(&[&a, &b]);
     let m = w.run_to_the_go(&host, &[&a, &b]);
-    w.packet(&a, 1, &m.rid, &input(m.slots[0]));
+    w.packet(&a, 1, &m.rid, &input(m.n, m.slots[0]));
     w.cut(&a);
     let mut away_at = None;
     let mut ended_at = None;
@@ -354,7 +354,7 @@ fn a_frozen_leader_is_gone_from_its_match_then_its_seat_and_lobby_end() {
         w.later(250.0);
         w.core.expire(w.t);
         if w.core.matches() > 0 {
-            w.packet(&b, 1, &m.rid, &input(m.slots[1]));
+            w.packet(&b, 1, &m.rid, &input(m.n, m.slots[1]));
         }
         if away_at.is_none() && b.f.host_has("match.away") {
             away_at = Some(w.t - start);

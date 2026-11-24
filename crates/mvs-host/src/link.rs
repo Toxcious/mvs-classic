@@ -31,10 +31,12 @@ pub struct RefereeHuman {
     pub id: String,
 }
 
-/// A match's go: `match_id` the core's number for it, its humans by slot, its tick 0 on the core's clock.
+/// A match's go: `match_id` the core's number for it, its slot count (its bots' among them), its humans by slot, its
+/// tick 0 on the core's clock.
 #[derive(Clone, Debug, PartialEq)]
 pub struct RefereeStart {
     pub match_id: u32,
+    pub slots: u32,
     pub humans: Vec<RefereeHuman>,
     pub tick0: f64,
 }

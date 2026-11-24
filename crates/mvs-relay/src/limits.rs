@@ -44,7 +44,9 @@ pub struct RelayLimits {
     pub who_per_address: f64,
     /// Control (JSON) frames per player per second.
     pub control_per_second: f64,
-    /// Bytes per second one player may send on channel 0 (messages) and channel 1 (a match's packets).
+    /// Bytes per second one player may send on channel 0 (messages) and channel 1 (a match's packets; this to each
+    /// player it sent one in the last [`crate::core::MATCH_FAN_MS`], [`mvs_protocol::match_wire::MAX_SLOTS`] - 1 of them
+    /// at the most: a game that referees its own match sends every other human of it).
     pub message_bytes_per_second: f64,
     pub match_bytes_per_second: f64,
     /// The longest TCP frame (type byte and body), at most MAX_FRAME.
@@ -174,7 +176,16 @@ impl TokenBucket {
 
     /// `take`: takes `n` when there are that many: false (and nothing taken) when the rate is passed.
     pub fn take(&mut self, n: f64, now: f64) -> bool {
-        if !self.can(n, now) {
+        self.take_times(n, now, 1.0)
+    }
+
+    /// [`TokenBucket::take`] of a bucket `times` this one's rate and burst (1 at the least), as long as it is asked so:
+    /// what it holds fills at the rate asked now.
+    pub fn take_times(&mut self, n: f64, now: f64, times: f64) -> bool {
+        let times = times.max(1.0);
+        self.tokens = (self.burst * times).min(self.tokens + ((now - self.at) / 1000.0) * self.per_second * times);
+        self.at = now;
+        if self.tokens < n {
             return false;
         }
         self.tokens -= n;

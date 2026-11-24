@@ -494,13 +494,16 @@ pub enum ServerMessage {
     /// referee (0 the referee's own, None a bot or not known), `far` by slot past `path::FAR_ONE_WAY_MS` on every way.
     #[serde(rename = "pm.path")]
     PmPath { referee: i32, ms: Vec<Option<u32>>, far: Vec<bool> },
-    /// To the game whose app referees the match: it goes `in` ms from now, with these humans.
+    /// To the game whose app referees the match: it goes `in` ms from now, with these humans, in a match of `slots`
+    /// slots (its bots' among them: the length of its input headers, `crate::match_wire::input_header`, which the
+    /// humans alone do not tell).
     #[serde(rename = "ref.go")]
     RefGo {
         r#match: u32,
         #[serde(rename = "in")]
         in_ms: u32,
         humans: Vec<PathPeer>,
+        slots: u32,
     },
     /// To the referee's game: a human left the match.
     #[serde(rename = "ref.left")]
@@ -628,9 +631,9 @@ mod tests {
         );
         let path = ServerMessage::PmPath { referee: -1, ms: vec![Some(0), None], far: vec![false, true] };
         assert_eq!(path.text(), r#"{"t":"pm.path","referee":-1,"ms":[0,null],"far":[false,true]}"#);
-        let go = ServerMessage::RefGo { r#match: 2, in_ms: 250, humans: peers };
+        let go = ServerMessage::RefGo { r#match: 2, in_ms: 250, humans: peers, slots: 6 };
         let t = go.text();
-        assert_eq!(t, r#"{"t":"ref.go","match":2,"in":250,"humans":[{"slot":0,"epic":"e0"}]}"#);
+        assert_eq!(t, r#"{"t":"ref.go","match":2,"in":250,"humans":[{"slot":0,"epic":"e0"}],"slots":6}"#);
         assert_eq!(serde_json::from_str::<ServerMessage>(&t).unwrap(), go);
         assert_eq!(ServerMessage::RefLeft { r#match: 2, slot: 1 }.text(), r#"{"t":"ref.left","match":2,"slot":1}"#);
         assert_eq!(ServerMessage::RefEnd { r#match: 2 }.text(), r#"{"t":"ref.end","match":2}"#);

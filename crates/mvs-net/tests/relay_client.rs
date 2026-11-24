@@ -11,7 +11,7 @@ use mvs_net::link::MatchLink;
 use mvs_net::link::relay::P2P_MAX_PACKET;
 use mvs_net::link::relay::key::RelayKey;
 use mvs_net::link::relay::{CHANNEL_MESSAGES, ClientOptions, NetFaults, RelayClient, RelayEvent, RelayMatchLink};
-use mvs_protocol::match_wire::{InputHeader, MAX_SLOTS, MSG_RULED, input_packet};
+use mvs_protocol::match_wire::{InputHeader, MSG_RULED, input_packet};
 use mvs_protocol::p2p_frame::{FRAME_OPEN, MessageJoiner, Taken, signal, split_message};
 use mvs_protocol::relay_wire::QUEUE_HOST;
 use mvs_protocol::version::PROTOCOL;
@@ -50,7 +50,8 @@ fn wait_for<T>(c: &RelayClient, mut f: impl FnMut(RelayEvent) -> Option<T>) -> T
 fn header(slot: u8, now: f64) -> Vec<u8> {
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss, reason = "a test's ms")]
     let stamp = now as u32;
-    input_packet(&InputHeader { slot, first: 0, count: 0, stamp, acks: [0; MAX_SLOTS] }, &[])
+    // (its matches are two humans')
+    input_packet(&InputHeader { slot, stamp, ..InputHeader::default() }, 2, &[])
 }
 
 /// Both sides' links get ruled packets for 600 ms while they send their headers.
@@ -93,7 +94,7 @@ fn run(addr: &str, b_udp_blocked: bool) {
     // (a match the relay referees is a relay-hosted core's since wire 5)
     // a match the host's net thread referees
     let now = epoch.elapsed().as_secs_f64() * 1000.0;
-    let mut la = a.host_match(vec![(0, a.me().to_owned()), (1, b.me().to_owned())], now + 50.0);
+    let mut la = a.host_match(2, vec![(0, a.me().to_owned()), (1, b.me().to_owned())], now + 50.0);
     let mut lb = b.join_match(a.me());
     ruled_both(epoch, &mut la, &mut lb);
     a.end_match();
@@ -276,7 +277,7 @@ fn relay_match(
     seen: &mut Vec<RelayEvent>,
 ) -> (Vec<f64>, usize) {
     let humans = vec![(0, a.me().to_owned()), (1, b.me().to_owned())];
-    let mut lb: RelayMatchLink = b.host_match(humans, ms(epoch) + 50.0);
+    let mut lb: RelayMatchLink = b.host_match(2, humans, ms(epoch) + 50.0);
     let mut la = a.join_match(b.me());
     let (mut at_a, mut got_b) = (Vec::new(), 0);
     let end = ms(epoch) + for_ms;
@@ -584,7 +585,7 @@ fn a_silent_peer_on_a_healthy_link_is_no_stall() {
     lobby_of_two(&a, &b);
     let humans = vec![(0, a.me().to_owned()), (1, b.me().to_owned())];
     let start = ms(epoch);
-    let mut la = a.host_match(humans, start + 50.0);
+    let mut la = a.host_match(2, humans, start + 50.0);
     let mut lb = b.join_match(a.me());
     let mut heard = 0;
     while ms(epoch) < start + 5500.0 {

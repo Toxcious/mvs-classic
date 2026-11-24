@@ -382,14 +382,23 @@ impl DevOnline {
     /// matches only). Its id.
     fn open(&mut self) -> String {
         let humans: Vec<(usize, String)> = self.peers.iter().cloned().enumerate().collect();
-        let link = self.client.host_match(humans, self.now() + START_AHEAD_MS);
+        // (every slot is a human's)
+        let link = self.client.host_match(self.slots(), humans, self.now() + START_AHEAD_MS);
         self.link = Some(Box::new(link));
         self.client.me().to_owned()
     }
 
+    /// The match's slots, the referee's and the session's: a human each (the set-up's peers).
+    fn slots(&self) -> usize {
+        self.peers.len()
+    }
+
     /// The match's session at its tick 0, its desync report kept.
     fn play(&mut self, world: &World) -> Result<()> {
-        let slots = (0..world.players.len()).map(|i| if i == self.slot { SlotKind::Local } else { SlotKind::Remote });
+        if world.players.len() != self.slots() {
+            return Err(net_err(format!("a World of {} players for {} slots", world.players.len(), self.slots())));
+        }
+        let slots = (0..self.slots()).map(|i| if i == self.slot { SlotKind::Local } else { SlotKind::Remote });
         let mut session = Session::new(world, SessionConfig::new(slots.collect()), self.now())
             .map_err(|e| net_err(format!("the session: {e}")))?;
         let book = Book::new(&world.data);

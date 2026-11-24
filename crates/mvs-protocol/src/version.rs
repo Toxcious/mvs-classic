@@ -12,7 +12,9 @@
 /// build's ETeamStyle.
 /// 30: the Chaos Wheel option is its choices (`lobby_rules::WheelOptions`: window, warning, Chaos rate, two at once,
 /// pool), and the set-up's `wheel` carries the rate and two at once.
-pub const PROTOCOL: u32 = 30;
+/// 31: a match of up to eight slots: an input packet's header holds an ack per slot of the match
+/// (`match_wire::input_header`), and the referee's ref.go and start carry the match's slot count.
+pub const PROTOCOL: u32 = 31;
 
 /// The origin of the app's game window (`mvs://game/`): the raw `Origin` header the server lets in by default.
 pub const APP_ORIGIN: &str = "mvs://game";

@@ -1091,9 +1091,9 @@ fn a_match_refereed_on_the_relay_over_the_wire() {
         for x in [&a, &b, &c] {
             x.send(json!({ "t": "peer", "handle": 9, "id": rid }));
         }
-        a.write(&packet_frame(FT_MATCH, 9, &input(sa, 2, 11, 2)).unwrap());
-        b.write(&packet_frame(FT_MATCH, 9, &input(sb, 2, 22, 2)).unwrap());
-        c.write(&packet_frame(FT_MATCH, 9, &input(sa, 4, 33, 1)).unwrap());
+        a.write(&packet_frame(FT_MATCH, 9, &input(2, sa, 2, 11, 2)).unwrap());
+        b.write(&packet_frame(FT_MATCH, 9, &input(2, sb, 2, 22, 2)).unwrap());
+        c.write(&packet_frame(FT_MATCH, 9, &input(2, sa, 4, 33, 1)).unwrap());
         let (mut ha, mut hb, mut hc) = (0, 0, 0);
         let want = |r: &BTreeMap<(u8, u32), i32>| {
             r.get(&(sa, 2)) == Some(&11)

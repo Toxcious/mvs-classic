@@ -12,7 +12,7 @@ use crate::service::queue::QueueSession;
 use crate::service::relay_host::RelayHosted;
 use crate::service::{NetService, RELEASE_MS, Shared, lock};
 
-use mvs_protocol::match_wire::packet_fits;
+use mvs_protocol::match_wire::{MAX_SLOTS, packet_fits};
 use mvs_protocol::names::NAME_LIMIT;
 use mvs_protocol::p2p_frame::{FRAME_BYE, signal, split_message};
 
@@ -451,7 +451,8 @@ impl Session {
             return;
         }
         let b = self.base();
-        if b.match_route.as_ref().is_some_and(|m| m.referee == from) && packet_fits(bytes) {
+        // (the referee's packets, of a match the page's session checks them against)
+        if b.match_route.as_ref().is_some_and(|m| m.referee == from) && packet_fits(bytes, MAX_SLOTS) {
             b.from_referee(svc, bytes);
         }
     }

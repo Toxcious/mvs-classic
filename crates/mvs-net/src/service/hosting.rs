@@ -189,7 +189,7 @@ impl MatchReferee for HostReferee {
         let _ = now;
         let slots: Vec<usize> = m.humans.iter().map(|h| h.slot as usize).collect();
         let r = Refereed {
-            referee: Referee::new(&slots, m.tick0),
+            referee: Referee::new(usize::try_from(m.slots).unwrap_or(0), &slots, m.tick0),
             ids: m.humans.iter().map(|h| (h.slot, h.id.clone())).collect(),
             slots: m.humans.iter().map(|h| (h.id.clone(), h.slot)).collect(),
         };
@@ -410,10 +410,10 @@ impl Hosting {
     ) -> bool {
         let found = {
             let c = cell(&self.cell);
-            c.refereed.iter().find_map(|(m, r)| r.slots.get(from).map(|s| (*m, *s)))
+            c.refereed.iter().find_map(|(m, r)| r.slots.get(from).map(|s| (*m, *s, r.referee.match_slots())))
         };
-        let Some((m, slot)) = found else { return false };
-        if !packet_fits(bytes) {
+        let Some((m, slot, n)) = found else { return false };
+        if !packet_fits(bytes, n) {
             return true;
         }
         let mut outs = Outs::default();

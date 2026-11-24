@@ -342,17 +342,20 @@ impl World {
         let rid = go["referee"].as_str().expect("a referee").to_string();
         let slots = starts.iter().map(|s| u8::try_from(s["slot"].as_u64().expect("a slot")).unwrap()).collect();
         let r#match = rid.rsplit_once(".m").and_then(|(_, m)| m.parse().ok()).expect("a match number");
-        HostedMatch { rid, r#match, slots, go }
+        let n = starts[0]["setup"]["players"].as_array().expect("the set-up's players").len();
+        HostedMatch { rid, r#match, slots, n, go }
     }
 }
 
 /// A hosted lobby's match at its go: its referee's id, the core's number for it, each player's slot (by the order
-/// given to [`World::run_to_the_go`]) and the go.
+/// given to [`World::run_to_the_go`]), its slot count and the go.
 #[derive(Debug)]
 pub struct HostedMatch {
     pub rid: String,
     pub r#match: u32,
     pub slots: Vec<u8>,
+    /// The match's slot count, its bots' among them.
+    pub n: usize,
     pub go: Value,
 }
 

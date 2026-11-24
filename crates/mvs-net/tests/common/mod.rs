@@ -130,7 +130,10 @@ pub struct At {
 /// game stands still (no frame, nothing sent or taken); drop: a peer's way is lost (every packet, both ways, lost for
 /// good); leave: its owner calls Referee::left; mute: every packet of a peer is lost from a tick on; deaf: every packet
 /// to it; go: the start gate in ticks; fine: the peers nothing is wrong with; twin: a peer whose session runs twice,
-/// keeping a predicted line that held and going back every frame. A slot the referee finds gone ends the match: its
+/// keeping a predicted line that held and going back every frame; extra: human slots past the set-up's players, whose
+/// streams the referee rules and every session carries and confirms while the World has no fighter for them (a
+/// match's slot count on the wire past the fighters the stages place); pump_each: the referee pumped after every packet
+/// it takes (the relay's core and an app's referee), not on its owner's beat alone. A slot the referee finds gone ends the match: its
 /// owner takes it out, and every other peer stops once its confirmed line reaches the end of that slot's stream.
 #[derive(Clone, Debug, Default)]
 pub struct Net {
@@ -149,6 +152,8 @@ pub struct Net {
     pub go: f64,
     pub fine: Vec<usize>,
     pub twin: Option<usize>,
+    pub extra: usize,
+    pub pump_each: bool,
 }
 
 struct Peer {
@@ -165,9 +170,14 @@ struct Peer {
     behind: i64,
     /// Per standstill: its end, the ticks after it at which the peer was at the clock again (-1: not yet).
     back: Vec<(f64, f64)>,
-    /// Per lost way: its end, the ticks after it at which the peer was level again (at the clock, its confirmed line
-    /// near it; -1: not yet).
+    /// Per lost or cut way: its end, the ticks after it at which the peer was level again (at the clock, its confirmed
+    /// line near it; -1: not yet).
     level: Vec<(f64, f64)>,
+    /// The most ticks its shown line was ahead of its confirmed one after a frame, and its session's limit; the
+    /// snapshot's lag its session allows (a rollback runs limit + keep ticks at the most).
+    most_predicted: u32,
+    limit: u32,
+    keep: u32,
     /// When it stopped as the match ended (a gone slot).
     ended: Option<f64>,
     intro: BTreeMap<(bool, i32), u32>,
@@ -186,11 +196,14 @@ pub type Outcome = Result<String, String>;
 #[allow(clippy::cast_possible_truncation, reason = "ticks of a short match")]
 pub fn session_test(setup: &MatchSetup, ticks: u32, net: &Net) -> Option<Outcome> {
     let data = data()?;
-    let humans: Vec<usize> = setup.players.iter().enumerate().filter(|(_, p)| !p.bot).map(|(i, _)| i).collect();
+    let fighters = setup.players.len();
+    let slots = fighters + net.extra;
+    let humans: Vec<usize> =
+        setup.players.iter().enumerate().filter(|(_, p)| !p.bot).map(|(i, _)| i).chain(fighters..slots).collect();
     let ms = |t: f64| t * TICK_MS;
     let way = |lat: f64| Way { latency: lat * TICK_MS, jitter: net.jitter * TICK_MS, loss: net.loss, cut: false };
     let mut lat = net.lat.clone();
-    let mut sim = SimNet::new(&humans, Ways { up: way(0.0), down: way(0.0) }, 0.0, 77);
+    let mut sim = SimNet::new(slots, &humans, Ways { up: way(0.0), down: way(0.0) }, 0.0, 77);
     // the ways of each peer: its latency, cut while a cut or a mute / deaf case says so
     let ways_at = |p: usize, t: f64, lat: f64| {
         let cut = net.cut.iter().any(|c| c.peer == p && t >= c.from && t < c.to);
@@ -212,12 +225,9 @@ pub fn session_test(setup: &MatchSetup, ticks: u32, net: &Net) -> Option<Outcome
         }
     };
     let slots_of = |slot: usize| -> Vec<SlotKind> {
-        setup
-            .players
-            .iter()
-            .enumerate()
-            .map(|(i, p)| {
-                if p.bot {
+        (0..slots)
+            .map(|i| {
+                if setup.players.get(i).is_some_and(|p| p.bot) {
                     SlotKind::Bot
                 } else if i == slot {
                     SlotKind::Local
@@ -242,7 +252,9 @@ pub fn session_test(setup: &MatchSetup, ticks: u32, net: &Net) -> Option<Outcome
         .enumerate()
         .map(|(p, &slot)| {
             let w = world(&data, setup);
-            let mut s = Session::new(&w, SessionConfig::new(slots_of(slot)), ms(now)).expect("a session");
+            let cfg = SessionConfig::new(slots_of(slot));
+            let (limit, keep) = (cfg.max_prediction, cfg.keep_behind);
+            let mut s = Session::new(&w, cfg, ms(now)).expect("a session");
             let got = Rc::new(RefCell::new(BTreeMap::new()));
             let g = got.clone();
             s.on_checksum(Box::new(move |t, v, _| {
@@ -269,7 +281,10 @@ pub fn session_test(setup: &MatchSetup, ticks: u32, net: &Net) -> Option<Outcome
                 stopped: false,
                 behind: 0,
                 back: net.hold.iter().filter(|h| h.peer == p).map(|h| (h.to, -1.0)).collect(),
-                level: net.drop.iter().filter(|h| h.peer == p).map(|h| (h.to, -1.0)).collect(),
+                level: net.drop.iter().chain(&net.cut).filter(|h| h.peer == p).map(|h| (h.to, -1.0)).collect(),
+                most_predicted: 0,
+                limit,
+                keep,
                 ended: None,
                 intro: BTreeMap::new(),
                 frames: Vec::new(),
@@ -278,7 +293,7 @@ pub fn session_test(setup: &MatchSetup, ticks: u32, net: &Net) -> Option<Outcome
         .collect();
     let holding = |p: usize, t: f64| net.hold.iter().any(|h| h.peer == p && t >= h.from && t < h.to);
     // the ruled streams by slot and tick (None: a substitution), and where a leaver's ends
-    let mut ruled: Vec<Vec<Option<Option<InputState>>>> = vec![Vec::new(); setup.players.len()];
+    let mut ruled: Vec<Vec<Option<Option<InputState>>>> = vec![Vec::new(); slots];
     let mut ends: BTreeMap<usize, u32> = BTreeMap::new();
     let mut out: Vec<bool> = vec![false; humans.len()];
     let mut news_seen = 0;
@@ -288,6 +303,10 @@ pub fn session_test(setup: &MatchSetup, ticks: u32, net: &Net) -> Option<Outcome
     let mut leaves = net.leave.clone();
     let mut steps = net.steps.clone();
     let (mut packets, mut most, mut most_kept, mut shown) = (0usize, 0usize, 0usize, 0usize);
+    // (the bytes the referee sent each slot from tick 0, and each slot's peer sent it; the ticks each frame showed
+    // past its confirmed line, summed, and the frames)
+    let (mut down, mut up) = (vec![0usize; slots], vec![0usize; slots]);
+    let (mut ahead, mut frames) = (0u64, 0u64);
     let step = 1.0 / 16.0;
     let mut pump_at = -net.go;
     let tickf = f64::from(ticks);
@@ -322,7 +341,11 @@ pub fn session_test(setup: &MatchSetup, ticks: u32, net: &Net) -> Option<Outcome
                 take_out(&mut sim, &mut out, x.peer);
             }
         }
-        sim.deliver(ms(now));
+        if net.pump_each {
+            sim.deliver_pumped(ms(now));
+        } else {
+            sim.deliver(ms(now));
+        }
         // (the owner's beat: every tick)
         if now >= pump_at {
             sim.pump(ms(now));
@@ -334,13 +357,15 @@ pub fn session_test(setup: &MatchSetup, ticks: u32, net: &Net) -> Option<Outcome
         for (slot, bytes) in sim.take_sent() {
             packets += 1;
             most = most.max(bytes.len());
-            if !packet_fits(&bytes) {
+            if now >= 0.0 {
+                down[slot] += bytes.len();
+            }
+            if !packet_fits(&bytes, slots) {
                 fail(&mut bad, format!("a packet of type {} and {} bytes does not fit", bytes[0], bytes.len()));
             }
             if bytes[0] != MSG_RULED {
                 continue;
             }
-            let _ = slot;
             for run in runs(&bytes) {
                 let s = usize::from(run.head.slot);
                 if run.head.end != NO_END {
@@ -418,6 +443,11 @@ pub fn session_test(setup: &MatchSetup, ticks: u32, net: &Net) -> Option<Outcome
             let input = p.m.at(p.s.frame() as usize);
             let (t0, c0, s0) = (std::time::Instant::now(), p.s.confirmed(), p.s.stats().steps);
             let res = p.s.advance(&mut p.w, &mut p.bots, input, ms(now));
+            p.most_predicted = p.most_predicted.max(p.s.predicted());
+            if now >= 0.0 {
+                ahead += u64::from(p.s.predicted());
+                frames += 1;
+            }
             if throttle > 1.0 {
                 let until = std::time::Instant::now() + t0.elapsed().mul_f64(throttle - 1.0);
                 while std::time::Instant::now() < until {
@@ -432,8 +462,11 @@ pub fn session_test(setup: &MatchSetup, ticks: u32, net: &Net) -> Option<Outcome
                 }
                 packets += 1;
                 most = most.max(b.len());
-                if !packet_fits(b) {
+                if !packet_fits(b, slots) {
                     fail(&mut bad, format!("a packet of type {} and {} bytes does not fit", b[0], b.len()));
+                }
+                if now >= 0.0 {
+                    up[p.slot] += b.len();
                 }
                 sim.link(p.slot).send(b, ms(now));
             }
@@ -500,6 +533,16 @@ pub fn session_test(setup: &MatchSetup, ticks: u32, net: &Net) -> Option<Outcome
             std::thread::sleep(at.saturating_duration_since(std::time::Instant::now()));
         }
     }
+    #[allow(clippy::cast_precision_loss, reason = "byte counts of a short match")]
+    let rate = |b: usize| b as f64 / (now.max(1.0) * TICK_MS / 1000.0);
+    #[allow(clippy::cast_precision_loss, reason = "counts of a short match")]
+    let mean_ahead = ahead as f64 / frames.max(1) as f64;
+    let bytes_note = format!(
+        "bytes a second from the referee {:.0}, to each peer {:?}, from each peer {:?}; a frame's shown line {mean_ahead:.2} ticks past its confirmed one (mean)",
+        rate(down.iter().sum()),
+        down.iter().map(|&b| rate(b).round()).collect::<Vec<_>>(),
+        up.iter().map(|&b| rate(b).round()).collect::<Vec<_>>()
+    );
     // (a match a gone slot ended: checked up to its end)
     let ticks = match gone.and_then(|g| ends.get(&g)) {
         Some(&e) => ticks.min(e),
@@ -596,7 +639,7 @@ pub fn session_test(setup: &MatchSetup, ticks: u32, net: &Net) -> Option<Outcome
         let hi = (to.min(tickf).min(f64::from(end_of(slot)))) as usize;
         (lo..hi).filter(|&t| ruled[slot].get(t) == Some(&Some(None))).count()
     };
-    let mut notes: Vec<String> = Vec::new();
+    let mut notes: Vec<String> = vec![bytes_note];
     for &i in &net.fine {
         let st = peers[i].s.stats();
         if st.stalls > 0 || st.skips > 0 {
@@ -632,13 +675,48 @@ pub fn session_test(setup: &MatchSetup, ticks: u32, net: &Net) -> Option<Outcome
             count(p.slot, h.from, h.to + 10.0)
         ));
     }
+    for (i, p) in peers.iter().enumerate() {
+        if p.most_predicted > p.limit {
+            fail(&mut bad, format!("peer {i} predicted {} ticks, past its limit {}", p.most_predicted, p.limit));
+        }
+        let deepest = p.s.stats().deepest;
+        if deepest > p.limit + p.keep {
+            fail(&mut bad, format!("peer {i} rolled back {deepest} ticks, past {} + {}", p.limit, p.keep));
+        }
+    }
     for c in &net.cut {
         let s = humans[c.peer];
+        // (a way that stands still longer than the prediction limit: the peer waits at it, and is level once its way
+        // goes again)
+        let p = &peers[c.peer];
+        let level = p.level.iter().find(|x| x.0 == c.to).expect("the cut way").1;
+        if c.to - c.from > f64::from(p.limit) + 2.0 * lat[c.peer] + 4.0 {
+            if p.most_predicted != p.limit || p.s.stats().stalls == 0 {
+                fail(
+                    &mut bad,
+                    format!(
+                        "peer {}, its way still {}..{}: predicted {} of its limit {}, waited {} frames",
+                        c.peer,
+                        c.from,
+                        c.to,
+                        p.most_predicted,
+                        p.limit,
+                        p.s.stats().stalls
+                    ),
+                );
+            }
+            if c.to < tickf && !(0.0..=LEVEL_AFTER).contains(&level) {
+                fail(&mut bad, format!("peer {} was not level {level} ticks after its way went at {}", c.peer, c.to));
+            }
+        }
         notes.push(format!(
-            "slot {s}'s way stood still {}..{}: {} ticks substituted then",
+            "slot {s}'s way stood still {}..{}: {} ticks substituted then, level {level:.1} ticks after, at most {} \
+             predicted (limit {})",
             c.from,
             c.to,
-            count(s, c.from, c.to + 10.0)
+            count(s, c.from, c.to + 10.0),
+            p.most_predicted,
+            p.limit
         ));
     }
     // the referee's news: a mute or deaf peer away once, then gone; a lost way away and back, or away and gone, by
