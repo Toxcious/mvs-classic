@@ -642,6 +642,7 @@ dependencies = [
  "mvs-math",
  "mvs-store",
  "rtrb",
+ "sdl3-sys",
  "serde",
  "serde_json",
  "thiserror",
