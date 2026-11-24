@@ -81,16 +81,16 @@ pub fn new_state(setup: &MatchSetup, seed: i32) -> Option<DodgeballState> {
     Some(DodgeballState { rng, from: -1, drop_at: -1, over: false })
 }
 
-/// What a fighter of `team` deals does not reach `vic`: the rule is on and `vic` is on another team. The one dealer
-/// that reaches an opponent under the rule is an item the stage dropped, thrown by a fighter, and the test that
-/// picks its victim does not ask.
+/// What a fighter of `team` deals does not reach `vic`: the rule has halves and `vic` is on another team. The one
+/// dealer that reaches an opponent under the rule is an item the stage dropped, thrown by a fighter, and the test
+/// that picks its victim does not ask.
 pub(crate) fn spares_team(w: &World, team: i32, vic: FighterId) -> bool {
-    w.setup.dodgeball.is_some() && w.fighter(vic).team.team != team
+    halves(w) && w.fighter(vic).team.team != team
 }
 
 /// [`spares_team`] by the dealing fighter.
 pub(crate) fn spares(w: &World, owner: FighterId, vic: FighterId) -> bool {
-    w.setup.dodgeball.is_some() && w.fighter(vic).team.team != w.fighter(owner).team.team
+    halves(w) && w.fighter(vic).team.team != w.fighter(owner).team.team
 }
 
 /// The rule has halves: it is on, the match has two teams, and no mode brings pawns of its own.
