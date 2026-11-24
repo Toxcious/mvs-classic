@@ -1,15 +1,19 @@
 //! The console of the two programs, which are built as desktop programs (no console window of their own): started
 //! from a terminal, their lines go to that terminal; started from Explorer or a shortcut, nowhere.
 
+#[cfg(windows)]
 use std::os::windows::io::IntoRawHandle;
 
+#[cfg(windows)]
 use windows::Win32::Foundation::HANDLE;
+#[cfg(windows)]
 use windows::Win32::System::Console::{
     ATTACH_PARENT_PROCESS, AttachConsole, GetStdHandle, STD_ERROR_HANDLE, STD_HANDLE, STD_OUTPUT_HANDLE, SetStdHandle,
 };
 
 /// Points stdout and stderr, each that was not handed over (a pipe or a file), at the console of the program that
 /// started this one, when it has one. Called first thing in `main`.
+#[cfg(windows)]
 pub fn attach_parent() {
     // SAFETY: reads this process's standard handle.
     let none = |h: STD_HANDLE| unsafe { GetStdHandle(h) }.is_ok_and(|h| h.is_invalid());
@@ -24,3 +28,8 @@ pub fn attach_parent() {
         let _ = unsafe { SetStdHandle(h, HANDLE(out.into_raw_handle())) };
     }
 }
+
+/// Points stdout and stderr at the console of the program that started this one: on Linux they already are.
+// Unverified: stub, replaced in Task 5
+#[cfg(not(windows))]
+pub fn attach_parent() {}

@@ -5,11 +5,11 @@
 //! and a GPU.
 
 use mvs_app::match_chat::{BoxKey, MatchChat, Overlay};
+use mvs_d3d::Dxgi::Common::DXGI_FORMAT_R8G8B8A8_UNORM;
 use mvs_protocol::messages::ChatTo;
 use mvs_render::gpu::{Gpu, Subresource, TexDesc, TexKind, TexViews};
 use mvs_ui::element::{ElementList, Ui};
 use mvs_ui::text::Fonts;
-use windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_R8G8B8A8_UNORM;
 
 #[test]
 #[ignore]

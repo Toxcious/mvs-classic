@@ -83,6 +83,8 @@ windows = "0.62.2"
 windows-core = "0.62.2"
 # the C library on Linux (mvs-ui: the launcher clock's local time)
 libc = "0.2"
+# SDL3 on Linux (mvs-app: the window, input and frame pacing), linked against the system libSDL3.so.0
+sdl3-sys = "0.7"
 
 [profile.release]
 debug = "line-tables-only"

@@ -101,6 +101,20 @@ pub fn default_memory_cap() -> u64 {
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 const BELOW_NORMAL_PRIORITY_CLASS: u32 = 0x0000_4000;
 
+/// The Windows process flags taken and dropped (a Linux child has no console to hide).
+// Unverified: stub, replaced in Task 5
+#[cfg(not(windows))]
+trait CommandExt {
+    fn creation_flags(&mut self, flags: u32) -> &mut Self;
+}
+
+#[cfg(not(windows))]
+impl CommandExt for Command {
+    fn creation_flags(&mut self, _flags: u32) -> &mut Self {
+        self
+    }
+}
+
 /// A worker process and its event reader.
 #[derive(Debug)]
 pub struct Worker {
@@ -132,6 +146,7 @@ impl Worker {
 
     /// [`Worker::start_capped`] of the game's exe at `exe` (the tests': Cargo's `mvs`).
     pub fn start_exe(exe: &Path, op: WorkerOp, req: &ImportRequest, memory: u64) -> Result<Worker> {
+        #[cfg(windows)]
         use std::os::windows::process::CommandExt;
         let os = |what: &str, e: std::io::Error| Error::Match(format!("the import worker: {what}: {e}"));
         let job = job::Job::new(memory)?;

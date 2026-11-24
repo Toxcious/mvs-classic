@@ -2,14 +2,14 @@
 //! renderer's GPU passes and a UI mark, the frame intervals (mean and worst over 0.5 s), the process's and the GPU's
 //! memory, to stderr and as an overlay line; the `stat fps` line.
 
-use windows::Win32::Graphics::Dxgi::{
-    DXGI_MEMORY_SEGMENT_GROUP_LOCAL, DXGI_QUERY_VIDEO_MEMORY_INFO, IDXGIAdapter3, IDXGIDevice,
-};
+use mvs_d3d::Dxgi::{DXGI_MEMORY_SEGMENT_GROUP_LOCAL, DXGI_QUERY_VIDEO_MEMORY_INFO, IDXGIAdapter3, IDXGIDevice};
+use mvs_d3d::core::Interface;
+#[cfg(windows)]
 use windows::Win32::System::ProcessStatus::{
     GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS, PROCESS_MEMORY_COUNTERS_EX,
 };
+#[cfg(windows)]
 use windows::Win32::System::Threading::GetCurrentProcess;
-use windows::core::Interface;
 
 use mvs_render::gpu::Gpu;
 
@@ -292,6 +292,7 @@ pub fn private_mb() -> f64 {
 }
 
 /// The process's private bytes and peak working set (PROCESS_MEMORY_COUNTERS_EX PrivateUsage, PeakWorkingSetSize).
+#[cfg(windows)]
 fn memory() -> (usize, usize) {
     let mut c = PROCESS_MEMORY_COUNTERS_EX::default();
     // SAFETY: the current process and a counters struct of the size given.
@@ -305,9 +306,17 @@ fn memory() -> (usize, usize) {
     if ok.is_ok() { (c.PrivateUsage, c.PeakWorkingSetSize) } else { (0, 0) }
 }
 
+/// The process's private bytes and peak working set: none read yet on Linux.
+// Unverified: stub, replaced in Task 5
+#[cfg(not(windows))]
+fn memory() -> (usize, usize) {
+    (0, 0)
+}
+
 /// Where the process's private memory sits, MB: the heaps' bytes in use and committed (the program's own
 /// allocations, the driver's too where it uses a heap), the private memory committed outside them (the driver's
 /// own allocations, stacks), and the GPU's local and non-local memory in use by the process.
+#[cfg(windows)]
 pub fn private_parts(gpu: &Gpu) -> String {
     use windows::Win32::Foundation::HANDLE;
     use windows::Win32::Graphics::Dxgi::DXGI_MEMORY_SEGMENT_GROUP_NON_LOCAL;
@@ -366,6 +375,13 @@ pub fn private_parts(gpu: &Gpu) -> String {
         video(DXGI_MEMORY_SEGMENT_GROUP_LOCAL) / MB,
         video(DXGI_MEMORY_SEGMENT_GROUP_NON_LOCAL) / MB
     )
+}
+
+/// Where the process's private memory sits, MB: not read yet on Linux.
+// Unverified: stub, replaced in Task 5
+#[cfg(not(windows))]
+pub fn private_parts(_gpu: &Gpu) -> String {
+    "not read on Linux yet".to_owned()
 }
 
 /// The adapter's local memory in use by this process.

@@ -4,7 +4,12 @@
 
 pub mod keys;
 // (the build's RawInput plugin, 140b14770, is linked but idle: no device configured)
+#[cfg(windows)]
 pub mod pad;
+#[cfg(not(windows))]
+#[path = "input/pad_sdl.rs"]
+pub mod pad;
+#[cfg(windows)]
 pub mod sony;
 pub mod stick;
 

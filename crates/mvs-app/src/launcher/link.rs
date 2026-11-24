@@ -10,12 +10,16 @@
 use std::path::{Path, PathBuf};
 
 use mvs_ui::launcher::words as w;
+#[cfg(windows)]
 use windows::Win32::Foundation::ERROR_SUCCESS;
+#[cfg(windows)]
 use windows::Win32::System::Registry::{
     HKEY, HKEY_CURRENT_USER, KEY_SET_VALUE, REG_OPTION_NON_VOLATILE, REG_SZ, RRF_RT_REG_SZ, RegCloseKey,
     RegCreateKeyExW, RegGetValueW, RegSetValueExW,
 };
+#[cfg(windows)]
 use windows::Win32::UI::WindowsAndMessaging::{MB_ICONWARNING, MB_OK, MessageBoxW};
+#[cfg(windows)]
 use windows::core::HSTRING;
 
 use super::game::{Game, GameArgs};
@@ -24,6 +28,7 @@ use super::setup_os::{data_root, store_dir};
 use crate::online::link as game_link;
 
 /// Where the current user's classes live under HKEY_CURRENT_USER.
+#[cfg(windows)]
 const USER_CLASSES: &str = r"Software\Classes";
 
 /// A registry the scheme's keys are read from and written to (HKCU in the program; a map in the tests).
@@ -34,17 +39,20 @@ pub trait Keys {
 }
 
 /// HKEY_CURRENT_USER under `base` (`Software\Classes`).
+#[cfg(windows)]
 #[derive(Debug)]
 pub struct UserKeys {
     pub base: String,
 }
 
+#[cfg(windows)]
 impl UserKeys {
     fn path(&self, key: &str) -> HSTRING {
         HSTRING::from(format!("{}\\{key}", self.base))
     }
 }
 
+#[cfg(windows)]
 impl Keys for UserKeys {
     fn get(&self, key: &str, name: &str) -> Option<String> {
         let mut buf = vec![0u16; 2048];
@@ -126,12 +134,20 @@ pub fn register_in(keys: &mut dyn Keys, scheme: &str, exe: &Path) -> Result<bool
 }
 
 /// Writes the scheme's keys for this launcher when they are not there or name another program.
+#[cfg(windows)]
 pub fn register() -> Result<(), String> {
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
     let mut keys = UserKeys { base: USER_CLASSES.to_owned() };
     if register_in(&mut keys, mvs_release::URL_SCHEME, &exe)? {
         eprintln!("mvs-launcher: join links ({}://) open {}", mvs_release::URL_SCHEME, exe.display());
     }
+    Ok(())
+}
+
+/// Writes the scheme's handler for this launcher: nothing yet on Linux.
+// Unverified: stub, replaced in Task 6
+#[cfg(not(windows))]
+pub fn register() -> Result<(), String> {
     Ok(())
 }
 
@@ -256,6 +272,7 @@ pub fn route(url: &str, o: &Options, os: &mut dyn LinkOs) -> Result<Routed, Stri
 
 /// `mvs-launcher --link <url>` with the launcher's other options: the link's code to the game; the exit code. A
 /// link that cannot be followed says why in a box (a click on a link has no console).
+#[cfg(windows)]
 pub fn forward(url: &str, o: &Options) -> u8 {
     match route(url, o, &mut RealOs) {
         Ok(r) => {
@@ -268,6 +285,23 @@ pub fn forward(url: &str, o: &Options) -> u8 {
             unsafe {
                 MessageBoxW(None, &HSTRING::from(why), &HSTRING::from("MVS Classic"), MB_OK | MB_ICONWARNING);
             }
+            1
+        }
+    }
+}
+
+/// `mvs-launcher --link <url>` with the launcher's other options: the link's code to the game; the exit code. A
+/// link that cannot be followed says why on stderr only.
+// Unverified: stub, replaced in Task 6
+#[cfg(not(windows))]
+pub fn forward(url: &str, o: &Options) -> u8 {
+    match route(url, o, &mut RealOs) {
+        Ok(r) => {
+            eprintln!("mvs-launcher: --link: {r:?}");
+            0
+        }
+        Err(why) => {
+            eprintln!("mvs-launcher: --link: {why}");
             1
         }
     }
@@ -308,6 +342,7 @@ mod tests {
         assert_eq!(register_in(&mut k, "mvsclassic", Path::new(r"D:\MVS\mvs-launcher.exe")), Ok(true));
     }
 
+    #[cfg(windows)]
     #[test]
     fn the_users_registry_takes_and_gives_the_values() {
         // (a test key of its own under the user's classes, removed after: never the scheme's)

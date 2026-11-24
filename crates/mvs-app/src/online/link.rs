@@ -2,13 +2,19 @@
 //! holds the instance (a named mutex and a pid file the launcher raises its window by), and a link the launcher
 //! hands over in the data folder's join-link file is joined from the menus.
 
+#[cfg(not(windows))]
+use std::path::Path;
+#[cfg(windows)]
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 
 use mvs_net::service::api::SessionTarget;
 use mvs_ui::menu::online::{OnlineCmd, OnlineNotice};
+#[cfg(windows)]
 use windows::Win32::Foundation::{CloseHandle, ERROR_ALREADY_EXISTS, GetLastError, HANDLE};
+#[cfg(windows)]
 use windows::Win32::System::Threading::{CreateMutexW, OpenMutexW, SYNCHRONIZATION_SYNCHRONIZE};
+#[cfg(windows)]
 use windows::core::HSTRING;
 
 use super::hub::OnlineHub;
@@ -30,12 +36,14 @@ pub struct JoinLink {
 }
 
 /// This game holds the data folder's instance for its life (dropped: let go).
+#[cfg(windows)]
 #[derive(Debug)]
 pub struct Instance {
     mutex: HANDLE,
     pid_file: PathBuf,
 }
 
+#[cfg(windows)]
 impl Drop for Instance {
     fn drop(&mut self) {
         HOLDING.store(false, Ordering::Relaxed);
@@ -69,6 +77,7 @@ pub fn instance_name(data: &Path) -> String {
 }
 
 /// Takes the data folder's instance; None when another game holds it, or it cannot be made.
+#[cfg(windows)]
 pub fn hold_instance(data: &Path) -> Option<Instance> {
     let name = HSTRING::from(instance_name(data));
     // SAFETY: a named mutex made with default security; its handle is owned by the Instance (or closed here).
@@ -102,6 +111,7 @@ pub fn hold_instance(data: &Path) -> Option<Instance> {
 
 /// The game holding the data folder's instance: Some(its process id, when its pid file reads), None when no game
 /// holds it.
+#[cfg(windows)]
 pub fn running_game(data: &Path) -> Option<Option<u32>> {
     let name = HSTRING::from(instance_name(data));
     // SAFETY: opened to test that the mutex is there, closed at once.
@@ -111,6 +121,30 @@ pub fn running_game(data: &Path) -> Option<Option<u32>> {
         let _ = CloseHandle(m);
     }
     Some(std::fs::read_to_string(data.join(GAME_PID_FILE)).ok().and_then(|t| t.trim().parse().ok()))
+}
+
+// Unverified: stub, replaced in Task 5 (no instance on Linux yet: no game holds a data folder, links are not joined)
+/// This game holds the data folder's instance for its life (dropped: let go).
+#[cfg(not(windows))]
+#[derive(Debug)]
+pub struct Instance;
+
+#[cfg(not(windows))]
+impl Drop for Instance {
+    fn drop(&mut self) {}
+}
+
+/// Takes the data folder's instance; None when another game holds it, or it cannot be made.
+#[cfg(not(windows))]
+pub fn hold_instance(_data: &Path) -> Option<Instance> {
+    None
+}
+
+/// The game holding the data folder's instance: Some(its process id, when its pid file reads), None when no game
+/// holds it.
+#[cfg(not(windows))]
+pub fn running_game(_data: &Path) -> Option<Option<u32>> {
+    None
 }
 
 /// The link's code as the join box would take it: ASCII letters and digits only, at most CODE_LIMIT; else why not.

@@ -7,11 +7,14 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command};
 use std::time::Instant;
 
+#[cfg(windows)]
 use windows::Win32::Foundation::{HWND, LPARAM};
+#[cfg(windows)]
 use windows::Win32::UI::WindowsAndMessaging::{
     AllowSetForegroundWindow, EnumWindows, GW_OWNER, GetWindow, GetWindowThreadProcessId, IsIconic, IsWindowVisible,
     SW_RESTORE, SetForegroundWindow, ShowWindow,
 };
+#[cfg(windows)]
 use windows::core::BOOL;
 
 /// What the game is started with besides its store.
@@ -105,6 +108,7 @@ impl Game {
 
 /// The top-level window of process `pid` brought forward, restored when minimised (the game's, by its pid: Play, a
 /// join link).
+#[cfg(windows)]
 pub fn raise(pid: u32) {
     let mut found = (pid, HWND::default());
     extern "system" fn each(hwnd: HWND, l: LPARAM) -> BOOL {
@@ -134,6 +138,11 @@ pub fn raise(pid: u32) {
         let _ = SetForegroundWindow(found.1);
     }
 }
+
+/// The top-level window of process `pid` brought forward: nothing yet on Linux.
+// Unverified: stub, replaced in Task 5
+#[cfg(not(windows))]
+pub fn raise(_pid: u32) {}
 
 #[cfg(test)]
 mod tests {

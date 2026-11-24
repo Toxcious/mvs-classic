@@ -15,6 +15,7 @@
 use std::panic::{AssertUnwindSafe, catch_unwind, resume_unwind};
 use std::path::PathBuf;
 
+use mvs_d3d::Dxgi::Common::DXGI_FORMAT_R8G8B8A8_UNORM;
 use mvs_render::Renderer;
 use mvs_render::gpu::{TexDesc, TexKind, TexViews, Texture};
 use mvs_render::menuscene::format::EventArg;
@@ -31,7 +32,6 @@ use mvs_ui::menu::{MenuExit, MenuInput, MenuScreen};
 use mvs_ui::results::EndOfGame;
 use mvs_ui::slate::WidgetId;
 use mvs_ui::text::Fonts;
-use windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_R8G8B8A8_UNORM;
 
 use crate::app::{Frame, Go, MatchEnd, MenuReturn, Shell, go_of};
 use crate::menu_audio::MenuAudio;

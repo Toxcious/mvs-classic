@@ -23,6 +23,10 @@ pub mod menus;
 pub mod online;
 pub mod pause;
 pub mod perf;
+#[cfg(windows)]
+pub mod platform;
+#[cfg(not(windows))]
+#[path = "platform_sdl.rs"]
 pub mod platform;
 pub mod pre_match_voice;
 pub mod prepare;
@@ -42,8 +46,12 @@ pub mod wheel;
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     /// A Win32 call that failed.
+    #[cfg(windows)]
     #[error("{what}: {source}")]
     Os { what: String, source: windows::core::Error },
+    /// A platform call that failed, or a platform piece not built yet.
+    #[error("{0}")]
+    Platform(String),
     #[error(transparent)]
     Store(#[from] mvs_store::StoreError),
     #[error(transparent)]

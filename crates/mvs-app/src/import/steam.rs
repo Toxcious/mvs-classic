@@ -137,6 +137,7 @@ pub(crate) fn real_path(p: &Path) -> PathBuf {
 }
 
 /// The Steam root the registry names (HKCU\Software\Valve\Steam SteamPath), or None (no Steam).
+#[cfg(windows)]
 pub fn steam_root_from_registry() -> Option<PathBuf> {
     use windows::Win32::System::Registry::{HKEY_CURRENT_USER, RRF_RT_REG_SZ, RegGetValueW};
     use windows::core::w;
@@ -165,6 +166,13 @@ pub fn steam_root_from_registry() -> Option<PathBuf> {
     }
     let dir = std::path::absolute(text).unwrap_or_else(|_| PathBuf::from(text));
     Some(real_path(&dir))
+}
+
+/// The Steam root the registry names: Linux has no registry.
+// Unverified: stub, replaced in Task 6
+#[cfg(not(windows))]
+pub fn steam_root_from_registry() -> Option<PathBuf> {
+    None
 }
 
 /// The sub folders of `dir` whose names `keep` takes, by name.

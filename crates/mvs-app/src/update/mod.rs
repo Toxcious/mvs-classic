@@ -7,19 +7,28 @@
 //! files over the exe's folder (`data\`, the player's, never), starts the folder's exe and ends. The next start
 //! clears `data\update\`. `--update-now` checks, downloads and hands over with no window.
 
+#[cfg(windows)]
 pub mod finish;
+#[cfg(windows)]
 pub mod http;
 
+#[cfg(windows)]
 use std::io::Write;
+#[cfg(windows)]
 use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
+#[cfg(windows)]
 use std::process::{Command, Stdio};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Mutex, PoisonError};
 use std::time::Duration;
 
+#[cfg(not(windows))]
+use mvs_release::{DATA_DIR, Release, UPDATE_DIR};
+#[cfg(windows)]
 use mvs_release::{DATA_DIR, Release, UPDATE_DIR, newer};
 use mvs_ui::launcher::words as w;
+#[cfg(windows)]
 use sha2::{Digest, Sha256};
 
 /// Why a check, a download or a hand-over did not finish.
@@ -55,6 +64,7 @@ pub enum UpdateError {
     Io(String),
 }
 
+#[cfg(windows)]
 fn io_at(p: &Path) -> impl Fn(std::io::Error) -> UpdateError + '_ {
     move |e| UpdateError::Io(format!("{}: {e}", p.display()))
 }
@@ -83,6 +93,7 @@ impl Place {
 }
 
 /// The feed's release when it is newer than `version`, else None.
+#[cfg(windows)]
 pub fn latest(feed: &str, version: &str) -> Result<Option<Release>, UpdateError> {
     let mut body = Vec::new();
     http::get(
@@ -100,6 +111,13 @@ pub fn latest(feed: &str, version: &str) -> Result<Option<Release>, UpdateError>
     let text = String::from_utf8(body).map_err(|e| UpdateError::Latest(e.to_string()))?;
     let r = Release::from_github(&text).map_err(UpdateError::Latest)?;
     Ok(newer(&r.version, version).then_some(r))
+}
+
+/// The feed's release when it is newer than `version`: none on Linux, where the updater is off (no WinHTTP, and
+/// `mvs_release::FEED` is None by build).
+#[cfg(not(windows))]
+pub fn latest(_feed: &str, _version: &str) -> Result<Option<Release>, UpdateError> {
+    Ok(None)
 }
 
 /// Removes a file or a folder whole; a missing one is fine. A virus scanner may hold a file just written for a
@@ -132,6 +150,7 @@ const RM_PAUSE: Duration = Duration::from_millis(300);
 /// Downloads release `r` into the place's stage, checks its size and hash and unpacks it; `progress`
 /// in whole percent, each change. The unpacked release's folder, which holds the exe (the zip's top level, or the
 /// one folder at its top).
+#[cfg(windows)]
 pub fn stage(place: &Place, r: &Release, mut progress: impl FnMut(u32)) -> Result<PathBuf, UpdateError> {
     let stage = place.stage();
     remove(&stage, RM_TRIES, RM_PAUSE).map_err(io_at(&stage))?;
@@ -185,11 +204,19 @@ pub fn stage(place: &Place, r: &Release, mut progress: impl FnMut(u32)) -> Resul
     }
 }
 
+/// Downloads release `r` into the place's stage: never on Linux, where the updater is off.
+#[cfg(not(windows))]
+pub fn stage(_place: &Place, _r: &Release, _progress: impl FnMut(u32)) -> Result<PathBuf, UpdateError> {
+    Err(UpdateError::NoFeed)
+}
+
 /// The process flags of what the updater starts: no console window, its own process group.
+#[cfg(windows)]
 const SPAWN_FLAGS: u32 = 0x0800_0000 | 0x0000_0200;
 
 /// Starts the unpacked release in `staged` to copy itself over the place's folder once this process ends. The caller
 /// quits next.
+#[cfg(windows)]
 pub fn hand_over(place: &Place, staged: &Path) -> Result<(), UpdateError> {
     let exe = staged.join(&place.exe);
     Command::new(&exe)
@@ -205,6 +232,12 @@ pub fn hand_over(place: &Place, staged: &Path) -> Result<(), UpdateError> {
         .spawn()
         .map(drop)
         .map_err(io_at(&exe))
+}
+
+/// Starts the unpacked release in `staged`: never on Linux, where the updater is off.
+#[cfg(not(windows))]
+pub fn hand_over(_place: &Place, _staged: &Path) -> Result<(), UpdateError> {
+    Err(UpdateError::NoFeed)
 }
 
 /// What the launcher hears of the updater.
@@ -425,6 +458,7 @@ pub fn update_now_main() -> u8 {
 /// `--finish-update <dir> --wait-pid <pid>`, run by the unpacked release's program the
 /// updater ran (the launcher's, or the game's for `--update-now`): waits for `pid` to end, copies this copy's files
 /// over `target`'s (both programs among them) and starts `target`'s launcher (either way). Exit 0 done, 1 not.
+#[cfg(windows)]
 pub fn finish_update_main(target: &Path, pid: Option<u32>) -> u8 {
     let say = |line: &str| println!("finish-update: {line}");
     let place = match Place::current() {
@@ -462,4 +496,11 @@ pub fn finish_update_main(target: &Path, pid: Option<u32>) -> u8 {
         return 1;
     }
     code
+}
+
+/// `--finish-update <dir> --wait-pid <pid>`: not on Linux, where the updater is off. Exit 1.
+#[cfg(not(windows))]
+pub fn finish_update_main(_target: &Path, _pid: Option<u32>) -> u8 {
+    println!("finish-update: failed: {}", UpdateError::NoFeed);
+    1
 }

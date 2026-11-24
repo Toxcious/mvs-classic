@@ -2,27 +2,39 @@
 //! its store, the install location's free space and its problems, the app folder's problem, the folder picker,
 //! Explorer on a folder, Steam's console, the clipboard, the desktop and Start menu shortcuts.
 
+#[cfg(windows)]
 use std::os::windows::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 
+#[cfg(not(windows))]
+use mvs_d3d::Foundation::HWND;
 use mvs_settings::Settings;
 use mvs_ui::launcher::words as w;
+#[cfg(windows)]
 use windows::Win32::Foundation::{HANDLE, HWND};
+#[cfg(windows)]
 use windows::Win32::Storage::FileSystem::GetDiskFreeSpaceExW;
+#[cfg(windows)]
 use windows::Win32::System::Com::{
     CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED, CoCreateInstance, CoInitializeEx, CoTaskMemFree, IPersistFile,
     STGM_READ,
 };
+#[cfg(windows)]
 use windows::Win32::System::DataExchange::{
     CloseClipboard, EmptyClipboard, GetClipboardData, IsClipboardFormatAvailable, OpenClipboard, SetClipboardData,
 };
+#[cfg(windows)]
 use windows::Win32::System::Memory::{GMEM_MOVEABLE, GlobalAlloc, GlobalLock, GlobalUnlock};
+#[cfg(windows)]
 use windows::Win32::System::Ole::CF_UNICODETEXT;
+#[cfg(windows)]
 use windows::Win32::UI::Shell::{
     FOLDERID_Desktop, FOLDERID_Programs, FOS_FORCEFILESYSTEM, FOS_PICKFOLDERS, FileOpenDialog, IFileOpenDialog,
     IShellLinkW, KF_FLAG_DEFAULT, SHGetKnownFolderPath, SIGDN_FILESYSPATH, ShellExecuteW, ShellLink,
 };
+#[cfg(windows)]
 use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+#[cfg(windows)]
 use windows::core::{GUID, HSTRING, PCWSTR};
 
 /// The store's size after a full import of the open beta, with room for its largest kind rebuilt (setup.ts
@@ -96,12 +108,20 @@ fn one_drives() -> Vec<PathBuf> {
 }
 
 /// Free bytes on the drive of `dir`.
+#[cfg(windows)]
 fn free_space(dir: &Path) -> Result<u64, String> {
     let at = HSTRING::from(nearest_dir(dir).as_os_str());
     let mut free = 0u64;
     // SAFETY: the out pointer is a live u64; the path a null-terminated wide string.
     unsafe { GetDiskFreeSpaceExW(&at, Some(&mut free), None, None) }.map_err(|e| e.message())?;
     Ok(free)
+}
+
+/// Free bytes on the drive of `dir`: not read yet on Linux.
+// Unverified: stub, replaced in Task 6
+#[cfg(not(windows))]
+fn free_space(_dir: &Path) -> Result<u64, String> {
+    Err("not built yet".to_owned())
 }
 
 /// What a rebuild of the stale kinds needs: the size of their packs in the store (a rebuilt kind writes its new pack
@@ -173,6 +193,7 @@ pub fn app_problem() -> Option<&'static str> {
 }
 
 /// COM on this thread (the picker and the shortcuts ask for it; the second call is a no-op).
+#[cfg(windows)]
 fn com() {
     // SAFETY: no reserved pointer; a thread already in another mode keeps it (the call's error is then ignored).
     let _ = unsafe { CoInitializeEx(None, COINIT_APARTMENTTHREADED) };
@@ -182,6 +203,7 @@ fn com() {
 /// None when the player closed it.
 // Deviation: modal on the launcher's thread, so the page stops drawing while it is open (Electron's dialog left the
 // page running).
+#[cfg(windows)]
 pub fn pick_folder(hwnd: HWND, title: &str) -> Option<PathBuf> {
     com();
     // SAFETY: COM calls on the dialog this thread made; the strings outlive the calls; the result's buffer freed
@@ -200,13 +222,28 @@ pub fn pick_folder(hwnd: HWND, title: &str) -> Option<PathBuf> {
     }
 }
 
+/// The folder picker over `hwnd`, titled `title`: none yet on Linux.
+// Unverified: stub, replaced in Task 6
+#[cfg(not(windows))]
+pub fn pick_folder(_hwnd: HWND, _title: &str) -> Option<PathBuf> {
+    None
+}
+
 /// Opens `target` (a folder in Explorer, a URL in its handler).
+#[cfg(windows)]
 fn shell_open(target: &std::ffi::OsStr) -> Result<(), String> {
     let t = HSTRING::from(target);
     // SAFETY: the strings are null-terminated and live through the call.
     let r = unsafe { ShellExecuteW(None, &HSTRING::from("open"), &t, PCWSTR::null(), PCWSTR::null(), SW_SHOWNORMAL) };
     // (ShellExecute's result is over 32 when it worked)
     if r.0 as usize > 32 { Ok(()) } else { Err(w::windows_answered(r.0 as usize)) }
+}
+
+/// Opens `target` (a folder in the file manager, a URL in its handler): not yet on Linux.
+// Unverified: stub, replaced in Task 6
+#[cfg(not(windows))]
+fn shell_open(_target: &std::ffi::OsStr) -> Result<(), String> {
+    Err("not built yet".to_owned())
 }
 
 /// Explorer on the data root, or on its nearest folder before it is made (setup.ts setupOpenDataRoot).
@@ -220,13 +257,22 @@ pub fn steam_console() -> Result<(), String> {
 }
 
 /// `text` on the clipboard for the window that has the keyboard (a menu's Copy, clicked in the game's window).
+#[cfg(windows)]
 pub fn copy_text_foreground(text: &str) -> Result<(), String> {
     // SAFETY: GetForegroundWindow has no preconditions.
     let hwnd = unsafe { windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow() };
     copy_text(hwnd, text)
 }
 
+/// `text` on the clipboard for the window that has the keyboard: not yet on Linux.
+// Unverified: stub, replaced in Task 6
+#[cfg(not(windows))]
+pub fn copy_text_foreground(_text: &str) -> Result<(), String> {
+    Err("not built yet".to_owned())
+}
+
 /// `text` on the clipboard (the guide's Copy: navigator.clipboard.writeText).
+#[cfg(windows)]
 pub fn copy_text(hwnd: HWND, text: &str) -> Result<(), String> {
     let wide: Vec<u16> = text.encode_utf16().chain([0]).collect();
     // SAFETY: the clipboard opened, filled with a moveable global block of the text's wide characters and closed;
@@ -256,7 +302,15 @@ pub fn copy_text(hwnd: HWND, text: &str) -> Result<(), String> {
     }
 }
 
+/// `text` on the clipboard: not yet on Linux.
+// Unverified: stub, replaced in Task 6
+#[cfg(not(windows))]
+pub fn copy_text(_hwnd: HWND, _text: &str) -> Result<(), String> {
+    Err("not built yet".to_owned())
+}
+
 /// The clipboard's text (a menu text box's Ctrl+V, the port's own); None when it holds no text or will not open.
+#[cfg(windows)]
 pub fn paste_text(hwnd: HWND) -> Option<String> {
     // SAFETY: the clipboard opened and closed around the read; the text block is the clipboard's, read under its
     // lock up to its terminating zero and within its size, and not freed here.
@@ -282,6 +336,13 @@ pub fn paste_text(hwnd: HWND) -> Option<String> {
     }
 }
 
+/// The clipboard's text: none yet on Linux.
+// Unverified: stub, replaced in Task 6
+#[cfg(not(windows))]
+pub fn paste_text(_hwnd: HWND) -> Option<String> {
+    None
+}
+
 /// A shortcut the settings make (bridge.ts ShortcutKind).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ShortcutKind {
@@ -290,6 +351,7 @@ pub enum ShortcutKind {
 }
 
 /// The shortcut's file: `MVS Classic.lnk` on the desktop or in the Start menu's programs (shortcuts.ts link).
+#[cfg(windows)]
 fn link(kind: ShortcutKind) -> Option<PathBuf> {
     let id: GUID = match kind {
         ShortcutKind::Desktop => FOLDERID_Desktop,
@@ -304,11 +366,13 @@ fn link(kind: ShortcutKind) -> Option<PathBuf> {
     }
 }
 
+#[cfg(windows)]
 fn wide(p: &Path) -> Vec<u16> {
     p.as_os_str().encode_wide().chain([0]).collect()
 }
 
 /// Whether the shortcut is there and points at `exe` (shortcuts.ts state's ours).
+#[cfg(windows)]
 fn ours(kind: ShortcutKind, exe: &Path) -> bool {
     let Some(file) = link(kind).filter(|f| f.is_file()) else { return false };
     com();
@@ -328,6 +392,13 @@ fn ours(kind: ShortcutKind, exe: &Path) -> bool {
     }
 }
 
+/// Whether the shortcut is there and points at `exe`: none yet on Linux.
+// Unverified: stub, replaced in Task 6
+#[cfg(not(windows))]
+fn ours(_kind: ShortcutKind, _exe: &Path) -> bool {
+    false
+}
+
 /// The program a shortcut starts: the launcher in the app's folder (None in a dev run).
 fn launcher_exe() -> Option<PathBuf> {
     app_dir().map(|d| d.join(mvs_release::LAUNCHER_EXE))
@@ -345,6 +416,7 @@ pub fn shortcuts() -> mvs_ui::launcher::Shortcuts {
 
 /// The shortcut made, pointing at the launcher in the app's folder (shortcuts.ts create); one already there is
 /// written again (a moved folder's shortcut points nowhere).
+#[cfg(windows)]
 pub fn create_shortcut(kind: ShortcutKind) -> Result<(), String> {
     let dir = app_dir().ok_or(w::NO_SHORTCUTS_DEV)?;
     let exe = dir.join(mvs_release::LAUNCHER_EXE);
@@ -359,6 +431,13 @@ pub fn create_shortcut(kind: ShortcutKind) -> Result<(), String> {
         let pf: IPersistFile = windows::core::Interface::cast(&l).map_err(|e| e.message())?;
         pf.Save(PCWSTR(wide(&file).as_ptr()), true).map_err(|e| format!("{}: {}", file.display(), e.message()))
     }
+}
+
+/// The shortcut made: not yet on Linux.
+// Unverified: stub, replaced in Task 6
+#[cfg(not(windows))]
+pub fn create_shortcut(_kind: ShortcutKind) -> Result<(), String> {
+    Err("not built yet".to_owned())
 }
 
 #[cfg(test)]

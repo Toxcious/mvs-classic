@@ -2,27 +2,35 @@
 //! crash of the game included) and its committed memory is capped (an allocation past the cap fails, the worker
 //! ends and the parent reports it).
 
+#[cfg(windows)]
 use windows::Win32::Foundation::{CloseHandle, HANDLE};
+#[cfg(windows)]
 use windows::Win32::System::JobObjects::{
     AssignProcessToJobObject, CreateJobObjectW, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE, JOB_OBJECT_LIMIT_PROCESS_MEMORY,
     JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectExtendedLimitInformation, QueryInformationJobObject,
     SetInformationJobObject, TerminateJobObject,
 };
+#[cfg(windows)]
 use windows::Win32::System::Threading::{OpenProcess, PROCESS_SET_QUOTA, PROCESS_TERMINATE};
 
+#[cfg(windows)]
 use crate::{Error, Result};
 
+#[cfg(windows)]
 fn os(what: &str) -> impl FnOnce(windows::core::Error) -> Error + '_ {
     move |source| Error::Os { what: what.to_string(), source }
 }
 
 /// A job object holding one process.
+#[cfg(windows)]
 #[derive(Debug)]
 pub struct Job(HANDLE);
 
 // SAFETY: a job handle is a kernel object handle, usable from any thread.
+#[cfg(windows)]
 unsafe impl Send for Job {}
 
+#[cfg(windows)]
 impl Job {
     /// A job that kills its processes when its handle closes, each capped at `memory` committed bytes.
     pub fn new(memory: u64) -> Result<Job> {
@@ -79,6 +87,7 @@ impl Job {
     }
 }
 
+#[cfg(windows)]
 impl Drop for Job {
     fn drop(&mut self) {
         // SAFETY: the handle CreateJobObjectW gave, closed once (its processes end with it).
@@ -87,6 +96,7 @@ impl Drop for Job {
 }
 
 /// The memory cap of the job this process runs in (the worker's own), or None outside a capped job.
+#[cfg(windows)]
 pub fn own_memory_cap() -> Option<u64> {
     let mut info = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
     // SAFETY: a null handle names the calling process's job; the struct of the size given is written by the call.
@@ -101,4 +111,40 @@ pub fn own_memory_cap() -> Option<u64> {
     };
     let capped = info.BasicLimitInformation.LimitFlags.0 & JOB_OBJECT_LIMIT_PROCESS_MEMORY.0 != 0;
     (r.is_ok() && capped).then_some(info.ProcessMemoryLimit as u64)
+}
+
+// Unverified: stub, replaced in Task 5 (no job on Linux yet: the worker is not capped and does not die with the game)
+#[cfg(not(windows))]
+use crate::Result;
+
+/// A job object holding one process.
+#[cfg(not(windows))]
+#[derive(Debug)]
+pub struct Job;
+
+#[cfg(not(windows))]
+impl Job {
+    /// A job that kills its processes when its handle closes, each capped at `memory` committed bytes.
+    pub fn new(_memory: u64) -> Result<Job> {
+        Ok(Job)
+    }
+
+    /// The process `pid` put in the job.
+    pub fn assign(&self, _pid: u32) -> Result<()> {
+        Ok(())
+    }
+
+    /// The most memory a process of the job has committed (bytes).
+    pub fn peak_memory(&self) -> u64 {
+        0
+    }
+
+    /// Every process of the job ended now.
+    pub fn kill(&self) {}
+}
+
+/// The memory cap of the job this process runs in (the worker's own), or None outside a capped job.
+#[cfg(not(windows))]
+pub fn own_memory_cap() -> Option<u64> {
+    None
 }

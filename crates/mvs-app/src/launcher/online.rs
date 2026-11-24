@@ -337,6 +337,7 @@ impl OnlineTab {
         if let Some(d) = game.exe.parent() {
             cmd.current_dir(d);
         }
+        #[cfg(windows)]
         {
             use std::os::windows::process::CommandExt;
             // CREATE_NO_WINDOW: no console flashes up for the child
