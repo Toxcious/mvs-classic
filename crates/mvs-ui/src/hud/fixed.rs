@@ -613,8 +613,11 @@ fn big_sides(mode: u8, teams: &[u8]) -> [Vec<usize>; 2] {
 }
 
 /// (the port's own) The scale of every big-match slot: a side of `per_side` slots as wide as the build's side of two.
-fn big_scale(per_side: usize) -> f64 {
-    (2.0 / per_side.max(1) as f64).min(1.0)
+/// `portrait_only`: the slots show no percentage and no cooldowns (the default preferences), so their infoContainer
+/// is collapsed and a slot is its portrait alone: a side of four at the build's size of a portrait.
+fn big_scale(per_side: usize, portrait_only: bool) -> f64 {
+    let fit = if portrait_only { 4.0 } else { 2.0 };
+    (fit / per_side.max(1) as f64).min(1.0)
 }
 
 /// UI_IGv3_Scoreboard.
@@ -712,12 +715,14 @@ impl Scoreboard {
         // Deviation: a match of more than four (the port's big matches) or an uneven Versus split has no layout in
         // the build: each side's slots in one row, every slot the build's widget in a ScaleBox of `big_scale`, so a
         // side of three or four is as wide as the build's side of two. Free For All keeps the build's gap of 40
-        // between a side's slots (FixedA's and FixedD's padding), scaled.
+        // between a side's slots (FixedA's and FixedD's padding), scaled. A slot that shows no percentage and no
+        // cooldowns there collapses its infoContainer (the build keeps its width empty), so the portraits stay large.
         let big = big_layout(mode, &setup.teams);
         let mut big_place = Vec::new();
         if big {
             let sides = big_sides(mode, &setup.teams);
-            let k = big_scale(sides[0].len().max(sides[1].len()));
+            let portrait_only = !ui.hud_show_percentage && !ui.hud_show_cooldowns;
+            let k = big_scale(sides[0].len().max(sides[1].len()), portrait_only);
             for (side, list) in sides.iter().enumerate() {
                 let (c, o) = if side == 0 { (left, 1) } else { (right, 2) };
                 for (j, &i) in list.iter().enumerate() {
@@ -728,6 +733,10 @@ impl Scoreboard {
                         3 => fd,
                         _ => t_.instantiate_in(b, c, "UI_IGv3_Fixed", &format!("UI_IGv3_Fixed{i}")),
                     };
+                    if portrait_only {
+                        let info = t_.find_in(fixed, "infoContainer");
+                        t_.widget_mut(info).vis = Vis::Collapsed;
+                    }
                     let sb = t_.create_plain(b, "ScaleBox", &format!("BigSlot{i}"));
                     readd(t_, c, sb);
                     readd(t_, sb, fixed);
@@ -1117,7 +1126,8 @@ mod tests {
         assert!(big_layout(3, &[0, 1, 2, 3, 4]));
         assert_eq!(big_sides(3, &[0, 1, 2, 3, 4]), [vec![0, 2, 4], vec![1, 3]]);
         assert_eq!(big_sides(3, &[0, 1, 2, 3, 4, 5, 6, 7]), [vec![0, 2, 4, 6], vec![1, 3, 5, 7]]);
-        assert_eq!([1, 2, 3, 4].map(big_scale), [1.0, 1.0, 2.0 / 3.0, 0.5]);
+        assert_eq!([1, 2, 3, 4].map(|n| big_scale(n, false)), [1.0, 1.0, 2.0 / 3.0, 0.5]);
+        assert_eq!([1, 4, 5].map(|n| big_scale(n, true)), [1.0, 1.0, 0.8]);
     }
 
     #[test]
