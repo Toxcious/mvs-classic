@@ -128,7 +128,7 @@ pub enum SphereKey {
 /// in the order the keys were added, so that it lives on a `Copy` actor buff extension
 /// (`chars::garnet::stop_projectile`'s). The set needs one key per fighter of the match and component met: a hit
 /// shape per active Hitframe and the pawn's always-on HitBox spheres (in the roster's data one, Garnet's Sing Sphere);
-/// it has no bound of its own. [`SPHERE_KEYS`] holds four fighters with three Hitframes and the sphere each.
+/// it has no bound of its own. [`SPHERE_KEYS`] holds eight fighters with three Hitframes and the sphere each.
 #[derive(crate::State, Copy, PartialEq, Debug)]
 pub struct SphereKeys {
     keys: [Option<SphereKey>; SPHERE_KEYS],
@@ -136,9 +136,10 @@ pub struct SphereKeys {
 }
 
 /// The most keys a [`SphereKeys`] holds.
-// Deviation: the build's overlap list has no bound; this set holds 64 (four fighters with a dozen shapes each is far
-// past a match's). Past the cap a key is dropped, warned once by the caller: that overlap never begins.
-pub const SPHERE_KEYS: usize = 64;
+// Deviation: the build's overlap list has no bound; this set holds 128 (eight fighters, the most a match holds, with
+// sixteen shapes each, far more than a fighter meets at once). Past the cap a key is dropped, warned once by the
+// caller: that overlap never begins.
+pub const SPHERE_KEYS: usize = 128;
 
 impl Default for SphereKeys {
     fn default() -> Self {

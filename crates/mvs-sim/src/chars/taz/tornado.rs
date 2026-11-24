@@ -272,6 +272,11 @@ pub fn check_for_ally_in_front(w: &mut World, f: FighterId) -> bool {
     let mut hits: Vec<TraceHit> = Vec::new();
     sphere_trace_multi_for_objects(w, x0, y0, x1, y0, 100.0, &[crate::real(OBJ_PAWN)], &[me], me, &mut hits);
     let team = w.fighter(f).team.team;
+    // Deviation: in a team of three or more players (the port's own big matches) MulticastHitAlly is left out: the
+    // build's would set HitAlly (C015EatenAlly_Condition's eaten ally) at the second distinct ally in front with no
+    // ally hit, which a 2v2 reaches only through a teammate's minion. There HitAlly comes from the ally hit alone
+    // (`on_ally_hit`).
+    let big_team = w.players.iter().filter(|&&o| w.fighter(o).team.team == team).count() > 2;
     let mut found = false;
     for h in &hits {
         // the BP_FighterCharacter cast @807-836
@@ -288,7 +293,7 @@ pub fn check_for_ally_in_front(w: &mut World, f: FighterId) -> bool {
             continue;
         }
         s.hit_allies.push(v);
-        if s.hit_allies.len() == 2 {
+        if s.hit_allies.len() == 2 && !big_team {
             s.hit_ally = true; // MulticastHitAlly @1206 (the AddUnique's index 1)
         }
     }

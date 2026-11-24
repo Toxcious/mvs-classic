@@ -10,7 +10,7 @@ use crate::fighter::FighterId;
 use crate::fighter::common::{latent_frames, warn_text};
 use crate::math;
 use crate::names::Name;
-use crate::setup::{self as S, MatchSetup};
+use crate::setup::MatchSetup;
 use crate::world::spawn_spot::truthy;
 use crate::world::{World, blast, flow, items};
 use indexmap::IndexMap;
@@ -356,8 +356,8 @@ pub fn world_mutators_respawned(w: &mut World, _f: FighterId) {
         if w.flow.stocks.is_some() {
             continue;
         }
-        for t in 0..usize::from(S::team_count(w.setup.team_style)) {
-            if w.flow.team_knockouts.get(t).copied().unwrap_or(0.0) != to_win - 1.0 {
+        for &k in &w.flow.team_knockouts {
+            if k != to_win - 1.0 {
                 continue;
             }
             if m.delay_at < 0 {

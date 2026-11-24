@@ -366,6 +366,7 @@ const FIGHTER_REST: &[(&str, &str)] = &[
     ("allowWallPlay", "fighter::moves"),
     ("ally", "fighter::match_side"),
     ("allyBuffRequests", "fighter::match_side"),
+    ("allyJoined", "fighter::tick"),
     ("alwaysVisible", "fighter::anim"),
     ("animBounce", "combat::hit"),
     ("armorHid", "combat::defense"),

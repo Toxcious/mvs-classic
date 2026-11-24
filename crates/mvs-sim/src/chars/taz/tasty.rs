@@ -97,9 +97,10 @@ pub struct TastyOnHitActor {
     pub open: bool,
 }
 
-/// Comp_Actor_Destructible.GetAllies: the fighters of the owner's team but the owner.
-/// Unverified: a defeated ally (waiting for its respawn) is counted, as the pawn stays; whether GetAllies leaves it
-/// out is not read.
+/// Comp_Actor_Destructible.GetAllies: the fighters of the owner's team but the owner, in player order.
+// Deviation: the build's Allies drops a knocked-out ally until its respawn (OnPlayerKnockedOut -> RemoveItem @2338),
+// is players only and in join order (`common::allies`); here a knocked-out ally (and a minion of the team) is counted
+// and the order is the player order, as the TS port has it (the taz-taz trace moves at tick 348 with the build's list).
 fn allies_of(w: &World, f: FighterId) -> Vec<FighterId> {
     let team = w.fighter(f).team.team;
     peers(w).iter().copied().filter(|&o| o != f && w.fighter(o).team.team == team).collect()

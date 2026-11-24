@@ -24,7 +24,8 @@ pub enum WheelEvent {
     Underdog,
     /// One player carries a bomb; damage it deals passes it on; its holder at the window's end is blasted.
     HotPotato,
-    /// 2v2: teammates trade fighters for the window (each player's input drives the other's).
+    /// Players of different teams trade fighters in pairs for the window (each player's input drives the other's;
+    /// `swap_map`).
     BodySwap,
 }
 

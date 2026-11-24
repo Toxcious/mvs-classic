@@ -13,6 +13,7 @@ use crate::names::Name;
 use crate::registry::ActorHooks;
 use crate::setup::{self as S, TeamStyle};
 use crate::world::flow::{self, PassiveRow, TimerCmd};
+use crate::world::starts::{self, StartKind};
 use crate::world::{SpawnPoint, StageCenter, World, blast, items, mutators, pawns, spawning, stage};
 use mvs_collision::Ground;
 use mvs_data::value::Value;
@@ -65,20 +66,12 @@ pub fn construct(w: &mut World) {
     let b = blast::bounds_of(bb);
     w.stage.blast = b;
     w.stage.blast_outer = blast::outer_of(b);
-    // UE yaw -90 faces -Y = sim +x.
-    let pt = |e: &mvs_data::stage::StageStart| SpawnPoint {
-        x: crate::math::narrow(-e.loc[1]),
-        y: crate::math::narrow(e.loc[2]),
-        facing: if e.yaw < 0.0 { 1.0 } else { -1.0 },
-    };
     // ParentGameMode.GetPlayerStart: the first PlayerStart whose PlayerStartTag is "Player<n>" / "Respawn<n>"
-    // (n = team-sorted index + 1) and that has the team style's actor tag.
+    // (n = team-sorted index + 1) and that has the team style's actor tag (`starts`).
     let tag = S::START_TAGS[setup.team_style as usize];
-    let start = |name: &str, list: &[mvs_data::stage::StageStart]| {
-        pt(list
-            .iter()
-            .find(|s| s.tag.as_deref() == Some(name) && s.tags.iter().any(|t| t == tag))
-            .unwrap_or_else(|| panic!("the stage has no PlayerStart {name} for {tag}")))
+    let starts_of = |kind: StartKind, ns: &[usize]| -> Vec<SpawnPoint> {
+        starts::match_starts(st, kind, tag, ns)
+            .unwrap_or_else(|| panic!("the stage {} has no {kind:?} starts {ns:?} for {tag}", st.name))
     };
     // Each pawn's Comp_Pawn_TauntManager slots from its player's taunts (not sim state).
     for (i, f) in w.players.clone().into_iter().enumerate() {
@@ -124,22 +117,11 @@ pub fn construct(w: &mut World) {
         fx.arcade_rows = rows;
         fx.mutators = muts;
     }
-    // Convert Player Index to Team Sorted Index: only the 2v2 style sorts (the players of a team before this one
-    // plus the sizes of the earlier teams, then 0, 2, 1, 3); the others use the player index.
-    let sorted = |i: usize| -> usize {
-        if setup.team_style != TeamStyle::TwoVsTwo {
-            return setup.players[i].start.map_or(i, usize::from);
-        }
-        let t = teams[i];
-        let local =
-            (0..teams.len()).filter(|&o| teams[o] == t && o < i).count() + teams.iter().filter(|&&o| o < t).count();
-        [0, 2, 1, 3][local]
-    };
+    // Convert Player Index to Team Sorted Index (`starts::sorted_index`).
     if !mode {
-        w.stage.spawns =
-            (0..setup.players.len()).map(|i| start(&format!("Player{}", sorted(i) + 1), &st.spawns)).collect();
-        w.stage.respawns =
-            (0..setup.players.len()).map(|i| start(&format!("Respawn{}", sorted(i) + 1), &st.respawns)).collect();
+        let sorted: Vec<usize> = (0..setup.players.len()).map(|i| starts::sorted_index(&setup, &teams, i)).collect();
+        w.stage.spawns = starts_of(StartKind::Spawn, &sorted);
+        w.stage.respawns = starts_of(StartKind::Respawn, &sorted);
     }
     let stride = usize::try_from(used_keys(w).iter().map(|k| data.chars[k.as_str()].boxes.stride).max().unwrap_or(0))
         .expect("a stride");
@@ -537,6 +519,7 @@ pub fn new_pawn(w: &mut World, f: FighterId, x: Real, y: Real, facing: Real) {
         fr.stats.damage_dealt = 0.0;
         fr.invuln.damage_disabled = false;
         fr.life.dead = 0.0;
+        fr.team.joined = 0; // a new pawn: every ally list starts over in player order (`common::allies`)
         fr.life.abducted = false;
         fr.life.cam_focus = false;
         // ReadyForIntro (a match with a countdown): KeepOnCamera.Unregister, AddInvisibility
@@ -594,7 +577,7 @@ pub fn reset(w: &mut World) {
         mutators::apply_mutators_to_fighter(w, f); // SpawnCharacter @3834, after the possession
         crate::world::wheel::wheel_fighter_spawned(w, f); // the port's own Chaos Wheel: the window's mutator
     }
-    let n = usize::from(S::team_count(w.setup.team_style));
+    let n = S::team_slots(&w.setup);
     w.flow.team_knockouts = vec![0.0; n];
     w.flow.team_damage = vec![0.0; n];
     w.flow.tied_ffa_teams.clear();

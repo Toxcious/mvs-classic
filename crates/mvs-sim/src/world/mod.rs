@@ -25,6 +25,7 @@ pub mod spawning;
 pub mod stage;
 pub mod stage_actors;
 pub mod stage_query;
+pub mod starts;
 pub mod wall_bp;
 pub mod wheel;
 pub mod wheel_events;

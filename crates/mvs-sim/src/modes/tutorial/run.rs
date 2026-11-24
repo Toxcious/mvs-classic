@@ -109,7 +109,7 @@ fn len_i32(n: usize) -> i32 {
 pub fn data_team(w: &World, i: usize) -> i32 {
     match w.setup.players.get(i).and_then(|p| p.team) {
         Some(t) => i32::from(t),
-        None => len_i32(i) % i32::from(team_count(w.setup.team_style)),
+        None => len_i32(i) % i32::from(team_count(&w.setup)),
     }
 }
 

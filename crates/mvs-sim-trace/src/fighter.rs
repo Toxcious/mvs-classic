@@ -1677,7 +1677,8 @@ plain_struct!(mvs_sim::fighter::match_side::TempHealth {
 });
 
 /// The keys `rest_put` writes by hand (the generated list's are its own).
-const HAND_KEYS: [&str; 17] = [
+const HAND_KEYS: [&str; 18] = [
+    "allyJoined",
     "actorScale",
     "chargeUi",
     "comboReset",
@@ -1696,6 +1697,11 @@ const HAND_KEYS: [&str; 17] = [
     "fireWall",
     "grouped",
 ];
+
+/// Whether fighter `f`'s team has more than two players: the ally lists' order (`allyJoined`) is recorded there.
+fn big_team(w: &mvs_sim::world::World, f: &Fighter) -> bool {
+    w.players.iter().filter(|&&o| w.fighter(o).team.team == f.team.team).count() > 2
+}
 
 fn rest_put(f: &Fighter, x: &Wx) -> Value {
     let mut o: Vec<(String, Value)> = Vec::new();
@@ -1843,6 +1849,12 @@ fn rest_put(f: &Fighter, x: &Wx) -> Value {
     o.push(("voLines".into(), Value::List(lines.collect())));
     if let Some(g) = &f.montages.grouped {
         o.push(("grouped".into(), crate::parts::grouped_put(g, x)));
+    }
+    // `allyJoined` (the Rust port's own, no oracle key): `Team::joined`, the ally lists' order, written only for a
+    // fighter whose team has more than two players (a big match), where the order can matter; elsewhere left out and
+    // loaded as 0.
+    if big_team(x.w, f) {
+        o.push(("allyJoined".into(), f.team.joined.to_value(x)));
     }
     let s = &f.shapes;
     for (k, v, unset) in [
@@ -2027,6 +2039,10 @@ fn rest_load(f: &mut Fighter, v: &Value, l: &mut Lx) {
     match ob.get("fireWall") {
         Some(v) => l.at("fireWall", |l| f.shapes.fire_wall.load_value(v, l)),
         None => f.shapes.fire_wall = None,
+    }
+    match ob.get("allyJoined") {
+        Some(v) => l.at("allyJoined", |l| f.team.joined.load_value(v, l)),
+        None => f.team.joined = 0,
     }
     match ob.get("actorScale") {
         Some(v) => l.at("actorScale", |l| {

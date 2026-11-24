@@ -848,6 +848,9 @@ fn apply_nearby_buffs(w: &mut World, f: FighterId) {
 /// Unverified: fighters in the sim's order (GetAllActorsOfClass has the level's actor order); a fighter waiting for
 /// its respawn is left out; applied after the owner's tick, as the nearby buffs; with DestroyBuffsOnNotifyEnd (no
 /// notify of the data) the ally's actor would be filed under the owner's notify, which is not ported.
+// Unverified: every ally gets it, so in the port's own big matches a team-wide grant (this one, Taz's HealAllies, Finn's
+// ArmorBuns, the ice perk's gray health, the dodge perk's cooldowns, the passive buffs' BuffAllies rows) is worth
+// more to a team of three or four than the beta's 2v2 ever saw; kept as the build's rule.
 fn apply_ally_buffs(w: &mut World, f: FighterId) {
     let data = w.data.clone();
     let mut i = 0;

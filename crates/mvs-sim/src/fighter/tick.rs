@@ -378,11 +378,15 @@ pub fn begin_frame_input(w: &mut World, f: FighterId, inp: InputState) {
         if w.fighter(f).wall.wall_sliding {
             moves::wall_slide_off(w, f);
         }
+        let tick = w.flow.tick;
         let fm = w.fighter_mut(f);
         fm.life.dead -= 1.0;
         if fm.life.dead == 0.0 {
             let id = fm.id;
             fm.events.push(Event::Respawn { fighter: id });
+            // Comp_Actor_Destructible OnPlayerRespawned (@1420-1796) -> UpdateAllyListServer(add): AddUnique (@2269)
+            // appends it to each teammate's Allies (`common::allies`).
+            fm.team.joined = tick;
         }
         // No GravityScale from a stored NetGravity while dead: the defeat tail's DisableMovement (BaseFighter
         // @19170) is MOVE_None, where PerformMovement (1429385a0) takes its early exit and OnMovementUpdated

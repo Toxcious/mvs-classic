@@ -170,15 +170,32 @@ pub const INPUT_OPEN_TICKS: u32 = 369;
 /// ParentGameMode.GetPlayerStart: the PlayerStart actor tag per team style.
 pub const START_TAGS: [&str; 3] = ["1v1", "2v2", "FreeForAll"];
 
-/// `teamCount`.
-pub fn team_count(style: TeamStyle) -> u8 {
-    if style == TeamStyle::FreeForAll { 4 } else { 2 }
+/// The most players a match holds: the port's own big matches (Versus up to 4v4, Free For All up to eight). The
+/// beta's matches have four at most.
+pub const MAX_PLAYERS: usize = 8;
+
+/// `teamCount`: AssignPlayerAndTeamIndex_Immediate's PlayerIndex % (2, 2, 4 by team style).
+// Deviation: Free For All of more than four players (the port's own big matches) has a team per player, so player 4
+// is nobody's ally; the build's four teams would pair player 4 with player 0.
+pub fn team_count(setup: &MatchSetup) -> u8 {
+    if setup.team_style == TeamStyle::FreeForAll {
+        u8::try_from(setup.players.len().clamp(4, MAX_PLAYERS)).expect("a player count")
+    } else {
+        2
+    }
 }
 
 /// `playerTeam`.
 pub fn player_team(setup: &MatchSetup, i: usize) -> u8 {
-    let n = usize::from(team_count(setup.team_style));
+    let n = usize::from(team_count(setup));
     setup.players[i].team.unwrap_or_else(|| u8::try_from(i % n).expect("a team below the team count"))
+}
+
+/// How many teams the per-team tallies hold (`teamKnockouts`, `teamDamage`): the team count, or more where a
+/// set-up gives a player a team past it (the Lab sends teams 0..3 in the 1v1 and 2v2 styles).
+pub fn team_slots(setup: &MatchSetup) -> usize {
+    let highest = (0..setup.players.len()).map(|i| usize::from(player_team(setup, i)) + 1).max().unwrap_or(0);
+    usize::from(team_count(setup)).max(highest)
 }
 
 /// The player's preferences, the defaults for a bot. The wire's absent
