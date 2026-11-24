@@ -246,7 +246,7 @@ fn shot(
         kind: TexKind::D2,
         size: [w, h, 1],
         mips: 1,
-        format: windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_R8G8B8A8_UNORM,
+        format: mvs_d3d::Dxgi::Common::DXGI_FORMAT_R8G8B8A8_UNORM,
         views: TexViews { srv: true, rtv: true, ..Default::default() },
     };
     let target = gpu.texture(&desc, &[Subresource { data: &grey, row_pitch: w * 4, slice_pitch: 0 }]).map_err(e)?;

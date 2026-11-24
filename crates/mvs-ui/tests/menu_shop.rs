@@ -106,8 +106,8 @@ fn the_currency_shop_opens_and_draws_its_cover() {
 #[test]
 #[ignore]
 fn draw_the_modal() {
+    use mvs_d3d::Dxgi::Common::DXGI_FORMAT_R8G8B8A8_UNORM;
     use mvs_render::gpu::{Gpu, Subresource, TexDesc, TexKind, TexViews};
-    use windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_R8G8B8A8_UNORM;
     let Some(mut e) = env() else { return };
     let out = std::env::var("SHOP_SHOT").unwrap_or_else(|_| "shop.png".into());
     let cls = std::env::var("CLASS").unwrap_or_else(|_| "UI_WWShop".into());

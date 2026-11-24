@@ -16,17 +16,21 @@
 //! after SHRINK_FRAMES frames that needed under half, and the copy of the target; all are given back after a frame
 //! with no blur.
 
+#[cfg(windows)]
 use std::ffi::c_void;
 
+use mvs_d3d::Direct3D::D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+#[cfg(windows)]
+use mvs_d3d::Direct3D::ID3DBlob;
+use mvs_d3d::Direct3D11::*;
+use mvs_d3d::Dxgi::Common::DXGI_FORMAT;
+#[cfg(windows)]
+use mvs_d3d::core::PCSTR;
 use mvs_render::gpu::{
     BufDesc, BufKind, Buffer, Gpu, SamplerKey, StateId, StateKey, TexDesc, TexKind, TexViews, Texture,
 };
-use windows::Win32::Graphics::Direct3D::D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+#[cfg(windows)]
 use windows::Win32::Graphics::Direct3D::Fxc::{D3DCOMPILE_OPTIMIZATION_LEVEL3, D3DCompile};
-use windows::Win32::Graphics::Direct3D::ID3DBlob;
-use windows::Win32::Graphics::Direct3D11::*;
-use windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT;
-use windows::core::PCSTR;
 
 use crate::element::BlurEl;
 use crate::{Error, Result};
@@ -102,11 +106,12 @@ const ROWS: usize = 5 + MAX_TAPS;
 /// The frames in a row that needed under half of the scratch textures before they are made that size.
 const SHRINK_FRAMES: u32 = 30;
 
-fn dx(what: &'static str) -> impl FnOnce(windows::core::Error) -> Error {
+fn dx(what: &'static str) -> impl FnOnce(mvs_d3d::core::Error) -> Error {
     move |source| Error::Render(mvs_render::Error::Device { what: what.into(), source })
 }
 
 /// HLSL of the port's own compiled by d3dcompiler_47.
+#[cfg(windows)]
 pub(crate) fn compile(entry: &str, target: &str) -> Result<Vec<u8>> {
     const SOURCE: &str = include_str!("blur.hlsl");
     let e = format!("{entry}\0");
@@ -136,6 +141,14 @@ pub(crate) fn compile(entry: &str, target: &str) -> Result<Vec<u8>> {
         }
         Ok(blob(code.as_ref().expect("D3DCompile gave no code")).to_vec())
     }
+}
+
+/// HLSL of the port's own as the DXBC d3dcompiler_47 made of it on Windows (Linux has no `D3DCompile`): the blob
+/// `shaders/keys.txt` names for the source, entry and target's `mvs_d3d::dxbc_key`.
+#[cfg(not(windows))]
+#[track_caller]
+pub(crate) fn compile(entry: &str, target: &str) -> Result<Vec<u8>> {
+    crate::shaders::committed(include_str!("blur.hlsl"), entry, target, std::panic::Location::caller())
 }
 
 fn scratch(gpu: &Gpu, size: [u32; 2], format: DXGI_FORMAT, rtv: bool) -> Result<Texture> {
@@ -271,12 +284,8 @@ impl BlurPass {
         scissor: [i32; 4],
     ) {
         gpu.write_rows(&self.constants, &self.rows[..]);
-        let rect = windows::Win32::Foundation::RECT {
-            left: scissor[0],
-            top: scissor[1],
-            right: scissor[2],
-            bottom: scissor[3],
-        };
+        let rect =
+            mvs_d3d::Foundation::RECT { left: scissor[0], top: scissor[1], right: scissor[2], bottom: scissor[3] };
         gpu.viewport([0, 0, vp[0], vp[1]]);
         // SAFETY: states, views and shaders made on this device, alive through the calls; the draw has no vertex
         // buffer (the vertex shader makes its triangle from the vertex id).

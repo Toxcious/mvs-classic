@@ -15,5 +15,6 @@ serde.workspace = true
 serde_json = { workspace = true, features = ["float_roundtrip"] }
 thiserror.workspace = true
 
-[dev-dependencies]
+# The store test's WARP device (DXVK has no WARP).
+[target.'cfg(windows)'.dev-dependencies]
 windows = { workspace = true, features = ["Win32_Foundation", "Win32_Graphics_Direct3D", "Win32_Graphics_Direct3D11", "Win32_Graphics_Dxgi"] }

@@ -14,6 +14,7 @@
 
 use std::path::{Path, PathBuf};
 
+use mvs_d3d::Dxgi::Common::DXGI_FORMAT_R8G8B8A8_UNORM;
 use mvs_render::Assets;
 use mvs_render::gpu::{Gpu, TexDesc, TexKind, TexViews};
 use mvs_render::image::write_png;
@@ -24,7 +25,6 @@ use mvs_ui::launcher::{
     Build, HomeState, LauncherUi, LogLine, Model, Note, OnlineSettingsView, OnlineSummary, Phase, PhaseState, Screen,
     Shortcuts, Source, Tone, Way, words as w,
 };
-use windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_R8G8B8A8_UNORM;
 
 const PICTURE: &str = "/Game/Panda_Main/PreMatch/Maps/MapBG_TreeFort2v2SinglePlatform.MapBG_TreeFort2v2SinglePlatform";
 

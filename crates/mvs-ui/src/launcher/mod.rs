@@ -589,8 +589,15 @@ pub fn clock(secs: u64) -> String {
 }
 
 /// The local time of day, s (the system's local time; UTC when it cannot be read).
+#[cfg(windows)]
 fn local_seconds() -> u64 {
     // SAFETY: GetLocalTime only reads the clock.
     let st = unsafe { windows::Win32::System::SystemInformation::GetLocalTime() };
     u64::from(st.wHour) * 3600 + u64::from(st.wMinute) * 60 + u64::from(st.wSecond)
+}
+
+/// Elsewhere (no local time read): the UTC time of day, s.
+#[cfg(not(windows))]
+fn local_seconds() -> u64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs() % 86_400)
 }

@@ -7,6 +7,7 @@
 
 use std::path::PathBuf;
 
+use mvs_d3d::Dxgi::Common::DXGI_FORMAT_R8G8B8A8_UNORM;
 use mvs_render::gpu::{Gpu, TexDesc, TexKind, TexViews};
 use mvs_render::image::write_png;
 use mvs_render::{Assets, Error as RenderError};
@@ -14,7 +15,6 @@ use mvs_store::{Store, dev_store_dir};
 use mvs_ui::element::{ElementList, Ui};
 use mvs_ui::slate::{Geometry, apply_anim, instantiate, layout, paint};
 use mvs_ui::{Bundle, Fonts};
-use windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_R8G8B8A8_UNORM;
 
 struct Args {
     class: String,

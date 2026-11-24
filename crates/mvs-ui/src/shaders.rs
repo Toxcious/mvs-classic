@@ -2,8 +2,8 @@
 //! are called with, and the DXBC `D3DCompile` makes of each, committed in `shaders/` (Linux has no `D3DCompile`),
 //! with `shaders/keys.txt` naming each blob's `mvs_d3d::dxbc_key`.
 
-// On Windows only the test reads the list.
-#![cfg_attr(all(windows, not(test)), allow(dead_code))]
+// On Windows only the test reads the list; elsewhere only the test reads each module's `compile`.
+#![cfg_attr(not(test), allow(dead_code))]
 
 use crate::Result;
 use crate::launcher::paint;
@@ -57,6 +57,23 @@ pub(crate) const SHADERS: &[Shader] = &[
     shader!(launcher_paint, SOURCE, "MainPS", "ps_5_0", paint::SOURCE, paint::compile),
 ];
 
+/// The committed blob `shaders/keys.txt` names for `src`, `entry` and `target`'s `mvs_d3d::dxbc_key`: each module's
+/// `compile` on Linux, `caller` its caller.
+#[cfg(not(windows))]
+pub(crate) fn committed(src: &str, entry: &str, target: &str, caller: &std::panic::Location<'_>) -> Result<Vec<u8>> {
+    let key = format!("{:016x}", mvs_d3d::dxbc_key(src, entry, target));
+    let name = include_str!("../shaders/keys.txt")
+        .lines()
+        .find_map(|l| l.split_once(' ').filter(|(_, k)| *k == key).map(|(n, _)| n));
+    // (the listed entry of that name, when it is still the same source, entry and target)
+    let blob = name
+        .and_then(|n| SHADERS.iter().find(|s| s.name == n && s.entry == entry && s.target == target && s.src == src));
+    blob.map(|s| s.dxbc.to_vec()).ok_or_else(|| crate::Error::Format {
+        what: format!("shader {entry} {target} at {caller}"),
+        why: format!("no compiled blob has key {key}: add it to src/shaders.rs and regenerate the blobs"),
+    })
+}
+
 #[cfg(all(test, windows))]
 mod tests {
     use super::{SHADERS, Shader};
@@ -84,6 +101,40 @@ mod tests {
             assert!(made(s) == s.dxbc, "{}: the committed blob is not what D3DCompile makes", s.name);
             let line = line(s);
             assert!(keys.lines().any(|l| l == line), "keys.txt does not hold `{line}`");
+        }
+    }
+}
+
+#[cfg(all(test, not(windows)))]
+mod linux_tests {
+    use super::SHADERS;
+    use mvs_d3d::dxbc_key;
+
+    /// A source edited on Windows without its blobs made again fails here: every listed shader's current key is in
+    /// `keys.txt` under its name, with a blob, and no blob in `shaders/` is unlisted.
+    #[test]
+    fn every_listed_shader_has_its_blob() {
+        let keys = include_str!("../shaders/keys.txt");
+        for s in SHADERS {
+            let line = format!("{} {:016x}", s.name, dxbc_key(s.src, s.entry, s.target));
+            assert!(keys.lines().any(|l| l == line), "keys.txt does not hold `{line}`: regenerate the blobs");
+            assert!(!s.dxbc.is_empty(), "{}: the blob is empty", s.name);
+            let blob = (s.compile)(s.entry, s.target).unwrap_or_else(|e| panic!("{}: {e}", s.name));
+            assert!(blob == s.dxbc, "{}: compile does not find its own blob", s.name);
+        }
+        for l in keys.lines() {
+            let name = l.split_once(' ').map_or(l, |(n, _)| n);
+            assert!(
+                SHADERS.iter().any(|s| s.name == name),
+                "keys.txt names `{name}`, which src/shaders.rs does not list"
+            );
+        }
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("shaders");
+        for entry in std::fs::read_dir(&dir).expect("read the blob folder") {
+            let file = entry.expect("a blob folder entry").file_name().into_string().expect("a UTF-8 file name");
+            if let Some(name) = file.strip_suffix(".dxbc") {
+                assert!(SHADERS.iter().any(|s| s.name == name), "{file} is not listed in src/shaders.rs");
+            }
         }
     }
 }
