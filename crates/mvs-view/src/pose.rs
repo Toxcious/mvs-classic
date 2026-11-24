@@ -1905,10 +1905,22 @@ fn place_view(r: &mut Rec, clips: &mut Clips, w: &World) {
             None => (None, 0.0, 0.0),
         };
         let anim = r.pose.as_ref().and_then(|p| p.anim(w, f)).unwrap_or(fi.anim.anim);
-        let (clip, time) = match nav {
+        let (mut clip, mut time) = match nav {
             Some(n) if sm.is_none() => (clips.get(n), 0.0),
             _ => (clips.get(w.names.str(anim)), f64::from(fi.anim.anim_time)),
         };
+        // A montage whose track is an additive slot's (Iron Giant's MissileLaunchMode in FullBodyAdditive) has no
+        // DefaultSlot track: that slot passes the state machines' pose on and the additive is the AnimBP's own slot
+        // node's (`PoseHook::main_additive`), or, with none, applied over the whole pose. An additive clip drawn as
+        // the pose would put every bone's scale at 0.
+        let mut add = add;
+        if let Some(c) = clip.filter(|&c| sm.is_some() && clips.clips[c].additive) {
+            let (la, lt) = mvs_sim::fighter::anim::loco_clip(w, f);
+            if !r.pose.as_ref().is_some_and(|p| p.main_additive()) {
+                add = add.or(Some((c, time)));
+            }
+            (clip, time) = (clips.get(w.names.str(la)), f64::from(lt));
+        }
         let rules = r.pose.as_deref_mut().map(|p| p as &mut dyn crate::view::PoseRules);
         v.pose(clips, clip, time, name, blend_in, blend_out, STEP, hold, &loco, add, mix, rules);
     }

@@ -183,6 +183,11 @@ pub(crate) trait PoseHook: PoseRules + std::fmt::Debug + Send {
     fn anim(&self, _w: &World, _f: FighterId) -> Option<Name> {
         None
     }
+    /// The AnimBP applies the main montage's additive track at a slot node of its own (`set` lists the track): the
+    /// view does not apply it over the whole pose.
+    fn main_additive(&self) -> bool {
+        false
+    }
 
     /// An event of the World's step (the effects' reach into the rule: ARYA_POSES and the like), for the view of
     /// fighter `id`; `part_scalar(part, name, value)` writes a scalar on every material of a part.

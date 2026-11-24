@@ -120,6 +120,8 @@ fn warn_once(text: String) {
 //     mesh space;
 //   LayeredBoneBlend_4 (mesh space rotation, weight HoldAlpha x HoldingBuffValid): C017_Hold_Override on the branches
 //     fml_un_R_uparm_att and HitCollision01;
+//   ApplyAdditive_1: Slot FullBodyAdditive, whole body (a grouped instance's track, or the default group's
+//     montage's: MissileLaunchMode has no other track, so the shared pose under it is the state machines');
 //   LayeredBoneBlend_2 (local, weight AlternateMode): C017_WeaponMode_Override on the neck branches;
 //   ApplyAdditive_6: Slot Additive (the additive hit reacts), whole body;
 //   the Transform stage: LayeredBoneBlend #9 (spine_a, weight 1) of Slot Transform over this pose; its base the same
@@ -133,14 +135,15 @@ fn warn_once(text: String) {
 //   - Unverified: the tentacle aim's inputs are made from the head socket as last drawn and the reticle (its depth
 //     0);
 //   - ApplyAdditive_3 accumulates the blend at alpha 1 as one additive, scale too;
-//   - not ported: ApplyAdditive_4 (WeaponAdditive2 / AimUp2), ApplyAdditive_5 (the plasma attack's), ApplyAdditive_1
-//     (FullBodyAdditive), ApplyAdditive (DiscAdditive), ModifyBone_5 (the torso's half turn), AnimGraphNode_
-//     BlendSpacePlayer_2 (C017_LaserEye_Look_BlendSpace): the view leaves them out (the sim's shapes have the
-//     first five).
+//   - not ported: ApplyAdditive_4 (WeaponAdditive2 / AimUp2), ApplyAdditive_5 (the plasma attack's), ApplyAdditive
+//     (DiscAdditive), ModifyBone_5 (the torso's half turn), AnimGraphNode_BlendSpacePlayer_2
+//     (C017_LaserEye_Look_BlendSpace): the view leaves them out (the sim's shapes have the first four).
 
 const HEAD_SOCKET: &str = "fml_un_C_head";
 const TENTACLE_LOOP: &str = "C017_WeaponMode_Override_Tenticle";
 const TENTACLE_BRANCH: &str = "fml_un_tentacle_att";
+/// ApplyAdditive_1's slot.
+const FULL_BODY_ADDITIVE: &str = "FullBodyAdditive";
 const WEAPON_OVERRIDE: &str = "C017_WeaponMode_Override";
 /// SequencePlayer_7.
 const HOLD_CLIP: &str = "C017_Hold_Override";
@@ -792,6 +795,8 @@ impl PoseRules for GiantPose {
             sample_clip(cx.clips, hc, cx.rig, cx.rest, self.hold_t, s, -1);
             layered(&ch, p, s, &self.hold_arm_w, self.hold_w, ms, mt, mb); // LayeredBoneBlend_4
         }
+        // ApplyAdditive_1: Slot FullBodyAdditive (the discharge, the missile launch), whole body
+        sl.additive(cx, FULL_BODY_ADDITIVE, p, ta);
         // The weapon mode override on the neck branches (w: SequencePlayer_2 runs with SequencePlayer_15)
         if wm {
             replace(p, w, &self.neck_w); // LayeredBoneBlend_2
@@ -813,6 +818,10 @@ impl PoseRules for GiantPose {
 }
 
 impl PoseHook for GiantPose {
+    fn main_additive(&self) -> bool {
+        true
+    }
+
     /// `set(layers, tenticleOverride, alternateMode, inHitstun, f)`: the sim's grouped instances, the split's tracks
     /// (the default group's montage when it is one of the split's, and under no shown montage the fading ones of
     /// those at their fade weight), the AnimBP's variables, and the update's inputs.
@@ -847,6 +856,26 @@ impl PoseHook for GiantPose {
             self.lean_f = f64::from(lean_forward(ga));
         }
         self.nav = l.len() > grouped;
+        // The shown default group's montage's FullBodyAdditive track (MissileLaunchMode, the weapon mode's up
+        // attacks): Slot FullBodyAdditive reads it as it reads a grouped one (`main_additive`)
+        if let Some(s) = fi.montages.montage.as_ref().filter(|_| mvs_sim::fighter::shown_montage(w, f) == Some(false))
+            && let Some(m) = instance_data(&w.data, w, f, s.montage.uid)
+            && m.slots.iter().any(|t| t.slot == FULL_BODY_ADDITIVE)
+        {
+            let from = l.len();
+            tracks_into(s, m, mvs_sim::math::narrow(s.weight(m)), l);
+            let mut k = from;
+            while k < l.len() {
+                if l.slot[k] == FULL_BODY_ADDITIVE {
+                    k += 1;
+                } else {
+                    l.slot.remove(k);
+                    l.anim.remove(k);
+                    l.time.remove(k);
+                    l.w.remove(k);
+                }
+            }
+        }
         self.layers.clear();
         for k in 0..l.len() {
             let anim = &l.anim[k];
