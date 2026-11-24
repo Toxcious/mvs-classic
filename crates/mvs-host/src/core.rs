@@ -381,7 +381,7 @@ pub(crate) fn mode_index(m: QueueMode) -> usize {
         QueueMode::OneVOne => 0,
         QueueMode::TwoVTwo => 1,
         QueueMode::Ffa => 2,
-        QueueMode::Silly => 3,
+        QueueMode::Chaos => 3,
     }
 }
 

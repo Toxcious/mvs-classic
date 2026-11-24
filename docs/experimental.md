@@ -33,11 +33,11 @@ drop reads Stocks). The match set-up carries `rules.stocks` (`mvs-protocol` `set
 
 Any number of mutators for the whole match, ticked in the row's list (`mvs-protocol` `lobby_rules::MutatorSet`, a
 bit per entry of `LOBBY_MUTATORS`). The match set-up carries them as `mutators: [key, ...]` in the list's order
-(`mvs-protocol` `setup.rs`), the same path the Silly queue uses, so the sim runs the build's own mutator code
+(`mvs-protocol` `setup.rs`), the path the build's Silly queue used, so the sim runs the build's own mutator code
 (`mvs-sim` `world/mutators.rs`), which applies each in turn as the build's InitializeMutators does. Works in every
 team style and with Stock Mode.
 
-- The list: Silly (Random) is the build's `Mutator_RandomMutatorSelector` as the Silly queue plays it (Big Head or
+- The list: Silly (Random) is the build's `Mutator_RandomMutatorSelector` as its Silly queue played it (Big Head or
   Grow for every fighter, random items, the final point shrink); then the fighter mutators one by one (Big Head,
   Grow, Giant, Miniature, Low Gravity, Instant Kill, Shields Up, Unlimited Jumps, Ability Frenzy, Heavy Hitters,
   Air Show, Double Damage, Ice Charge, Freeze Touch) and two world ones (Random Items, Final Point Shrink). Seven of
@@ -76,6 +76,11 @@ match is over. The match set-up carries the rule as `wheel: { pool, seconds, war
 window's length, how far ahead the next one is drawn, the Chaos rate (left out at Normal) and two at once (left
 out when off). The sim's part is `mvs-sim` `world/wheel.rs`. Works in every team style, with Stock Mode and
 beside the Mutators row.
+
+The online Chaos queue (the port's, in the build's Casual card's place, where its Silly queue was: two teams of
+two) plays every match with the wheel at its default settings: 20 second windows, a 3 second warning, Normal
+Chaos rate, every mutator in the pool, no two at once (`mvs-app` `online/tables.rs` `with_mode_rules`; each game
+builds the rule itself, as it builds a queue match's tables).
 
 - The pool (`mvs-mutators`, each with its tier): Mild (sky blue): Giant, Miniature, Low Gravity, Air Show,
   Shields Up, Moon Jump, Heavyweight, Vampire, Magnet; Wild (violet): Big Head, Unlimited Jumps, Ability Frenzy, Heavy

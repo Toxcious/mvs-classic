@@ -24,26 +24,27 @@ pub fn time_formatter_m_ss(seconds: f64) -> String {
 /// Construct @2046-2599: ModeLabel by GetAllMultiqueue()[0].GetQueueType(), the bare word (the designer's "Mode: "
 /// prefix is replaced).
 /// Unverified: the port's 1v1, 2v2 and FFA queues are read as queue type 1, "Normal"
-/// {F8D006C243F227FFB85345BB21684DF8} (the type of the multiqueue configs is the backend's); Silly as the Casual
+/// {F8D006C243F227FFB85345BB21684DF8} (the type of the multiqueue configs is the backend's); Chaos as the Casual
 /// card's queue type 3.
 fn mode_word(m: QueueMode) -> &'static str {
     // The switch's TextConsts by queue type (Game.locres keys): Normal, Casual.
     match m {
         QueueMode::OneVOne | QueueMode::TwoVTwo | QueueMode::Ffa => "F8D006C243F227FFB85345BB21684DF8",
-        QueueMode::Silly => "064EFA804BB3847536ACF99C055B6145",
+        QueueMode::Chaos => "064EFA804BB3847536ACF99C055B6145",
     }
 }
 
 /// Construct @2780 -> @653: QueueLabel is the multiqueue entries' ToDisplayText (native), joined by ", " (one per
 /// queue the search waits in).
 /// Unverified: read as the mode card's name, as the pre-match QueueLabel (WBP_MatchOptions PrintSelectedModes); the
-/// tree's ToUpper shows it upper-cased. Game.locres keys: 1 VS 1, TEAMS, FFA, SILLY.
-fn queue_text(m: QueueMode) -> &'static str {
+/// tree's ToUpper shows it upper-cased. Game.locres keys: 1 VS 1, TEAMS, FFA; None for the port's Chaos queue
+/// (`custom_text::CHAOS_QUEUE`).
+fn queue_text(m: QueueMode) -> Option<&'static str> {
     match m {
-        QueueMode::OneVOne => "C1413E164DB8DCE5DC2CC19A2E4AEBA5",
-        QueueMode::TwoVTwo => "720C33654366ACE4376C668A91B54234",
-        QueueMode::Ffa => "1789A04E4D313B3F325D3485EB970175",
-        QueueMode::Silly => "B2EE21AE4D716D4BC84E558DB0B5FCC8",
+        QueueMode::OneVOne => Some("C1413E164DB8DCE5DC2CC19A2E4AEBA5"),
+        QueueMode::TwoVTwo => Some("720C33654366ACE4376C668A91B54234"),
+        QueueMode::Ffa => Some("1789A04E4D313B3F325D3485EB970175"),
+        QueueMode::Chaos => None,
     }
 }
 
@@ -107,8 +108,17 @@ impl Controller for LabMatchmakingTimer {
         // handler's start (the bot fallback's OnCancelForBots, MH@25434) is not seen here
         self.start_s = src.start_s;
         let word = src.modes.first().map_or("", |m| cx.view.game_text(mode_word(*m))).to_string();
-        let queue =
-            src.modes.iter().map(|m| cx.view.game_text(queue_text(*m)).to_string()).collect::<Vec<_>>().join(", ");
+        let queue = src
+            .modes
+            .iter()
+            .map(|m| {
+                queue_text(*m).map_or_else(
+                    || crate::menu::custom_text::CHAOS_QUEUE.to_owned(),
+                    |k| cx.view.game_text(k).to_string(),
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
         let (ml, ql) = (find(cx, "ModeLabel"), find(cx, "QueueLabel"));
         wd(cx, ml).text = word;
         wd(cx, ql).text = queue;

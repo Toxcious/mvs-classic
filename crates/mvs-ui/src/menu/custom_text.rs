@@ -49,6 +49,11 @@ pub const MUTATOR: &str = "Mutators";
 pub fn mutator_count(n: usize) -> String {
     format!("{n} Mutators")
 }
+/// The Chaos queue, in the build's Casual (Silly) card's place: the card's title and subtitle, and the queue's name
+/// in the lists of queues (the searching and pre-match labels).
+pub const CHAOS_QUEUE_TITLE: &str = "Chaos Queue";
+pub const CHAOS_QUEUE_SUB: &str = "A new mutator every 20 seconds";
+pub const CHAOS_QUEUE: &str = "CHAOS";
 /// The mutators row's values, in the order of mvs_protocol::lobby_rules::LOBBY_MUTATORS: Off clears the list.
 pub const MUTATORS: [&str; 30] = [
     "Off",

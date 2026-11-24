@@ -577,7 +577,7 @@ impl EOGRematchStatus {
     /// BPI Start.
     pub fn start(&mut self, cx: &mut Cx<'_>) {
         let (yours, theirs) = cx.view.session.eog.set_scores();
-        // (the port's own) the set's wins by its queue: a Free For All or Silly set is one game
+        // (the port's own) the set's wins by its queue: a Free For All or Chaos set is one game
         let wins = cx.view.session.eog.queue.as_ref().map_or(2, |q| q.set_wins);
         if yours.max(theirs) >= wins {
             cx.emit(self, |c| &c.on_complete, &());

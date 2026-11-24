@@ -111,8 +111,9 @@ impl From<CompatNote> for crate::messages::LobbyErrorWhy {
 pub const SEED_MAX: u32 = 0x7fff_ffff;
 
 /// A queue's mode. Ffa: four players, each on a team of their own (ETeamStyle 2; the build's FFA card's queue,
-/// rotation UnrankedFreeForAll). Silly: two teams of two (ETeamStyle 1) with the game's mutators (the build's Casual
-/// card, MatchKey 2v2casual, queue type 3, rotation Casual); the mutators are the game's, never the wire's.
+/// rotation UnrankedFreeForAll). Chaos (the port's own, in the build's Casual card's place: MatchKey 2v2casual,
+/// queue type 3, rotation Casual): two teams of two (ETeamStyle 1) with the Chaos Wheel at its default settings; the
+/// rule is the game's, never the wire's.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum QueueMode {
     #[serde(rename = "1v1")]
@@ -121,8 +122,8 @@ pub enum QueueMode {
     TwoVTwo,
     #[serde(rename = "ffa")]
     Ffa,
-    #[serde(rename = "silly")]
-    Silly,
+    #[serde(rename = "chaos")]
+    Chaos,
 }
 
 impl QueueMode {
@@ -132,7 +133,7 @@ impl QueueMode {
             QueueMode::OneVOne => "1v1",
             QueueMode::TwoVTwo => "2v2",
             QueueMode::Ffa => "ffa",
-            QueueMode::Silly => "silly",
+            QueueMode::Chaos => "chaos",
         }
     }
 
@@ -142,7 +143,7 @@ impl QueueMode {
             "1v1" => Some(QueueMode::OneVOne),
             "2v2" => Some(QueueMode::TwoVTwo),
             "ffa" => Some(QueueMode::Ffa),
-            "silly" => Some(QueueMode::Silly),
+            "chaos" => Some(QueueMode::Chaos),
             _ => None,
         }
     }

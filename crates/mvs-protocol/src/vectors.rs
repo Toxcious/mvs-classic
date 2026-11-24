@@ -35,7 +35,58 @@ pub fn read(name: &str) -> Option<serde_json::Value> {
         eprintln!("no vectors at {} (the oracle's wire recorder writes them): passed without them", path.display());
         return None;
     };
-    Some(serde_json::from_str(&text).unwrap_or_else(|e| panic!("{}: {e}", path.display())))
+    Some(move_queue(serde_json::from_str(&text).unwrap_or_else(|e| panic!("{}: {e}", path.display()))))
+}
+
+/// The oracle's name of the Casual card's queue (the TS game's Silly queue) and this build's (the Chaos queue's,
+/// `QueueMode::Chaos`): the same length, so a frame's bytes keep their length.
+const TAPE_QUEUE: &str = "silly";
+const QUEUE: &str = "chaos";
+
+/// Vectors with the oracle's queue name moved to this build's: as a key, as a whole string, quoted inside a message
+/// text, and inside a frame's bytes (`{ "$bytes": hex }`).
+fn move_queue(v: serde_json::Value) -> serde_json::Value {
+    use serde_json::Value;
+    let name = |k: String| if k == TAPE_QUEUE { QUEUE.to_owned() } else { k };
+    match v {
+        Value::Object(o) => Value::Object(
+            o.into_iter()
+                .map(|(k, x)| {
+                    let x = match (k.as_str(), x) {
+                        ("$bytes", Value::String(h)) => Value::String(move_queue_hex(&h)),
+                        (_, x) => move_queue(x),
+                    };
+                    (name(k), x)
+                })
+                .collect(),
+        ),
+        Value::Array(a) => Value::Array(a.into_iter().map(move_queue).collect()),
+        // (quoted in a message text, or a log line's word: "queue found silly ...")
+        Value::String(s) => Value::String(
+            name(s)
+                .replace(&format!("\"{TAPE_QUEUE}\""), &format!("\"{QUEUE}\""))
+                .replace(&format!(" {TAPE_QUEUE} "), &format!(" {QUEUE} ")),
+        ),
+        x => x,
+    }
+}
+
+fn move_queue_hex(h: &str) -> String {
+    let hex = |s: &str| s.bytes().map(|x| format!("{x:02x}")).collect::<String>();
+    let (from, to) = (hex(&format!("\"{TAPE_QUEUE}\"")), hex(&format!("\"{QUEUE}\"")));
+    // (matched at even offsets only: a byte's boundary)
+    let mut out = String::with_capacity(h.len());
+    let mut i = 0;
+    while i < h.len() {
+        if i % 2 == 0 && h[i..].starts_with(&from) {
+            out.push_str(&to);
+            i += from.len();
+        } else {
+            out.push_str(&h[i..=i]);
+            i += 1;
+        }
+    }
+    out
 }
 
 /// The PROTOCOL the tapes (`host-tape.json`, `netproc-tape.json`) were recorded at.
@@ -44,7 +95,7 @@ pub const TAPE_PROTOCOL: u32 = 23;
 /// A tape of [`dir`] as [`read`] gives it, with every `"proto"` (a hello's) and `"server"` (a refusal's) of
 /// [`TAPE_PROTOCOL`] moved to this build's [`crate::version::PROTOCOL`] (in the tape's JSON, in the message texts it
 /// holds and in the bytes it holds as `{ "$bytes": hex }`), so a new PROTOCOL needs no new tape. Another number (an
-/// old game's hello) stays. The message texts' lobby mutator is moved to this build's set too ([`move_mutators`]), and
+/// old game's hello) stays. The queue name is moved as [`read`] moves it. The message texts' lobby mutator is moved to this build's set too ([`move_mutators`]), and
 /// their lobby style to this build's ([`move_styles`]).
 pub fn read_tape(name: &str) -> Option<serde_json::Value> {
     let v = read(name)?;

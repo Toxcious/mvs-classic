@@ -466,14 +466,14 @@ pub struct PMStateInfo {
 
 /// QueueLabel: the multiqueue configs' ToDisplayText @1275 (native). Unverified: read as the mode card's name that
 /// WBP_MatchOptions' PrintSelectedModes shows for the same config: the Game.locres keys of WBP_GameModeCard's titles
-/// 1 VS 1, TEAMS, FFA, and of PrintSelectedModes' SILLY (the Casual card's own title is "Silly Queue").
-fn queue_label_key(q: mvs_protocol::online::QueueMode) -> &'static str {
+/// 1 VS 1, TEAMS, FFA; None for the port's Chaos queue in the Casual card's place (`custom_text::CHAOS_QUEUE`).
+fn queue_label_key(q: mvs_protocol::online::QueueMode) -> Option<&'static str> {
     use mvs_protocol::online::QueueMode;
     match q {
-        QueueMode::OneVOne => "C1413E164DB8DCE5DC2CC19A2E4AEBA5",
-        QueueMode::TwoVTwo => "720C33654366ACE4376C668A91B54234",
-        QueueMode::Ffa => "1789A04E4D313B3F325D3485EB970175",
-        QueueMode::Silly => "B2EE21AE4D716D4BC84E558DB0B5FCC8",
+        QueueMode::OneVOne => Some("C1413E164DB8DCE5DC2CC19A2E4AEBA5"),
+        QueueMode::TwoVTwo => Some("720C33654366ACE4376C668A91B54234"),
+        QueueMode::Ffa => Some("1789A04E4D313B3F325D3485EB970175"),
+        QueueMode::Chaos => None,
     }
 }
 
@@ -572,7 +572,15 @@ impl PMStateInfo {
         wd(cx, header).transform.translation = [0.0, 0.0];
         set_vis(cx, "SizeBox_1", if self.queue.is_some() { Vis::SelfHitTestInvisible } else { Vis::Collapsed });
         if let Some(q) = self.queue.clone() {
-            let list: Vec<String> = q.into_iter().map(|m| cx.view.game_text(queue_label_key(m)).to_string()).collect();
+            let list: Vec<String> = q
+                .into_iter()
+                .map(|m| {
+                    queue_label_key(m).map_or_else(
+                        || crate::menu::custom_text::CHAOS_QUEUE.to_owned(),
+                        |k| cx.view.game_text(k).to_string(),
+                    )
+                })
+                .collect();
             set_text(cx, "QueueLabel", &list.join(", "));
         }
     }
