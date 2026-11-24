@@ -111,7 +111,21 @@ pub fn barrier(w: &World) -> Option<[Real; 4]> {
     Some([math::narrow(g.left), math::narrow(g.right), math::narrow(g.bottom), math::narrow(g.top)])
 }
 
-/// `dodgeballReset`: the World's reset, after the stage is built and the fighters spawned: the barrier (once: a
+/// The team that plays the left half (negative x): the team of the player whose spawn spot stands furthest left.
+/// Every other team plays the right half. The spots go by player index in 1v1 and by team in 2v2, so the halves
+/// follow where the fighters start, whatever team number a menu gave them.
+fn left_team(w: &World) -> i32 {
+    let mut best: Option<(Real, i32)> = None;
+    for (i, &f) in w.players.iter().enumerate() {
+        let Some(s) = w.stage.spawns.get(i) else { continue };
+        if best.is_none_or(|(x, _)| s.x < x) {
+            best = Some((s.x, w.fighter(f).team.team));
+        }
+    }
+    best.map_or(0, |(_, t)| t)
+}
+
+/// The World's reset, after the stage is built and the fighters spawned: the barrier (once: a
 /// later reset keeps it) and each player's respawn spot moved out from the middle until the fighter's capsule clears
 /// the barrier by [`RESPAWN_GAP`] (the stages' respawn spots stand 100 to 220 from the middle).
 pub fn dodgeball_reset(w: &mut World) {
@@ -135,20 +149,18 @@ pub fn dodgeball_reset(w: &mut World) {
         let made = stage::add_runtime_solid(w, BARRIER_SPEC, &d);
         debug_assert!(made, "the barrier's box is a rectangle on the axes");
     }
-    for (i, f) in w.players.clone().into_iter().enumerate() {
+    let left = left_team(w);
+    for i in 0..w.players.len() {
+        let f = w.players[i];
         let Some(s) = w.stage.respawns.get(i).copied() else { continue };
         let clear = HALF_WIDTH + crate::fighter::cap_radius(w, f) + RESPAWN_GAP;
-        let x = match w.fighter(f).team.team {
-            0 => math::min(s.x, -clear),
-            1 => math::max(s.x, clear),
-            _ => continue,
-        };
+        let x = if w.fighter(f).team.team == left { math::min(s.x, -clear) } else { math::max(s.x, clear) };
         w.stage.respawns[i].x = x;
     }
 }
 
-/// `dodgeballPutBack`: each live player whose capsule is past its half's face of the barrier (team 0 the left half,
-/// negative x; team 1 the right) is placed with its capsule at that face, its speed across the barrier dropped as a
+/// Each live player whose capsule is past its half's face of the barrier (`left_team` the left half, negative x;
+/// every other team the right) is placed with its capsule at that face, its speed across the barrier dropped as a
 /// wall stops it (the speed along it stays: a fighter knocked into it slides on). One dead, rung out or waiting for
 /// its respawn (`Life::dead`) is left alone: its respawn spot is clear of the barrier.
 ///
@@ -159,22 +171,22 @@ pub fn put_back(w: &mut World) {
     if !barrier_on(w) {
         return;
     }
-    for f in w.players.clone() {
+    let left = left_team(w);
+    for i in 0..w.players.len() {
+        let f = w.players[i];
         if w.fighter(f).life.dead != 0.0 {
             continue;
         }
         let face = HALF_WIDTH + crate::fighter::cap_radius(w, f);
         let fr = w.fighter_mut(f);
-        match fr.team.team {
-            0 if fr.body.x > -face => {
+        if fr.team.team == left {
+            if fr.body.x > -face {
                 fr.body.x = -face;
                 fr.body.vx = math::min(fr.body.vx, 0.0);
             }
-            1 if fr.body.x < face => {
-                fr.body.x = face;
-                fr.body.vx = math::max(fr.body.vx, 0.0);
-            }
-            _ => {}
+        } else if fr.body.x < face {
+            fr.body.x = face;
+            fr.body.vx = math::max(fr.body.vx, 0.0);
         }
     }
 }
@@ -188,7 +200,7 @@ fn state_mut(w: &mut World) -> &mut DodgeballState {
     w.dodgeball.as_mut().expect("the rule's state")
 }
 
-/// `dodgeballLatent`: the drops' clock, in the world's leftover latent pass behind the Chaos Wheel's. As the wheel's,
+/// The drops' clock, in the world's leftover latent pass behind the Chaos Wheel's. As the wheel's,
 /// it counts from BPI_SetMatchStarted in a match with its flow and from the World's first step in one without, and
 /// stops at the match's end. At each drop tick, half 0 then half 1.
 pub fn dodgeball_latent(w: &mut World) {
@@ -246,6 +258,10 @@ pub fn pool() -> Vec<Name> {
 // the same tick.
 fn drop_on(w: &mut World, half: usize) {
     if lying_on(w, half) >= DROP_CAP {
+        return;
+    }
+    // (a stage with no item area has no drops; `actor_of_class` would warn at each one)
+    if w.data.spawn_areas.is_empty() {
         return;
     }
     let Some(area) = items::actor_of_class(w) else { return };

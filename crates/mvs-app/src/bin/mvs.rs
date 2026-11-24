@@ -13,7 +13,7 @@
 //!   [--waves endless|100 [--character <key>] [--waves-bot <level>]]   (a Waves run on `--stage`, cast from `--seed`)
 //!   [--wheel [--wheel-seconds <n>]]   (with `--play` too: the Chaos Wheel rule in the command line's match, a Lab and Local Play;
 //!   with `--relay`, on both players' lines)
-//!   [--dodgeball]   (the Dodgeball rule in the same matches, 1v1 and 2v2)
+//!   [--dodgeball]   (the Dodgeball rule in the same matches, 1v1 and 2v2; with `--relay`, on both players' lines)
 //!   [--relay <addr> (--host | --join <lobby>) [--key <file>] [--feed <trace match>]]
 //!   [--online-config <file> [--direct-loopback] [--online-open host|join:<code>|queue:<mode>[,..]] [--online-lag <ms>]
 //!   [--online-desync-at <tick>] [--feed <trace match>]]

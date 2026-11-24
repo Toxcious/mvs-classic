@@ -269,6 +269,33 @@ fn a_fighter_placed_past_the_barrier_is_put_back_within_a_tick() {
 }
 
 #[test]
+fn the_halves_follow_the_spawn_spots_not_the_team_numbers() {
+    // the first player on team 1 and the second on team 0 (Local Play's team switch), and the Lab's teams 2 and 3:
+    // the spots go by player, so the first player keeps the left half
+    for teams in [[1, 0], [2, 3], [3, 1]] {
+        let mut s = setup(&["superman", "shaggy"], Some(Dodgeball::PLAY), false);
+        for (p, t) in s.players.iter_mut().zip(teams) {
+            p.team = Some(t);
+        }
+        let Some(mut h) = harness::fresh_on(&s, 5, "m011") else { return };
+        let (f0, f1) = (h.fighter(0), h.fighter(1));
+        assert_eq!(h.w.fighter(f0).team.team, i32::from(teams[0]), "the set-up's team is the fighter's");
+        let (x0, x1) = (h.w.fighter(f0).body.x, h.w.fighter(f1).body.x);
+        idle(&mut h, 60);
+        let (b0, b1) = (&h.w.fighter(f0).body, &h.w.fighter(f1).body);
+        assert!(x0 < 0.0 && x1 > 0.0, "teams {teams:?}: the spots are by player ({x0}, {x1})");
+        assert_eq!((b0.x, b1.x), (x0, x1), "teams {teams:?}: nobody was moved off its spot");
+        // each put back to its own side, and its respawn spot on that side
+        for (f, x, side) in [(f0, 600.0, -1.0), (f1, -600.0, 1.0)] {
+            h.w.fighter_mut(f).body.x = x;
+            h.step(&[NO_INPUT, NO_INPUT]);
+            assert_eq!(h.w.fighter(f).body.x, side * face(&h.w, f), "teams {teams:?}: put at its own face");
+        }
+        assert!(h.w.stage.respawns[0].x < 0.0 && h.w.stage.respawns[1].x > 0.0, "teams {teams:?}: respawn sides");
+    }
+}
+
+#[test]
 fn a_respawn_clears_the_barrier() {
     // the Iron Giant's capsule is the widest; Scooby's Mansion's respawn spots are among the nearest the middle
     let Some(mut h) = on("scoobydoo", &["irongiant", "irongiant"], Some(Dodgeball::PLAY), false, 3) else { return };
