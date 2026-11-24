@@ -195,6 +195,30 @@ fn a_shaggy_match_poses_each_tick() {
     eprintln!("{} meshes drawn for fighter 0", fighters[0].meshes.len());
 }
 
+/// A big match's eight fighters each take their place in the priority stack (a body past the build's four once
+/// kept no index, or a stale one).
+#[test]
+fn eight_fighters_each_take_a_priority_index() {
+    let Some(store) = store() else { return };
+    let data = Arc::new(GameData::load(&store, &["shaggy"], "trainingroomsmall").expect("the gamedata kind loads"));
+    let player = MatchPlayer { character: Some("shaggy".into()), ..MatchPlayer::default() };
+    let setup = MatchSetup { players: vec![player; 8], ..MatchSetup::default() };
+    let mut w = World::new(data, 7, &setup).expect("binds");
+    let mut poser = ViewPoser::new(&store, &w).expect("the views");
+    let (mut fighters, mut actors) = (Vec::<FighterPose>::new(), Vec::new());
+    // (setupMaterials runs once its one-second Delay is over)
+    for _ in 0..90 {
+        w.step(&[InputState::default(); 8]);
+        poser.place(&w);
+        w.events.clear();
+    }
+    poser.present(&w, 1.0, &mut fighters, &mut actors);
+    assert_eq!(fighters.len(), 8);
+    let mut at: Vec<u8> = fighters.iter().map(|f| f.priority.expect("an index in the stack")).collect();
+    at.sort_unstable();
+    assert_eq!(at, (0..8).collect::<Vec<u8>>());
+}
+
 /// Evil Morty (C019_S02) poses through his EvilMorty slot (chars/morty.rs EvilMortyPose; its view once panicked at the
 /// match's load): the skin's Axe_Swing2 sequence loads, and the Trident part (C019_S02_Weapon_SkelMesh) is drawn only
 /// inside the track's SetSubmeshVisibility window.

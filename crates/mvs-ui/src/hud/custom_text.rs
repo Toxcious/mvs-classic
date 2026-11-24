@@ -11,6 +11,12 @@ pub fn stock_win_condition(style: usize, stocks: i32) -> String {
     }
 }
 
+/// (Big matches) The countdown card's VS number of a side of more than two, which the build's TeamStyle numbers ("1",
+/// "2") do not hold: its player count.
+pub fn vs_number(players: usize) -> String {
+    players.to_string()
+}
+
 /// (Waves) The run's counter over the scoreboard: the ring-outs so far, out of the run's target in 100 Ring-Outs.
 pub fn waves_counter(ring_outs: u32, target: Option<u32>) -> String {
     match target {

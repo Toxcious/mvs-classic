@@ -39,6 +39,7 @@ use mvs_sim::fighter::control::ability_row;
 use mvs_sim::names::Name;
 use mvs_sim::{Event, World};
 use mvs_view::Camera;
+use mvs_view::skins::{ffa_team_palette, team_index_palette};
 
 use crate::Result;
 use crate::bundle::{Bundle, Rgba};
@@ -484,8 +485,8 @@ pub struct Hud {
     bundle_texts: IndexMap<String, String>,
     setup: HudSetup,
     players: Vec<BrokerPlayer>,
-    /// UI_Functions Color for Team, by team index.
-    team_colors: [Rgba; 4],
+    /// UI_Functions Color for Team, by team index (at least the build's four).
+    team_colors: Vec<Rgba>,
     /// Per HUD pawn: the players by index, then each mode pawn attached after the start, in attach order: its sim
     /// id (None once detached: its widgets are kept unseen, never drawn) and its
     /// broker's player index.
@@ -581,26 +582,27 @@ enum Part {
 }
 
 /// UI_Functions Color for Team, as a palette index: the Lab uses the team index; Free For All gives my team 0 and the
-/// others 1 + their place among the other team indexes; two teams give my team 0, the other 1.
+/// others 1 + their place among the other team indexes; two teams give my team 0, the other 1. A team past the
+/// build's four takes the opponent palettes in turn (mvs-view skins.rs `other_team_palette`).
 fn team_palette(setup: &HudSetup, team: u8) -> usize {
     let mine = setup.players[setup.me].team;
     match setup.mode {
-        4 => usize::from(team),
-        3 if team == mine => 0,
-        3 => (0..4u8).filter(|&t| t != mine).position(|t| t == team).map_or(0, |k| 1 + k),
+        4 => team_index_palette(team),
+        3 => ffa_team_palette(team, mine),
         _ => usize::from(team != mine),
     }
 }
 
 /// UI_Functions Color for Player: online IsMe ? 4 : the local player's team 0, another 1; offline in training or
-/// with exactly one human player IsMe ? 4 : team index, otherwise the team index.
+/// with exactly one human player IsMe ? 4 : team index, otherwise the team index (past the build's four teams,
+/// `team_index_palette`).
 fn player_palette(setup: &HudSetup, player: usize) -> usize {
     if setup.online {
         let mine = setup.players[setup.me].team;
         return if player == setup.me { 4 } else { usize::from(setup.players[player].team != mine) };
     }
     let one_human = setup.mode == 4 || setup.players.iter().filter(|p| !p.bot).count() == 1;
-    if one_human && player == setup.me { 4 } else { usize::from(setup.players[player].team) }
+    if one_human && player == setup.me { 4 } else { team_index_palette(setup.players[player].team) }
 }
 
 /// The struct a queued feeder fills (BPI_PopText: through the pawn's queue).
@@ -750,7 +752,9 @@ impl Hud {
             })
             .collect();
         let tops = (0..n).map(|i| AttachedTop::new(&top, &players[i], i)).collect();
-        let team_colors = [0, 1, 2, 3].map(|t| pal(team_palette(setup, t)));
+        // (the build's four teams, and a team per player past them: the port's big Free For All)
+        let teams = setup.players.iter().map(|p| p.team + 1).max().unwrap_or(0).max(4);
+        let team_colors: Vec<Rgba> = (0..teams).map(|t| pal(team_palette(setup, t))).collect();
         // PFGPlayerController's ReceiveBeginPlay -> CreateUI -> EnableHUD creates UI_Game (HUD time 0); UI_Game
         // Update Team Colors: Broker.SetColorForTeam(0 / 1, Color for Team(i)).
         let sb = ScoreboardSetup {
@@ -765,6 +769,7 @@ impl Hud {
                 .flatten()
                 .map_or_else(String::new, |k| game_text(text, k)),
             stage_label: setup.arcade.map(|a| arcade_stage(text, MI_ARCADE_STAGE, "{Number}", a)),
+            teams: setup.players.iter().map(|p| p.team).collect(),
         };
         let scoreboard = Scoreboard::new(b, &players, 0.0, &sb, &ui, &abilities);
         let wheel_card = setup.wheel.clone().map(|pool| {
@@ -777,9 +782,10 @@ impl Hud {
             let style = usize::from(setup.mode - 1);
             let mut c =
                 Countdown::new(b, text, style, setup.max_score, setup.stocks, setup.wheel.is_some(), stage.as_deref());
-            // Deviation: a Teams match with sides of different sizes (2v1) shows each side's own count.
+            // Deviation: a Teams match with sides of different sizes (2v1) or of more than two (the port's big
+            // matches) shows each side's own count.
             let sizes = [0, 1].map(|t| setup.players.iter().filter(|p| p.team == t).count());
-            if style == 1 && sizes[0] != sizes[1] {
+            if style == 1 && (sizes[0] != sizes[1] || sizes[0] > 2) {
                 c.set_sides(text, sizes);
             }
             c
@@ -1522,7 +1528,8 @@ impl Hud {
             // text, Color for Team(the scoring team), (0, 0, 0, 0)): offline the team's name.
             Event::MatchPointShow { team } => {
                 let adv = if *team == 0 { &self.texts.blue_advantage } else { &self.texts.red_advantage };
-                let color = self.team_colors[usize::try_from(*team).unwrap_or(0).min(3)];
+                let color = usize::try_from(*team).ok().and_then(|t| self.team_colors.get(t)).copied();
+                let color = color.unwrap_or(self.team_colors[0]);
                 for p in warning_pops(&self.texts.match_point, adv, color, [0.0; 4], None) {
                     self.pops.add(p, now, &mut self.order);
                 }
@@ -2662,6 +2669,29 @@ mod tests {
         let hud = Hud::new(&bundle, &text, &h.w, &s).expect("the HUD");
         assert!((0..4).all(|i| hud.scoreboard.slot_parts(i).is_some()), "the four slots");
         assert_eq!(numbers(&hud), ["2", "2"]);
+        // Big matches: a 4v3 and a 4v4 have a slot per player and each side's count; a Free For All of eight a slot
+        // per player, and no team colour past the fourth team is the player's own.
+        for teams in [&[0, 1, 0, 1, 0, 1, 0][..], &[0, 1, 0, 1, 0, 1, 0, 1]] {
+            let ms = MatchSetup { players: teams.iter().map(|&t| player(t)).collect(), ..ms.clone() };
+            let Some(h) = mvs_sim_trace::harness::fresh(&ms, 1) else { return };
+            let bots: Vec<bool> = (0..teams.len()).map(|i| i > 0).collect();
+            let hud = Hud::new(&bundle, &text, &h.w, &setup(2, teams, &bots)).expect("the HUD");
+            assert!((0..teams.len()).all(|i| hud.scoreboard.slot_parts(i).is_some()), "a slot per player");
+            let left = teams.iter().filter(|&&t| t == 0).count().to_string();
+            let right = teams.iter().filter(|&&t| t == 1).count().to_string();
+            assert_eq!(numbers(&hud), [left, right]);
+        }
+        let ffa: Vec<u8> = (0..8).collect();
+        let ms = MatchSetup {
+            players: ffa.iter().map(|_| MatchPlayer { team: None, ..player(0) }).collect(),
+            team_style: TeamStyle::FreeForAll,
+            ..ms
+        };
+        let Some(h) = mvs_sim_trace::harness::fresh(&ms, 1) else { return };
+        let bots: Vec<bool> = (0..8).map(|i| i > 0).collect();
+        let hud = Hud::new(&bundle, &text, &h.w, &setup(3, &ffa, &bots)).expect("the HUD");
+        assert!((0..8).all(|i| hud.scoreboard.slot_parts(i).is_some()), "a slot per player");
+        assert!(hud.team_colors.len() == 8 && hud.team_colors[1..].iter().all(|&c| c != hud.team_colors[0]));
     }
 
     /// Velma's GlassesOff blur: up only in an online match (IsPlayingOnline) for a live local Velma whose

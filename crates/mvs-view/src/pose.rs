@@ -611,6 +611,8 @@ pub struct ViewPoser {
     priority: Vec<i32>,
     /// The load's players (setupMaterials' pawns), by pawn id.
     players: Vec<i32>,
+    /// A match of more than four players (the port's own big matches).
+    big: bool,
     /// The store the views' data is read from (a mode's pawn is made at the step that first finds it, `sync_pawns`).
     store: mvs_store::Store,
     /// Pawn ids `sync_pawns` could not make a view for (warned once; asked again when the id leaves the world).
@@ -676,6 +678,7 @@ impl ViewPoser {
             flash_frames: f64::from(latent(0.15)),
             priority: Vec::new(),
             players: Vec::new(),
+            big: world.setup.players.len() > 4,
             store: store.clone(),
             refused: Vec::new(),
             me,
@@ -1296,16 +1299,25 @@ impl ViewPoser {
 
     /// SetOpacityMaskTextures for stack indexes 0..3: OpacityToggle 1 at index 0, else 0 and LocalPlayerSceneDepth
     /// the camera's capture of index - 1 (never taken off).
+    // Deviation: the build's loop stops at index 3 (four players at most); in a big match (more than four players)
+    // every index past it takes index 3's capture, so each fighter there is masked behind the stack's first three as
+    // the fourth is (left unset, one would keep the far-depth stand-in, or the capture of the index it was pushed
+    // down from). A match of four or fewer keeps the build's loop (a mode's pawns past index 3 stay unset).
     fn set_opacity_masks(&mut self) {
-        for index in 0..self.priority.len().min(4) {
+        let end = if self.big { self.priority.len() } else { self.priority.len().min(4) };
+        for index in 0..end {
             let id = self.priority[index];
             if let Some(r) = self.rec_of(id) {
-                r.priority = Some(index as u8);
+                r.priority = Some(u8::try_from(index).unwrap_or(u8::MAX));
                 let v = if index == 0 { 1.0 } else { 0.0 };
                 r.each_instance(|m| {
                     set_scalar(m, "OpacityToggle", v);
                     if index > 0 {
-                        set_texture(m, "LocalPlayerSceneDepth", PRIORITY_CAPTURES[index - 1]);
+                        set_texture(
+                            m,
+                            "LocalPlayerSceneDepth",
+                            PRIORITY_CAPTURES[index.min(PRIORITY_CAPTURES.len()) - 1],
+                        );
                     }
                 });
             }

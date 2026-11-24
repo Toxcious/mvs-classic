@@ -169,13 +169,17 @@ impl Countdown {
         }
     }
 
-    /// The VS numbers of a Teams match whose sides differ in size (a custom Versus lobby's 2v1): each side's own
-    /// count from the TeamStyle numbers ("1", "2"), team 0's on the left as the scoreboard places it.
+    /// The VS numbers of a Teams match whose sides differ in size (a custom Versus lobby's 2v1) or hold more than two
+    /// (the port's big matches): each side's own count from the TeamStyle numbers ("1", "2"), a side of more than two
+    /// its count (`custom_text::vs_number`), team 0's on the left as the scoreboard places it.
     // Deviation: the build sets TeamStyle's one number on both sides; its Teams match always has two a side.
     pub fn set_sides(&mut self, text: &GameText, sizes: [usize; 2]) {
         for (n, size) in ["VS_Number_Left", "VS_Number_Right"].into_iter().zip(sizes) {
-            let Some(k) = size.checked_sub(1).and_then(|i| VS_NUMBER.get(i).copied().flatten()) else { continue };
-            let vs = game_text(text, k);
+            let vs = match size.checked_sub(1).and_then(|i| VS_NUMBER.get(i).copied().flatten()) {
+                Some(k) => game_text(text, k),
+                None if size > 2 => super::custom_text::vs_number(size),
+                None => continue,
+            };
             let w = self.t.find(n);
             setup_detailed_text(&mut self.t, w, &vs);
         }
