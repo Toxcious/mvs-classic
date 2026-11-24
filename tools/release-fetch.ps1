@@ -1,9 +1,7 @@
-# Fetches a release the release workflow (.github/workflows/release.yml) made for its tag: finds the tag's run and
-# downloads what it made, checking each file's attestation (made by that workflow, from that tag, in that repo).
-# When the run packed the zips (its pack job, which needs the repo's Epic secrets), those are the release. Otherwise
-# it downloads the programs and runs `mvs-dist build --programs`, which adds the self check's reference (played on
-# this machine's store), Epic's SDK and credentials (MVS_EOS_DLL, MVS_EOS_CREDENTIALS) and the notices, zips and
-# guards. Out: target/dist.
+# Packs a release from the programs the release workflow (.github/workflows/release.yml) built for its tag: finds the
+# tag's run, downloads its programs, checks each one's attestation (built by that workflow, from that tag, in that
+# repo) and runs `mvs-dist build --programs`, which adds the self check's reference (played on this machine's store),
+# Epic's SDK and credentials (MVS_EOS_DLL, MVS_EOS_CREDENTIALS) and the notices, zips and guards. Out: target/dist.
 #   powershell -NoProfile -File tools/release-fetch.ps1 -Version 0.2.0 [-Wait] [-NoEos] [-Repo <owner>/<repo>]
 # -Wait waits for a run still going. Arguments after the named ones go to mvs-dist build (`--store <dir>`).
 # (no positional binding: an argument for mvs-dist such as `--store` must not land in -Repo)
@@ -40,42 +38,23 @@ if ($run.status -ne 'completed') {
     throw "release-fetch: the run $($run.databaseId) for $tag ended $($run.conclusion)"
 }
 
-function Test-Attested {
-    param([string]$File)
-    if (-not (Test-Path -LiteralPath $File)) { throw "release-fetch: the run has no $File" }
-    gh attestation verify $File -R $Repo --signer-workflow "$Repo/.github/workflows/$workflow" --source-ref "refs/tags/$tag" | Out-Null
-    Invoke-Native "the attestation of $File"
-    Write-Output "release-fetch: attested $(Split-Path -Leaf $File) $((Get-FileHash -LiteralPath $File -Algorithm SHA256).Hash.ToLower())"
-}
-
-# what it made, in a folder of this script's own
+# its programs, in a folder of this script's own
 $dir = Join-Path $root "target/ci-programs/$Version"
 if (Test-Path $dir) { Remove-Item -LiteralPath $dir -Recurse -Force }
 New-Item -ItemType Directory -Force $dir | Out-Null
 gh run download $run.databaseId -R $Repo -D $dir
 Invoke-Native 'gh run download'
-
-# the zips the run packed: the release as it is
-$zips = Join-Path $dir 'release-zips'
-if (Test-Path -LiteralPath $zips) {
-    $out = Join-Path $root 'target/dist'
-    if (Test-Path $out) { Remove-Item -LiteralPath $out -Recurse -Force }
-    New-Item -ItemType Directory -Force $out | Out-Null
-    foreach ($name in "MVS-Classic-$Version.zip", "MVS-Classic-Relay-$Version.zip") {
-        $zip = Join-Path $zips $name
-        Test-Attested $zip
-        Copy-Item -LiteralPath $zip -Destination $out
-    }
-    Write-Output "release-fetch: the run packed the release; its zips are in $out"
-    exit 0
-}
-Write-Output 'release-fetch: the run packed no zips (no Epic secrets); packing here'
 $windows = Join-Path $dir 'programs-windows'
 $linuxRelay = Join-Path $dir 'programs-relay-linux/mvs-relay'
 $files = @('mvs.exe', 'mvs-launcher.exe', 'mvs-relay.exe' | ForEach-Object { Join-Path $windows $_ }) + $linuxRelay
 
 # each one built by the release workflow, from the tag, in the repo
-foreach ($f in $files) { Test-Attested $f }
+foreach ($f in $files) {
+    if (-not (Test-Path -LiteralPath $f)) { throw "release-fetch: the run has no $f" }
+    gh attestation verify $f -R $Repo --signer-workflow "$Repo/.github/workflows/$workflow" --source-ref "refs/tags/$tag" | Out-Null
+    Invoke-Native "the attestation of $f"
+    Write-Output "release-fetch: attested $(Split-Path -Leaf $f) $((Get-FileHash -LiteralPath $f -Algorithm SHA256).Hash.ToLower())"
+}
 
 # the zips
 $dist = @('build', '--version', $Version, '--feed', "https://api.github.com/repos/$Repo/releases/latest",

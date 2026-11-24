@@ -47,10 +47,6 @@ pub struct Options {
     pub programs: Option<PathBuf>,
     /// The store the self check's match runs on (None: the one the built exe finds, its data root's).
     pub store: Option<PathBuf>,
-    /// The self check's reference made beforehand (the repo's self-check.json, made by `mvs --self-test --check-out`
-    /// on a store of the release's import): packed as it is, no store read. It must be for the id the packed exe's
-    /// `--compat-id` prints. The release workflow packs with it, where no store is.
-    pub self_check: Option<PathBuf>,
 }
 
 /// The EOS files a release adds, checked before anything is built. The credentials are never printed: a bad file is
@@ -232,31 +228,6 @@ fn self_check(exe: &Path, store: Option<&Path>, tmp: &Path) -> Result<Vec<u8>, S
     Ok(text)
 }
 
-/// A self check's reference made beforehand: `file` read, and held to the id `exe --compat-id` prints (the id a
-/// player's fresh import gets; a reference for another one is never used).
-fn made_self_check(exe: &Path, file: &Path) -> Result<Vec<u8>, String> {
-    let text = read(file)?;
-    let r: SelfCheckRef =
-        serde_json::from_slice(&text).map_err(|e| format!("dist: {} is not a self check: {e}", file.display()))?;
-    let out = Command::new(exe)
-        .arg("--compat-id")
-        .output()
-        .map_err(|e| format!("dist: {} --compat-id did not start: {e}", exe.display()))?;
-    let id = String::from_utf8_lossy(&out.stdout).trim().to_owned();
-    if !out.status.success() || id.is_empty() {
-        return Err(format!("dist: {} --compat-id gave no id", exe.display()));
-    }
-    if r.compat != id {
-        return Err(format!(
-            "dist: {} is for {}, the release's id is {id}: make it again with `mvs --self-test --check-out`",
-            file.display(),
-            r.compat
-        ));
-    }
-    println!("dist: self check {:08x} for {} (from {})", r.hash, r.compat, file.display());
-    Ok(text)
-}
-
 /// The whole release; Err names the step that failed.
 pub fn run(o: &Options) -> Result<(), String> {
     if parse_version(&o.version).is_none() {
@@ -283,9 +254,6 @@ pub fn run(o: &Options) -> Result<(), String> {
     }
     if o.programs.is_some() && o.no_build {
         return Err("dist: --programs and --no-build both name what to pack; give one".to_owned());
-    }
-    if o.self_check.is_some() && o.store.is_some() {
-        return Err("dist: --self-check and --store both name the self check's source; give one".to_owned());
     }
     if let Some(dir) = &o.programs
         && !dir.is_dir()
@@ -355,10 +323,7 @@ pub fn run(o: &Options) -> Result<(), String> {
     check_version(&exe, &format!("mvs {}", o.version))?;
     check_version(&launcher_exe, &format!("mvs-launcher {}", o.version))?;
     check_version(&relay_exe, &format!("mvs-relay {}", o.version))?;
-    let check = match &o.self_check {
-        Some(file) => made_self_check(&exe, file)?,
-        None => self_check(&exe, o.store.as_deref(), &o.out.join(SELF_CHECK_JSON))?,
-    };
+    let check = self_check(&exe, o.store.as_deref(), &o.out.join(SELF_CHECK_JSON))?;
 
     // the game's folder and zip
     let licence = read(&o.repo.join("LICENSE"))?;

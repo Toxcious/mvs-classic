@@ -1,14 +1,9 @@
-# Builds a release from its tag on GitHub's own machines and attests what it makes (where it was built, from which
-# commit, by this workflow), so anyone can check that a release came from this repo's code:
-#   gh attestation verify MVS-Classic-<version>.zip --repo <owner>/<repo>
+# Builds a release's programs from its tag on GitHub's own machines and attests each one (where it was built, from
+# which commit, by this workflow), so anyone can check that the programs in a release zip came from this repo's code:
 #   gh attestation verify "MVS Classic.exe" --repo <owner>/<repo>
-# The jobs windows and relay-linux build and attest the programs; pack lays out and zips the release with
-# `mvs-dist build --programs` and attests both zips. Pack adds the self check's reference committed with the tag
-# (self-check.json, made on the maintainer's machine by playing the check match on an imported store; mvs-dist holds
-# it to the game's own id) and Epic's SDK and credentials, from the repo's secrets: EOS_CREDENTIALS (the eos.json
-# text) and EOS_SDK_PASSPHRASE (the passphrase of release/EOSSDK-Win64-Shipping.dll.gpg, Epic's DLL encrypted with
-# gpg). Without those secrets pack stops before packing and tools/release-fetch.ps1 packs on the maintainer's
-# machine from the attested programs. Started only by a version tag.
+# The zip itself is packed on the maintainer's machine by tools/release-fetch.ps1, which downloads these programs,
+# verifies their attestations and adds what only that machine has (the self check's reference, made by playing the
+# check match on an imported store, and Epic's SDK). Started only by a version tag; it holds no secrets.
 name: release
 
 on:
@@ -101,78 +96,4 @@ jobs:
         with:
           name: programs-relay-linux
           path: programs/
-          if-no-files-found: error
-
-  pack:
-    needs: [windows, relay-linux]
-    runs-on: windows-latest
-    timeout-minutes: 60
-    permissions:
-      contents: read
-      id-token: write
-      attestations: write
-    steps:
-      - name: Epic files
-        id: eos
-        shell: bash
-        env:
-          EOS_CREDENTIALS: ${{ secrets.EOS_CREDENTIALS }}
-          EOS_SDK_PASSPHRASE: ${{ secrets.EOS_SDK_PASSPHRASE }}
-        run: |
-          if [ -z "$EOS_CREDENTIALS" ] || [ -z "$EOS_SDK_PASSPHRASE" ]; then
-            echo "no Epic secrets: the release is packed on the maintainer's machine"
-            echo "ready=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "ready=true" >> "$GITHUB_OUTPUT"
-          fi
-      - if: steps.eos.outputs.ready == 'true'
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - if: steps.eos.outputs.ready == 'true'
-        uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
-      - if: steps.eos.outputs.ready == 'true'
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: programs-windows
-          path: programs
-      - if: steps.eos.outputs.ready == 'true'
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: programs-relay-linux
-          path: relay-linux
-      - name: Pack
-        if: steps.eos.outputs.ready == 'true'
-        shell: bash
-        env:
-          EOS_CREDENTIALS: ${{ secrets.EOS_CREDENTIALS }}
-          EOS_SDK_PASSPHRASE: ${{ secrets.EOS_SDK_PASSPHRASE }}
-        run: |
-          version="${GITHUB_REF_NAME#v}"
-          eos="$RUNNER_TEMP/eos"
-          mkdir -p "$eos"
-          printf '%s' "$EOS_CREDENTIALS" > "$eos/eos.json"
-          # (the passphrase is hex: a line break it was stored with is dropped)
-          pass=$(printf '%s' "$EOS_SDK_PASSPHRASE" | tr -d '\r\n')
-          gpg --batch --yes --quiet --pinentry-mode loopback --passphrase "$pass" \
-            --output "$eos/EOSSDK-Win64-Shipping.dll" --decrypt release/EOSSDK-Win64-Shipping.dll.gpg
-          export MVS_EOS_DLL="$eos/EOSSDK-Win64-Shipping.dll" MVS_EOS_CREDENTIALS="$eos/eos.json"
-          cargo build --release --locked -p mvs-dist --bin mvs-dist
-          target/release/mvs-dist.exe build --version "$version" \
-            --feed "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/latest" \
-            --programs programs --relay-linux relay-linux/mvs-relay \
-            --self-check self-check.json --eos --out dist
-          rm -rf "$eos"
-          mkdir zips
-          cp dist/*.zip zips/
-          sha256sum zips/*
-      - if: steps.eos.outputs.ready == 'true'
-        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
-        with:
-          subject-path: zips/*.zip
-      - if: steps.eos.outputs.ready == 'true'
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: release-zips
-          path: zips/
           if-no-files-found: error

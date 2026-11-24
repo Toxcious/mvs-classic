@@ -196,18 +196,8 @@ With the [GitHub CLI](https://cli.github.com/), check a program from the zip:
 gh attestation verify "game\MVS Classic.exe" --repo Toxcious/mvs-classic
 ```
 
-The same works for `MVSC Launcher.exe` and both relays. Where the workflow also packed the zip, the zip is attested
-too, which covers every file in it:
-
-```
-gh attestation verify MVS-Classic-<version>.zip --repo Toxcious/mvs-classic
-```
-
-Otherwise the zip was packed on the maintainer's machine, and only its programs are attested. The rest of it is
-Epic's SDK (`EOSSDK-Win64-Shipping.dll`, signed by Epic: its Properties, Digital Signatures) and small text files you
-can read: the licences, `online.json` (the relay server the game connects to), `resources/eos.json` (the game's Epic
-credentials), `self-check.json` (the result the game's start-up check expects) and `release-files.txt`. Releases
-made before the workflow was added have no attestations.
+The same works for `MVSC Launcher.exe` and both relays. The rest of the zip is text you can read (licences, small
+JSON files) and Epic's SDK, which Epic signs. Releases made before the workflow was added have no attestations.
 
 ### Check a change
 
