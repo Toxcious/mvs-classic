@@ -81,6 +81,8 @@ lz4_flex = { version = "0.11", default-features = false, features = ["safe-decod
 windows = "0.62.2"
 # the COM objects the port implements (`#[implement]` names this crate: mvs-audio's device notifications)
 windows-core = "0.62.2"
+# the C library on Linux (mvs-ui: the launcher clock's local time)
+libc = "0.2"
 
 [profile.release]
 debug = "line-tables-only"

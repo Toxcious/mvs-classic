@@ -35,6 +35,10 @@ windows = { workspace = true, features = [
   "Win32_System_SystemInformation",
 ] }
 
+# Linux: localtime_r, the launcher clock's local time.
+[target.'cfg(not(windows))'.dependencies]
+libc.workspace = true
+
 [dev-dependencies]
 mvs-sim-trace = { path = "../mvs-sim-trace" }
 mvs-trace.workspace = true

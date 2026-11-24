@@ -596,8 +596,58 @@ fn local_seconds() -> u64 {
     u64::from(st.wHour) * 3600 + u64::from(st.wMinute) * 60 + u64::from(st.wSecond)
 }
 
-/// Elsewhere (no local time read): the UTC time of day, s.
+/// Linux: the local time of day, s, that `localtime_r` gives for `time(NULL)` (the zone `TZ` names, else
+/// `/etc/localtime`); UTC when it cannot be read.
 #[cfg(not(windows))]
 fn local_seconds() -> u64 {
-    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs() % 86_400)
+    // SAFETY: time with a null pointer only returns the clock; localtime_r writes only the tm it is given.
+    let local = unsafe {
+        let now = libc::time(std::ptr::null_mut());
+        let mut tm: libc::tm = std::mem::zeroed();
+        (!libc::localtime_r(&now, &mut tm).is_null()).then_some(tm)
+    };
+    match local {
+        Some(tm) => (tm.tm_hour * 3600 + tm.tm_min * 60 + tm.tm_sec) as u64,
+        None => std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs() % 86_400),
+    }
+}
+
+#[cfg(all(test, not(windows)))]
+mod tests {
+    use super::local_seconds;
+
+    /// The offset from UTC, s, of the zone `TZ` names: `UTC` or `Etc/GMT±N` (POSIX signs: `Etc/GMT+5` is UTC-5).
+    fn tz_offset() -> i64 {
+        let tz = std::env::var("TZ").expect("run with TZ set, e.g. TZ=Etc/GMT+5");
+        match tz.as_str() {
+            "UTC" | "Etc/UTC" => 0,
+            _ => {
+                let n = tz.strip_prefix("Etc/GMT").expect("TZ is UTC or Etc/GMT+N / Etc/GMT-N");
+                -n.parse::<i64>().expect("TZ's hour offset") * 3600
+            }
+        }
+    }
+
+    /// The UTC time of day, s.
+    fn utc_seconds() -> i64 {
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap();
+        (now.as_secs() % 86_400) as i64
+    }
+
+    // Ignored: it reads the process's TZ, which a test cannot set safely (set_var in a threaded test binary), so it
+    // runs on its own with TZ given from outside: `TZ=Etc/GMT+5 <test binary> --ignored local_seconds_follows_tz`.
+    #[test]
+    #[ignore]
+    fn local_seconds_follows_tz() {
+        let offset = tz_offset();
+        let before = utc_seconds();
+        let local = local_seconds() as i64;
+        let after = utc_seconds();
+        let shifted = |utc: i64| (utc + offset).rem_euclid(86_400);
+        assert!(
+            local == shifted(before) || local == shifted(after),
+            "local {local} s, UTC {before} s shifted by {offset} s is {}",
+            shifted(before)
+        );
+    }
 }
