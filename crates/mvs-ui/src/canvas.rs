@@ -36,24 +36,7 @@ pub struct Canvas<'a> {
 impl Canvas<'_> {
     /// sim (x, y, depth) in UE cm -> pixels (the HUD's anchor projection, unrounded). None behind the camera.
     pub fn to(&self, x: f64, y: f64, z: f64) -> Option<[f64; 2]> {
-        let cam = self.camera;
-        let ue = [z, -x, y];
-        let rel = [ue[0] - cam.origin[0], ue[1] - cam.origin[1], ue[2] - cam.origin[2]];
-        let row = |v: [f64; 4], m: &mvs_view::M4| {
-            let mut o = [0.0; 4];
-            for (j, oj) in o.iter_mut().enumerate() {
-                *oj = v[0] * m[0][j] + v[1] * m[1][j] + v[2] * m[2][j] + v[3] * m[3][j];
-            }
-            o
-        };
-        let view = row([rel[0], rel[1], rel[2], 1.0], &cam.translated_world_to_view);
-        let clip = row(view, &cam.view_to_clip);
-        if clip[3] <= 0.0 {
-            return None;
-        }
-        let (nx, ny) = (clip[0] / clip[3], clip[1] / clip[3]);
-        let [w, h] = self.size.map(f64::from);
-        Some([((nx + 1.0) / 2.0) * w, ((1.0 - ny) / 2.0) * h])
+        project(self.camera, self.size, x, y, z)
     }
 
     /// A length at a place, in pixels.
@@ -61,7 +44,31 @@ impl Canvas<'_> {
         let Some(t) = self.to(x, y + r, z) else { return 0.0 };
         self.to(x, y, z).map_or(0.0, |p| (p[1] - t[1]).abs())
     }
+}
 
+/// sim (x, y, depth) in UE cm -> pixels of a target `size` pixels wide and high, seen by `cam`. None behind the
+/// camera.
+pub fn project(cam: &Camera, size: [u32; 2], x: f64, y: f64, z: f64) -> Option<[f64; 2]> {
+    let ue = [z, -x, y];
+    let rel = [ue[0] - cam.origin[0], ue[1] - cam.origin[1], ue[2] - cam.origin[2]];
+    let row = |v: [f64; 4], m: &mvs_view::M4| {
+        let mut o = [0.0; 4];
+        for (j, oj) in o.iter_mut().enumerate() {
+            *oj = v[0] * m[0][j] + v[1] * m[1][j] + v[2] * m[2][j] + v[3] * m[3][j];
+        }
+        o
+    };
+    let view = row([rel[0], rel[1], rel[2], 1.0], &cam.translated_world_to_view);
+    let clip = row(view, &cam.view_to_clip);
+    if clip[3] <= 0.0 {
+        return None;
+    }
+    let (nx, ny) = (clip[0] / clip[3], clip[1] / clip[3]);
+    let [w, h] = size.map(f64::from);
+    Some([((nx + 1.0) / 2.0) * w, ((1.0 - ny) / 2.0) * h])
+}
+
+impl Canvas<'_> {
     /// A hex colour at `a` alpha, linear.
     pub fn color(c: Hex, a: f64) -> [f64; 4] {
         let l = linear(c);
