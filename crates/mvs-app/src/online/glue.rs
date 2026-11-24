@@ -35,10 +35,16 @@ pub(crate) const PRODUCT: &str = "mvs";
 /// The product name EOS is told.
 const EOS_PRODUCT: &str = "MVS Classic";
 
+/// The EOS SDK's library beside the exe in a release folder: `mvs_release::EOS_DLL` on Windows, `EOS_SO` on Linux.
+#[cfg(windows)]
+const EOS_LIBRARY: &str = mvs_release::EOS_DLL;
+#[cfg(not(windows))]
+const EOS_LIBRARY: &str = mvs_release::EOS_SO;
+
 /// Where the EOS SDK's DLL and the product's credentials are: those MVS_EOS_DLL and
-/// MVS_EOS_CREDENTIALS name when both are files, else the release folder's beside the exe (`mvs_release::EOS_DLL`,
-/// `EOS_CREDENTIALS`: a release built with the SDK packs both); None when neither pair is whole (online play through
-/// Epic is off).
+/// MVS_EOS_CREDENTIALS name when both are files, else the release folder's beside the exe (`mvs_release::EOS_DLL`
+/// on Windows, `EOS_SO` on Linux, and `EOS_CREDENTIALS`: a release built with the SDK packs both); None when neither
+/// pair is whole (online play through Epic is off).
 // Deviation: the exe's folder alone was taken in a release and the environment alone in a dev run; here the
 // environment pair wins in any build, and a half pair (one variable unset or not a file) falls through to the exe's
 // folder without a word.
@@ -51,7 +57,7 @@ pub fn eos_files() -> Option<(PathBuf, PathBuf)> {
         return Some((dll, credentials));
     }
     let dir = std::env::current_exe().ok()?.parent()?.to_path_buf();
-    let dll = dir.join(mvs_release::EOS_DLL);
+    let dll = dir.join(EOS_LIBRARY);
     let credentials = mvs_release::EOS_CREDENTIALS.split('/').fold(dir, |p, part| p.join(part));
     (dll.is_file() && credentials.is_file()).then_some((dll, credentials))
 }
@@ -691,5 +697,96 @@ mod tests {
         // (hash53 of 'b1|dev|a1,b2' and '')
         assert_eq!(hash53("b1|dev|a1,b2"), "1074a5b9be7604");
         assert_eq!(hash53(""), "0bdcb81aee8d83");
+    }
+
+    /// The two tests that set or clear MVS_EOS_DLL and MVS_EOS_CREDENTIALS hold this, so neither sees the other's.
+    #[cfg(not(windows))]
+    static EOS_ENV: Mutex<()> = Mutex::new(());
+
+    /// Sets (Some) or clears (None) the EOS pair; the caller holds EOS_ENV.
+    #[cfg(not(windows))]
+    fn set_eos_env(pair: Option<(&Path, &Path)>) {
+        // SAFETY: only the tests holding EOS_ENV write these two variables, and no other test reads them.
+        unsafe {
+            match pair {
+                Some((dll, credentials)) => {
+                    std::env::set_var("MVS_EOS_DLL", dll);
+                    std::env::set_var("MVS_EOS_CREDENTIALS", credentials);
+                }
+                None => {
+                    std::env::remove_var("MVS_EOS_DLL");
+                    std::env::remove_var("MVS_EOS_CREDENTIALS");
+                }
+            }
+        }
+    }
+
+    /// The files a test put beside the test binary, removed when the test ends (an assertion failing too), and the
+    /// `resources` folder when the test made it.
+    #[cfg(not(windows))]
+    struct BesideExe {
+        files: Vec<PathBuf>,
+        made_dir: Option<PathBuf>,
+    }
+
+    #[cfg(not(windows))]
+    impl Drop for BesideExe {
+        fn drop(&mut self) {
+            for f in &self.files {
+                let _ = std::fs::remove_file(f);
+            }
+            if let Some(d) = &self.made_dir {
+                let _ = std::fs::remove_dir(d);
+            }
+        }
+    }
+
+    /// On Linux with no EOS pair, the release folder's Linux library and credentials beside the exe are found; the
+    /// Windows DLL there is not.
+    #[cfg(not(windows))]
+    #[test]
+    fn eos_files_finds_the_linux_library_beside_the_exe() {
+        let _env = EOS_ENV.lock().unwrap_or_else(PoisonError::into_inner);
+        set_eos_env(None);
+        let exe = std::env::current_exe().expect("the test binary");
+        let dir = exe.parent().expect("its folder");
+        let resources = dir.join("resources");
+        let so = dir.join("libEOSSDK-Linux-Shipping.so");
+        let dll = dir.join("EOSSDK-Win64-Shipping.dll");
+        let credentials = resources.join("eos.json");
+        assert!(
+            !so.exists() && !dll.exists() && !credentials.exists(),
+            "an EOS file already sits beside the test binary"
+        );
+        let mut beside = BesideExe { files: Vec::new(), made_dir: (!resources.exists()).then(|| resources.clone()) };
+        std::fs::create_dir_all(&resources).expect("made");
+        for f in [&so, &credentials] {
+            std::fs::write(f, b"").expect("written");
+            beside.files.push(f.clone());
+        }
+        assert_eq!(eos_files(), Some((so.clone(), credentials.clone())));
+        std::fs::remove_file(&so).expect("removed");
+        std::fs::write(&dll, b"").expect("written");
+        beside.files.push(dll);
+        assert_eq!(eos_files(), None);
+    }
+
+    /// On Linux the EOS pair still names the SDK and the credentials (the options only: nothing is loaded).
+    #[cfg(not(windows))]
+    #[test]
+    fn the_eos_env_pair_is_still_read_on_linux() {
+        let _env = EOS_ENV.lock().unwrap_or_else(PoisonError::into_inner);
+        let dir = std::env::temp_dir().join(format!("mvs-glue-eos-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("made");
+        let (dll, credentials) = (dir.join("libEOSSDK.so"), dir.join("eos.json"));
+        std::fs::write(&dll, b"").expect("written");
+        std::fs::write(&credentials, b"{}").expect("written");
+        set_eos_env(Some((&dll, &credentials)));
+        let e = epic_of(&dir, "0.0.0");
+        set_eos_env(None);
+        let _ = std::fs::remove_dir_all(&dir);
+        let o = e.options.expect("the pair's options");
+        assert_eq!((o.files.dll, o.files.credentials), (dll, credentials));
+        assert_eq!(e.missing, None);
     }
 }

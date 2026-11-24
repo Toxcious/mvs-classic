@@ -94,6 +94,9 @@ pub const SELF_TEST_PASS: &str = "self-test result: PASS";
 
 /// Beside the game's program in a release folder: the EOS SDK's DLL (a release built with Epic's SDK; none without it).
 pub const EOS_DLL: &str = "EOSSDK-Win64-Shipping.dll";
+/// Beside the game's program in the Linux release folder: the EOS SDK's library for x86_64 (a release built with
+/// Epic's SDK; none without it).
+pub const EOS_SO: &str = "libEOSSDK-Linux-Shipping.so";
 /// Beside the game's program: the product's EOS credentials, read only by the SDK's start.
 pub const EOS_CREDENTIALS: &str = "resources/eos.json";
 /// At the top of the release folder: the player's data (settings, store, profile), which an update never touches.
