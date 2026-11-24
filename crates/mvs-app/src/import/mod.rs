@@ -102,7 +102,8 @@ const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 const BELOW_NORMAL_PRIORITY_CLASS: u32 = 0x0000_4000;
 
 /// The Windows process flags taken and dropped (a Linux child has no console to hide).
-// Unverified: stub, replaced in Task 5
+// (the Linux branch of the flags: the spawn's chain stays the Windows one)
+// Deviation: the import worker runs at normal priority on Linux, where Windows starts it below normal.
 #[cfg(not(windows))]
 trait CommandExt {
     fn creation_flags(&mut self, flags: u32) -> &mut Self;
@@ -150,7 +151,19 @@ impl Worker {
         use std::os::windows::process::CommandExt;
         let os = |what: &str, e: std::io::Error| Error::Match(format!("the import worker: {what}: {e}"));
         let job = job::Job::new(memory)?;
+        #[cfg(windows)]
         let mut child = Command::new(exe)
+            .args(["--import-worker", op.name()])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::inherit())
+            .creation_flags(CREATE_NO_WINDOW | BELOW_NORMAL_PRIORITY_CLASS)
+            .spawn()
+            .map_err(|e| os("its start", e))?;
+        // (the job's command: its cap and its parent's death signal are set in the child before its exec)
+        #[cfg(not(windows))]
+        let mut child = job
+            .command(exe)
             .args(["--import-worker", op.name()])
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -211,7 +224,15 @@ impl Worker {
                     if !self.ended {
                         match self.child.try_wait() {
                             Ok(None) => {}
+                            #[cfg(windows)]
                             Ok(Some(status)) => self.gone(status.code(), &mut out),
+                            // Deviation: a worker killed by a signal is named by 128 + the signal (the shell's
+                            // convention: SIGKILL 137), where the job's TerminateJobObject gives 1.
+                            #[cfg(not(windows))]
+                            Ok(Some(status)) => {
+                                use std::os::unix::process::ExitStatusExt;
+                                self.gone(status.code().or_else(|| status.signal().map(|s| 128 + s)), &mut out);
+                            }
                             Err(_) => self.gone(None, &mut out),
                         }
                     }

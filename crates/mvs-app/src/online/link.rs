@@ -2,9 +2,6 @@
 //! holds the instance (a named mutex and a pid file the launcher raises its window by), and a link the launcher
 //! hands over in the data folder's join-link file is joined from the menus.
 
-#[cfg(not(windows))]
-use std::path::Path;
-#[cfg(windows)]
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 
@@ -123,28 +120,75 @@ pub fn running_game(data: &Path) -> Option<Option<u32>> {
     Some(std::fs::read_to_string(data.join(GAME_PID_FILE)).ok().and_then(|t| t.trim().parse().ok()))
 }
 
-// Unverified: stub, replaced in Task 5 (no instance on Linux yet: no game holds a data folder, links are not joined)
+/// The data folder's file a game holding the instance keeps locked (flock) for its life.
+#[cfg(not(windows))]
+const LOCK_FILE: &str = "game.lock";
+
 /// This game holds the data folder's instance for its life (dropped: let go).
+// Deviation: an exclusive flock on the data folder's `game.lock` stands for the named mutex (one game per data
+// folder; the lock ends with the game's process, a crash included).
 #[cfg(not(windows))]
 #[derive(Debug)]
-pub struct Instance;
+pub struct Instance {
+    /// The locked file: closed after the drop below, which lets the lock go.
+    _lock: std::fs::File,
+    pid_file: PathBuf,
+}
 
 #[cfg(not(windows))]
 impl Drop for Instance {
-    fn drop(&mut self) {}
+    fn drop(&mut self) {
+        HOLDING.store(false, Ordering::Relaxed);
+        // (the file is this game's while it names this process)
+        if std::fs::read_to_string(&self.pid_file).is_ok_and(|t| t.trim() == std::process::id().to_string()) {
+            let _ = std::fs::remove_file(&self.pid_file);
+        }
+    }
 }
 
 /// Takes the data folder's instance; None when another game holds it, or it cannot be made.
 #[cfg(not(windows))]
-pub fn hold_instance(_data: &Path) -> Option<Instance> {
-    None
+pub fn hold_instance(data: &Path) -> Option<Instance> {
+    let _ = std::fs::create_dir_all(data);
+    let file = data.join(LOCK_FILE);
+    let lock = std::fs::OpenOptions::new().read(true).write(true).create(true).truncate(false).open(&file);
+    let lock = match lock.map_err(std::fs::TryLockError::Error).and_then(|f| f.try_lock().map(|()| f)) {
+        Ok(f) => f,
+        Err(std::fs::TryLockError::WouldBlock) => {
+            eprintln!("mvs: another game holds this data folder: join links go to it");
+            return None;
+        }
+        Err(std::fs::TryLockError::Error(e)) => {
+            eprintln!("mvs: the game's instance: {}: {e}", file.display());
+            return None;
+        }
+    };
+    let pid_file = data.join(GAME_PID_FILE);
+    // (a link left for a game that ended before it looked is not this game's to join)
+    let _ = std::fs::remove_file(data.join(JOIN_LINK_FILE));
+    if let Err(e) = std::fs::write(&pid_file, std::process::id().to_string()) {
+        eprintln!("mvs: {}: {e}", pid_file.display());
+    }
+    HOLDING.store(true, Ordering::Relaxed);
+    Some(Instance { _lock: lock, pid_file })
 }
 
 /// The game holding the data folder's instance: Some(its process id, when its pid file reads), None when no game
 /// holds it.
+// Deviation: the lock is tested by taking it on a file opened anew (flock locks per open file, so this process's
+// own instance refuses it too) and letting it go at once: a game starting in that moment finds it held and does not
+// take the instance, where opening the named mutex takes nothing.
 #[cfg(not(windows))]
-pub fn running_game(_data: &Path) -> Option<Option<u32>> {
-    None
+pub fn running_game(data: &Path) -> Option<Option<u32>> {
+    // (no lock file: no game ever held the folder)
+    let file = std::fs::File::open(data.join(LOCK_FILE)).ok()?;
+    match file.try_lock() {
+        Err(std::fs::TryLockError::WouldBlock) => {
+            Some(std::fs::read_to_string(data.join(GAME_PID_FILE)).ok().and_then(|t| t.trim().parse().ok()))
+        }
+        // (taken: no game holds it; closing the file lets it go)
+        Ok(()) | Err(std::fs::TryLockError::Error(_)) => None,
+    }
 }
 
 /// The link's code as the join box would take it: ASCII letters and digits only, at most CODE_LIMIT; else why not.
@@ -256,6 +300,19 @@ mod tests {
         drop(i);
         assert_eq!(running_game(&dir), None);
         assert!(!dir.join(GAME_PID_FILE).exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn a_second_lock_on_one_data_folder_is_refused() {
+        let dir = std::env::temp_dir().join(format!("mvs-lock-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let first = hold_instance(&dir).expect("the first lock");
+        assert!(hold_instance(&dir).is_none(), "a second lock is refused");
+        drop(first);
+        let third = hold_instance(&dir).expect("released on drop: a third lock holds");
+        drop(third);
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

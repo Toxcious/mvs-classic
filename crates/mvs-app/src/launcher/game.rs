@@ -139,8 +139,9 @@ pub fn raise(pid: u32) {
     }
 }
 
-/// The top-level window of process `pid` brought forward: nothing yet on Linux.
-// Unverified: stub, replaced in Task 5
+/// The top-level window of process `pid` brought forward: nothing on Linux.
+// Deviation: Wayland lets no program raise another's window, so the launcher leaves the game's where it is (the
+// game can raise its own).
 #[cfg(not(windows))]
 pub fn raise(_pid: u32) {}
 

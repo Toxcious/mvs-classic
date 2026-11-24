@@ -306,11 +306,20 @@ fn memory() -> (usize, usize) {
     if ok.is_ok() { (c.PrivateUsage, c.PeakWorkingSetSize) } else { (0, 0) }
 }
 
-/// The process's private bytes and peak working set: none read yet on Linux.
-// Unverified: stub, replaced in Task 5
+/// The process's private bytes and peak working set (/proc/self/status RssAnon, VmHWM).
+// Deviation: the private memory resident (RssAnon), where Windows gives the private memory committed (PrivateUsage):
+// private memory swapped out is not counted.
 #[cfg(not(windows))]
 fn memory() -> (usize, usize) {
-    (0, 0)
+    let s = std::fs::read_to_string("/proc/self/status").unwrap_or_default();
+    let bytes = |key: &str| {
+        s.lines()
+            .find_map(|l| {
+                l.strip_prefix(key)?.strip_prefix(':')?.trim().strip_suffix("kB")?.trim().parse::<usize>().ok()
+            })
+            .map_or(0, |kb| kb * 1024)
+    };
+    (bytes("RssAnon"), bytes("VmHWM"))
 }
 
 /// Where the process's private memory sits, MB: the heaps' bytes in use and committed (the program's own
@@ -377,11 +386,36 @@ pub fn private_parts(gpu: &Gpu) -> String {
     )
 }
 
-/// Where the process's private memory sits, MB: not read yet on Linux.
-// Unverified: stub, replaced in Task 5
+/// Where the process's private memory sits, MB: its private memory resident, and the GPU's local and non-local
+/// memory in use by the process.
+// Deviation: no heap summary (Windows' HeapSummary and VirtualQuery walk): the private memory is one figure.
 #[cfg(not(windows))]
-pub fn private_parts(_gpu: &Gpu) -> String {
-    "not read on Linux yet".to_owned()
+pub fn private_parts(gpu: &Gpu) -> String {
+    use mvs_d3d::Dxgi::DXGI_MEMORY_SEGMENT_GROUP_NON_LOCAL;
+    const MB: usize = 1 << 20;
+    let adapter = gpu
+        .dev
+        .cast::<IDXGIDevice>()
+        .and_then(|d| {
+            // SAFETY: a live DXGI device.
+            unsafe { d.GetAdapter() }
+        })
+        .and_then(|a| a.cast::<IDXGIAdapter3>())
+        .ok();
+    let video = |group| {
+        let mut i = DXGI_QUERY_VIDEO_MEMORY_INFO::default();
+        adapter
+            .as_ref()
+            // SAFETY: a live adapter, node 0 and an out struct.
+            .and_then(|a| unsafe { a.QueryVideoMemoryInfo(0, group, &mut i) }.ok())
+            .map_or(0, |()| i.CurrentUsage as usize)
+    };
+    format!(
+        "private {} MB; gpu {} MB, shared {} MB",
+        memory().0 / MB,
+        video(DXGI_MEMORY_SEGMENT_GROUP_LOCAL) / MB,
+        video(DXGI_MEMORY_SEGMENT_GROUP_NON_LOCAL) / MB
+    )
 }
 
 /// The adapter's local memory in use by this process.

@@ -255,7 +255,10 @@ fn a_worker_gone_without_its_answer_fails() {
         ev.extend(w.poll());
         std::thread::sleep(Duration::from_millis(20));
     }
+    #[cfg(windows)]
     assert!(matches!(ev.last(), Some(ImportEvent::Failed { say: Say::WorkerStopped { code: Some(1) } })), "{ev:?}");
+    #[cfg(not(windows))]
+    assert!(matches!(ev.last(), Some(ImportEvent::Failed { say: Say::WorkerStopped { code: Some(137) } })), "{ev:?}");
     // a run with no beta folder chosen fails with its reason
     let e = answer(WorkerOp::Run, &ImportRequest { data_root: root.clone(), ..Default::default() });
     assert!(matches!(&e, ImportEvent::Failed { say: Say::NoBetaChosen }), "{e:?}");

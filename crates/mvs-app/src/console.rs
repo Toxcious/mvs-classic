@@ -30,6 +30,6 @@ pub fn attach_parent() {
 }
 
 /// Points stdout and stderr at the console of the program that started this one: on Linux they already are.
-// Unverified: stub, replaced in Task 5
+// (nothing to attach: a Linux program started from a terminal writes to it already)
 #[cfg(not(windows))]
 pub fn attach_parent() {}

@@ -1271,7 +1271,7 @@ impl Launcher {
             GetForegroundWindow() == host.window.hwnd
                 && (GetAsyncKeyState(i32::from(VK_LBUTTON.0)) as u16 & 0x8000) != 0
         };
-        // Unverified: stub, replaced in Task 5 (the left button is never down)
+        // Unverified: stub, replaced in Task 7 (the left button is never down)
         #[cfg(not(windows))]
         let down = false;
         let click = self.was_down && !down && at.is_some();
