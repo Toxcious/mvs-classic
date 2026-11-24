@@ -462,10 +462,11 @@ impl InputDevice {
                 self.untapped.add(k);
             }
         }
-        // (isGamePadKey: the pad's Attack pressed or released, its Special released)
-        if pad.has(Action::Attack) != self.pad_prev.has(Action::Attack)
-            || (self.pad_prev.has(Action::Special) && !pad.has(Action::Special))
-        {
+        // (isGamePadKey: the pad's Attack pressed or released, its Special released; the port's own pad binding of a
+        // directional attack or special counts as its Attack or Special)
+        let attack = |s: &Actions| s.0.iter().any(|a| matches!(a, Action::Attack | Action::Atk(_)));
+        let special = |s: &Actions| s.0.iter().any(|a| matches!(a, Action::Special | Action::Spc(_)));
+        if attack(&pad) != attack(&self.pad_prev) || (special(&self.pad_prev) && !special(&pad)) {
             self.is_game_pad_key = true;
         }
         self.stick.axis_events(self.lsx, self.lsy);
@@ -1116,5 +1117,23 @@ mod tests {
         // (pad mode: the centred stick writes 0 over the held key)
         assert_eq!(i.x, 0.0);
         assert!(!i.jump);
+    }
+
+    #[test]
+    fn a_pad_button_bound_to_a_directional_special_forces_it() {
+        let mut d = devices();
+        let mut b = (*d.get(0).unwrap().bindings).clone();
+        b.add_action_mapping("Up Special-P0", "Gamepad_RightShoulder");
+        d.rebind(&b);
+        let dev = d.device(0).unwrap();
+        let rb = 1 << PAD_BUTTONS.iter().position(|k| *k == "Gamepad_RightShoulder").unwrap();
+        dev.pad = Some(PadState { buttons: rb, ..PadState::default() });
+        let i = dev.read();
+        assert_eq!((i.force_dir, i.force_press, i.force), (Some(0), Some(AttackBtn::Special), true));
+        assert!(i.special);
+        dev.pad = Some(PadState::default());
+        let i = dev.read();
+        assert_eq!(i.force_release, Some(AttackBtn::Special));
+        assert!(dev.is_game_pad_key, "the release of a pad special counts for the rumble");
     }
 }
