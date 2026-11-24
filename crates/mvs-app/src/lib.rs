@@ -28,6 +28,7 @@ pub mod platform;
 #[cfg(not(windows))]
 #[path = "platform_sdl.rs"]
 pub mod platform;
+mod platform_common;
 pub mod pre_match_voice;
 pub mod prepare;
 pub mod results;

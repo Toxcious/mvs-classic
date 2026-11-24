@@ -257,6 +257,8 @@ fn pictures(gpu: &Gpu, store: &Path, ui: &mut LauncherUi) -> Result<(), String> 
 }
 
 fn main() -> Result<(), String> {
+    // (DXVK-native's settings, before any thread: the device reads them)
+    mvs_d3d::set_linux_wsi();
     let a = args()?;
     std::fs::create_dir_all(&a.out).map_err(|e| e.to_string())?;
     let gpu = Gpu::new(None, false).map_err(|e| e.to_string())?;

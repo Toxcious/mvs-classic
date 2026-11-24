@@ -235,6 +235,8 @@ fn run(a: &Args) -> Result<(), String> {
 }
 
 fn main() -> ExitCode {
+    // (DXVK-native's settings, before any thread: the device reads them)
+    mvs_d3d::set_linux_wsi();
     match parse(std::env::args().skip(1)).and_then(|a| run(&a)) {
         Ok(()) => ExitCode::SUCCESS,
         Err(x) => {

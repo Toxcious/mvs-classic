@@ -77,7 +77,11 @@ impl Host {
         let window = Window::launcher("MVSC Launcher", page, LEAST_ZOOM)?;
         let (_, s) = fit(window.size);
         window.set_drag_band((TITLE_BAR * s).round() as u32, (TITLE_BAR_KEEP * s).round() as u32);
-        let gpu = Gpu::new(o.adapter.as_deref(), false)?;
+        let gpu = Gpu::new(o.adapter.as_deref(), false);
+        // (Linux: no Vulkan driver DXVK can use is said in a box; the error then ends the program)
+        #[cfg(not(windows))]
+        let gpu = gpu.inspect_err(|e| crate::platform::no_device(&window, e));
+        let gpu = gpu?;
         let swap = SwapChain::new(&gpu, window.hwnd, window.size)?;
         let settings = Settings::load(&o.data);
         Ok(Host {

@@ -653,6 +653,8 @@ fn to_launcher(a: &Args) -> ExitCode {
 }
 
 fn main() -> ExitCode {
+    // (DXVK-native's settings, before any thread: the device reads them)
+    mvs_d3d::set_linux_wsi();
     mvs_app::console::attach_parent();
     let mut args = std::env::args().skip(1).peekable();
     if args.peek().is_some_and(|a| a == "--import-worker") {

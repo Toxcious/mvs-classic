@@ -66,23 +66,36 @@ fn dxvk_config(old: Option<&str>) -> String {
     if sets_latency { old.to_string() } else { format!("{LATENCY} = 1;{old}") }
 }
 
+/// What [`set_linux_wsi`] writes, from the environment's `DXVK_WSI_DRIVER` (`wsi`) and `DXVK_CONFIG` (`config`):
+/// each variable's new value, or None where it keeps the one it has.
+#[cfg_attr(windows, allow(dead_code))]
+fn wsi_writes(
+    wsi: Option<&std::ffi::OsStr>,
+    config: Option<&std::ffi::OsStr>,
+) -> (Option<&'static str>, Option<String>) {
+    let wsi = wsi.is_none().then_some("SDL3");
+    // A value that is not Unicode is the player's and is left as it is.
+    let config = match config {
+        None => Some(dxvk_config(None)),
+        Some(old) => old.to_str().and_then(|old| Some(dxvk_config(Some(old))).filter(|new| new != old)),
+    };
+    (wsi, config)
+}
+
 /// Sets up DXVK-native before the first device: its window system is SDL3 (`DXVK_WSI_DRIVER`, when the player has
-/// not chosen one) and its swap chains queue one frame (`DXVK_CONFIG`, see [`dxvk_config`]). Does nothing on
-/// Windows.
+/// not chosen one) and its swap chains queue one frame (`DXVK_CONFIG`, see [`dxvk_config`]). A variable is written
+/// only when its value changes, so a call after the first writes nothing (the programs call it first in `main`,
+/// before any thread; `Gpu::new` calls it again). Does nothing on Windows.
 pub fn set_linux_wsi() {
     #[cfg(not(windows))]
     {
-        let wsi = std::env::var_os("DXVK_WSI_DRIVER").is_none();
-        // A value that is not Unicode is the player's and is left as it is.
-        let config = match std::env::var("DXVK_CONFIG") {
-            Ok(old) => Some(dxvk_config(Some(&old))),
-            Err(std::env::VarError::NotPresent) => Some(dxvk_config(None)),
-            Err(std::env::VarError::NotUnicode(_)) => None,
-        };
-        // SAFETY: called once at startup, before the device and any thread that reads the environment.
+        let (wsi, config) =
+            wsi_writes(std::env::var_os("DXVK_WSI_DRIVER").as_deref(), std::env::var_os("DXVK_CONFIG").as_deref());
+        // SAFETY: the first call is the first line of `main`, before any thread that reads the environment; a later
+        // call writes nothing.
         unsafe {
-            if wsi {
-                std::env::set_var("DXVK_WSI_DRIVER", "SDL3");
+            if let Some(wsi) = wsi {
+                std::env::set_var("DXVK_WSI_DRIVER", wsi);
             }
             if let Some(config) = config {
                 std::env::set_var("DXVK_CONFIG", config);
@@ -138,6 +151,21 @@ mod tests {
     fn dxvk_config_keeps_the_players_own_latency() {
         let theirs = "dxgi.syncInterval = 0; dxgi.maxFrameLatency=3";
         assert_eq!(crate::dxvk_config(Some(theirs)), theirs);
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn set_linux_wsi_twice_writes_nothing_the_second_time() {
+        crate::set_linux_wsi();
+        let first = (std::env::var_os("DXVK_WSI_DRIVER"), std::env::var_os("DXVK_CONFIG"));
+        assert!(
+            first.1.as_ref().and_then(|c| c.to_str()).is_some_and(|c| c.contains("dxgi.maxFrameLatency")),
+            "{first:?}"
+        );
+        // (what a second call writes, from the values the first left)
+        assert_eq!(crate::wsi_writes(first.0.as_deref(), first.1.as_deref()), (None, None));
+        crate::set_linux_wsi();
+        assert_eq!((std::env::var_os("DXVK_WSI_DRIVER"), std::env::var_os("DXVK_CONFIG")), first);
     }
 
     // DXVK-native's WCHAR is wchar_t, 4 bytes (include/native/windows/windows_base.h), so the DXGI descriptions

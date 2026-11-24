@@ -1066,6 +1066,8 @@ fn grow_run(args: &Args, name: &str, until: u32) -> Result<(), String> {
 }
 
 fn main() -> ExitCode {
+    // (DXVK-native's settings, before any thread: the device reads them)
+    mvs_d3d::set_linux_wsi();
     let go = |a: Args| match &a.source {
         Source::Match { name, tick, .. } if a.grow => grow_run(&a, name, *tick),
         _ if a.grow => Err("--grow needs --match".into()),

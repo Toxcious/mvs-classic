@@ -152,7 +152,11 @@ impl Shell {
     /// The window, the GPU and its swap chain, the devices, the settings; the store's parts when `o.store` is given.
     pub fn new(o: &ShellOptions) -> Result<Box<Shell>> {
         let window = Window::new("MVS Classic", o.size, o.full_screen)?;
-        let gpu = Gpu::new(o.adapter.as_deref(), false)?;
+        let gpu = Gpu::new(o.adapter.as_deref(), false);
+        // (Linux: no Vulkan driver DXVK can use is said in a box; the error then ends the program)
+        #[cfg(not(windows))]
+        let gpu = gpu.inspect_err(|e| crate::platform::no_device(&window, e));
+        let gpu = gpu?;
         let swap = SwapChain::new(&gpu, window.hwnd, window.size)?;
         let perf = Perf::new(&gpu, true);
         let settings = Settings::load(&o.data);

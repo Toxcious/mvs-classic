@@ -113,6 +113,8 @@ fn run() -> Result<(), String> {
 }
 
 fn main() {
+    // (DXVK-native's settings, before any thread: the device reads them)
+    mvs_d3d::set_linux_wsi();
     if let Err(e) = run() {
         eprintln!("ui-frame: {e}");
         std::process::exit(1);
