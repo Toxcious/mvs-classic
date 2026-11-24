@@ -86,6 +86,7 @@ pub fn platform(ctx: &StageCtx<'_>, a: &ObjView<'_>) -> Result<Option<Platform>,
         y: vec![loc[1] - he[1], loc[1] + he[1]],
         z: vec![loc[2] - he[2], loc[2] + he[2]],
         moving: None,
+        rise: None,
         mesh: None,
     };
     if moving {

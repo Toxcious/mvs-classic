@@ -223,15 +223,15 @@ fn shipped_layout_over_the_store() {
     );
 }
 
-/// The developer's store: a Shaggy 1v1 on the shipped layout. Both fighters land on the ground slab and stand there;
-/// the lift's box rises 600 over its first move (after BasePlatformBP's 2 s delay) and comes back; no stage
-/// warning.
+/// The developer's store: a Shaggy 1v1 on six_slabs.json (the shipped map's first form). Both fighters land on the
+/// ground slab and stand there; the lift's box rises 600 over its first move (after BasePlatformBP's 2 s delay) and
+/// comes back; no stage warning.
 #[test]
-fn a_match_plays_on_the_shipped_layout() {
+fn a_match_plays_on_a_layout() {
     use mvs_sim::input::InputState;
     use mvs_sim::setup::{MatchPlayer, MatchSetup};
     let Some(store) = store() else { return };
-    let l = Layout::read(include_str!("../../../../mvs-stage/layouts/rising.json")).expect("rising");
+    let l = Layout::read(include_str!("../../../../mvs-stage/fixtures/six_slabs.json")).expect("rising");
     let mut data = mvs_data::GameData::load(&store, &["shaggy"], &l.base).expect("the gamedata kind loads");
     let b = PieceBounds::read(&store, &l).expect("bounds");
     mvs_stage::apply(&mut data, &l, &|p| b.get(&l, p)).expect("composed");
@@ -259,4 +259,50 @@ fn a_match_plays_on_the_shipped_layout() {
     assert!((back - top0).abs() < 1.0, "the lift came back to {top0}: {back}");
     let warned = w.warned.borrow();
     assert!(!warned.iter().any(|m| m.contains("stage")), "{warned:?}");
+}
+
+/// six_slabs.json with its Ground made to rise (the port's own motion): the slab climbs its speed each tick from
+/// the first, wraps to its bottom past its top, and the fighters standing on it are carried up past the outer
+/// blast box's top (the ring-out); nobody rides it down. Needs the dev store.
+#[test]
+fn a_rising_ground_carries_the_fighters_out() {
+    use mvs_sim::input::InputState;
+    use mvs_sim::setup::{MatchPlayer, MatchSetup};
+    let Some(store) = store() else { return };
+    let mut l = Layout::read(include_str!("../../../../mvs-stage/fixtures/six_slabs.json")).expect("rising");
+    let (bottom, top, speed) = (-1800.0, 3700.0, 600.0);
+    l.platforms[0].rise = Some(mvs_data::stage::PlatformRise { bottom, top, speed });
+    let mut data = mvs_data::GameData::load(&store, &["shaggy"], &l.base).expect("the gamedata kind loads");
+    let b = PieceBounds::read(&store, &l).expect("bounds");
+    mvs_stage::apply(&mut data, &l, &|p| b.get(&l, p)).expect("composed");
+    let blast_top = data.stage.blast_boxes.get("CollisionComp").expect("the blast box").z[1];
+    let player = MatchPlayer { character: Some("shaggy".into()), ..MatchPlayer::default() };
+    let setup = MatchSetup { players: vec![player.clone(), player], flow: true, ..MatchSetup::default() };
+    let mut w = mvs_sim::World::new(std::sync::Arc::new(data), 1, &setup).expect("binds");
+    let half = (w.data.stage.platforms.as_ref().expect("platforms")[0].z[1]
+        - w.data.stage.platforms.as_ref().expect("platforms")[0].z[0])
+        / 2.0;
+    let mut last = f64::from(w.stage.stage_platforms[0].top);
+    let mut wraps = 0;
+    let mut high = vec![f64::MIN; w.players.len()];
+    for _ in 0..700 {
+        w.step(&[InputState::default(), InputState::default()]);
+        let t = f64::from(w.stage.stage_platforms[0].top);
+        if t < last {
+            wraps += 1;
+            assert!((t - half - (bottom + (last - half + speed / 60.0 - top))).abs() < 1.0, "wrapped to {t}");
+        } else {
+            assert!((t - last - speed / 60.0).abs() < 1e-2, "climbed {last} -> {t}");
+        }
+        last = t;
+        for (k, id) in w.players.clone().into_iter().enumerate() {
+            high[k] = high[k].max(f64::from(w.fighter(id).body.y));
+        }
+    }
+    assert_eq!(wraps, 1, "one wrap in 700 ticks");
+    for (k, h) in high.iter().enumerate() {
+        assert!(*h > blast_top, "fighter {k} carried to {h}, under the blast box's top {blast_top}");
+    }
+    let warned = w.warned.borrow();
+    assert!(!warned.iter().any(|m| m.contains("stage") || m.contains("platform")), "{warned:?}");
 }

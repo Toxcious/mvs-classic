@@ -17,6 +17,8 @@ mvs-protocol.workspace = true
 mvs-render.workspace = true
 mvs-settings.workspace = true
 mvs-sim = { path = "../mvs-sim" }
+# the shipped custom maps' layouts (their entries on the map lists)
+mvs-stage.workspace = true
 mvs-store.workspace = true
 mvs-view.workspace = true
 png.workspace = true

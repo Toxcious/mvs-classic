@@ -87,6 +87,14 @@ pub fn check(layout: &Layout) -> Result<(), LayoutError> {
         if a.moving.as_ref().is_some_and(|m| m.curves.is_empty()) {
             return invalid(format!("the platform {} moves with no moves", a.name));
         }
+        if let Some(r) = &a.rise {
+            if a.moving.is_some() {
+                return invalid(format!("the platform {} both moves and rises", a.name));
+            }
+            if !(r.speed > 0.0 && r.top > r.bottom) {
+                return invalid(format!("the platform {} rises with no speed or no height", a.name));
+            }
+        }
         if let Some(piece) = &a.bx.piece {
             let p = piece_named(layout, piece)?;
             if p.platform.as_deref() != Some(a.name.as_str()) {
@@ -144,6 +152,9 @@ pub fn compose_stage(
         let b = world_box(&p.bx, &p.name)?;
         let [_, cy, cz] = b.center;
         let [_, hy, hz] = b.half;
+        if p.rise.as_ref().is_some_and(|r| !(r.bottom..=r.top).contains(&cz)) {
+            return Err(LayoutError::Invalid(format!("the platform {} is placed outside its rise", p.name)));
+        }
         platforms.push(Platform {
             name: p.name.clone(),
             center: b.center.to_vec(),
@@ -152,6 +163,7 @@ pub fn compose_stage(
             y: vec![cy - hy, cy + hy],
             z: vec![cz - hz, cz + hz],
             moving: p.moving.clone(),
+            rise: p.rise.clone(),
             mesh: None,
         });
         // (BasePlatformBP_Visual's polygon for the EdgeTraceGenerator, as the build's platforms register theirs)

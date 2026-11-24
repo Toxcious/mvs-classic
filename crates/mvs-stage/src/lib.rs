@@ -5,12 +5,14 @@
 
 mod compose;
 mod layout;
+mod shipped;
 
 pub use compose::{
     BLAST_BOX, ComposedStage, MAX_PLATFORMS, MeshBounds, PARK_DEPTH, PARK_HALF, START_STYLES, WorldBox, apply, box_of,
     check, compose_stage, piece_box, starter,
 };
 pub use layout::{BoxSpec, FloorSpec, ItemArea, Layout, Light, Piece, PlatformSpec};
+pub use shipped::{FILES as SHIPPED_FILES, MAP_PREFIX, fingerprint, is_custom_map, layout_of_map, map_name, shipped};
 
 /// The sim's name of every custom stage starts so (`Custom_<key>`): the sim enters each with an empty stage entry.
 pub const CUSTOM_PREFIX: &str = "Custom_";

@@ -32,6 +32,7 @@ use crate::menu::controller::{Controller, Cx, Handler};
 use crate::menu::lobby::PreMatchPick;
 use crate::menu::lobby::loadout::{BadgeRef, local_badges, picked_skin, same_skin_name};
 use crate::menu::manager::{DialogParams, Manager, TransitionParams};
+use crate::menu::map_tag::MapTag;
 use crate::menu::online::{NetPick, OnlineCmd, OnlineEvent, PartyRole, PreMatchCmd, PreMatchEvent, Registered};
 use crate::menu::online_text::kick_text;
 use crate::menu::own_profile::{BannerIconOf, banner_icon_texture};
@@ -1260,7 +1261,7 @@ impl PreMatch {
                 }
                 let map = self.setup.map.as_deref().and_then(|m| cx.view.map(m));
                 if let Some(map) = map {
-                    let (name, exp) = (map.data.display_name.clone(), map.data.experimental);
+                    let (name, exp) = (map.data.display_name.clone(), MapTag::of(&map.data));
                     cx.visit::<PMStateInfo, _>(si, |s, cx| s.set_map_name(cx, &name, exp));
                     self.transition_hook(cx, &map.data.level);
                 }
@@ -1351,7 +1352,7 @@ impl PreMatch {
                             });
                         }
                         let (name, exp, level) =
-                            (map.data.display_name.clone(), map.data.experimental, map.data.level.clone());
+                            (map.data.display_name.clone(), MapTag::of(&map.data), map.data.level.clone());
                         cx.visit::<PMStateInfo, _>(si, |s, cx| s.set_map_name(cx, &name, exp));
                         self.transition_hook(cx, &level);
                     }
@@ -2329,7 +2330,7 @@ impl PreMatch {
             self.setup.map = Some(map.to_string());
             self.setup.level = map.to_string();
             if let Some(md) = cx.view.map(map) {
-                let (name, exp, level) = (md.data.display_name.clone(), md.data.experimental, md.data.level.clone());
+                let (name, exp, level) = (md.data.display_name.clone(), MapTag::of(&md.data), md.data.level.clone());
                 let si = Self::state_info(cx);
                 cx.visit::<PMStateInfo, _>(si, |s, cx| s.set_map_name(cx, &name, exp));
                 self.transition_hook(cx, &level);
@@ -3453,7 +3454,7 @@ impl PreMatch {
     /// and sends it to the level at the rematch's entry and at the first lock.
     fn show_arcade_map(&mut self, cx: &mut Cx<'_>) {
         let Some(md) = self.setup.map.as_deref().and_then(|m| cx.view.map(m)) else { return };
-        let (name, exp) = (md.data.display_name.clone(), md.data.experimental);
+        let (name, exp) = (md.data.display_name.clone(), MapTag::of(&md.data));
         let si = Self::state_info(cx);
         cx.visit::<PMStateInfo, _>(si, |s, cx| s.set_map_name(cx, &name, exp));
         self.transition_hook(cx, &md.data.level);

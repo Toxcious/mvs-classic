@@ -58,46 +58,106 @@
       "instance": "M011_Platform_A_02_5",
       "loc": [
         -450,
+        2900,
+        -1750
+      ],
+      "scale": [
+        1,
+        3,
+        1
+      ],
+      "light": "baked",
+      "platform": "Left1"
+    },
+    {
+      "instance": "M011_Platform_A_02_5",
+      "loc": [
+        -450,
+        2900,
+        -650
+      ],
+      "scale": [
+        1,
+        3,
+        1
+      ],
+      "light": "baked",
+      "platform": "Left2"
+    },
+    {
+      "instance": "M011_Platform_A_02_5",
+      "loc": [
+        -450,
+        2900,
+        450
+      ],
+      "scale": [
+        1,
+        3,
+        1
+      ],
+      "light": "baked",
+      "platform": "Left3"
+    },
+    {
+      "instance": "M011_Platform_A_02_5",
+      "loc": [
+        -450,
+        2900,
+        1550
+      ],
+      "scale": [
+        1,
+        3,
+        1
+      ],
+      "light": "baked",
+      "platform": "Left4"
+    },
+    {
+      "instance": "M011_Platform_A_02_5",
+      "loc": [
+        -450,
+        2900,
+        2650
+      ],
+      "scale": [
+        1,
+        3,
+        1
+      ],
+      "light": "baked",
+      "platform": "Left5"
+    },
+    {
+      "instance": "M011_Platform_A_02_5",
+      "loc": [
+        -450,
         0,
-        0
+        -1200
       ],
       "scale": [
         1,
-        2,
+        3,
         1
       ],
       "light": "baked",
-      "platform": "Ground"
+      "platform": "Mid1"
     },
     {
       "instance": "M011_Platform_A_02_5",
       "loc": [
         -450,
-        1900,
-        500
+        0,
+        -100
       ],
       "scale": [
         1,
-        2,
+        3,
         1
       ],
       "light": "baked",
-      "platform": "LeftLow"
-    },
-    {
-      "instance": "M011_Platform_A_02_5",
-      "loc": [
-        -450,
-        -1900,
-        500
-      ],
-      "scale": [
-        1,
-        2,
-        1
-      ],
-      "light": "baked",
-      "platform": "RightLow"
+      "platform": "Mid2"
     },
     {
       "instance": "M011_Platform_A_02_5",
@@ -108,41 +168,116 @@
       ],
       "scale": [
         1,
-        2,
+        3,
         1
       ],
       "light": "baked",
-      "platform": "Lift"
+      "platform": "Mid3"
     },
     {
       "instance": "M011_Platform_A_02_5",
       "loc": [
         -450,
-        2900,
-        1400
+        0,
+        2100
       ],
       "scale": [
         1,
-        2,
+        3,
         1
       ],
       "light": "baked",
-      "platform": "LeftHigh"
+      "platform": "Mid4"
+    },
+    {
+      "instance": "M011_Platform_A_02_5",
+      "loc": [
+        -450,
+        0,
+        3200
+      ],
+      "scale": [
+        1,
+        3,
+        1
+      ],
+      "light": "baked",
+      "platform": "Mid5"
     },
     {
       "instance": "M011_Platform_A_02_5",
       "loc": [
         -450,
         -2900,
-        1400
+        -1750
       ],
       "scale": [
         1,
-        2,
+        3,
         1
       ],
       "light": "baked",
-      "platform": "RightHigh"
+      "platform": "Right1"
+    },
+    {
+      "instance": "M011_Platform_A_02_5",
+      "loc": [
+        -450,
+        -2900,
+        -650
+      ],
+      "scale": [
+        1,
+        3,
+        1
+      ],
+      "light": "baked",
+      "platform": "Right2"
+    },
+    {
+      "instance": "M011_Platform_A_02_5",
+      "loc": [
+        -450,
+        -2900,
+        450
+      ],
+      "scale": [
+        1,
+        3,
+        1
+      ],
+      "light": "baked",
+      "platform": "Right3"
+    },
+    {
+      "instance": "M011_Platform_A_02_5",
+      "loc": [
+        -450,
+        -2900,
+        1550
+      ],
+      "scale": [
+        1,
+        3,
+        1
+      ],
+      "light": "baked",
+      "platform": "Right4"
+    },
+    {
+      "instance": "M011_Platform_A_02_5",
+      "loc": [
+        -450,
+        -2900,
+        2650
+      ],
+      "scale": [
+        1,
+        3,
+        1
+      ],
+      "light": "baked",
+      "platform": "Right5"
     }
   ],
   "floor": {
@@ -150,70 +285,183 @@
   },
   "platforms": [
     {
-      "name": "Ground",
+      "name": "Left1",
       "box": {
-        "piece": "Ground.StaticMesh",
-        "thickness": 20
-      }
-    },
-    {
-      "name": "LeftLow",
-      "box": {
-        "piece": "LeftLow.StaticMesh",
-        "thickness": 20
-      }
-    },
-    {
-      "name": "RightLow",
-      "box": {
-        "piece": "RightLow.StaticMesh",
-        "thickness": 20
-      }
-    },
-    {
-      "name": "Lift",
-      "box": {
-        "piece": "Lift.StaticMesh",
+        "piece": "Left1.StaticMesh",
         "thickness": 20
       },
-      "moving": {
-        "start": [
-          -450,
-          0,
-          1000
-        ],
-        "curves": [
-          {
-            "d": [
-              0,
-              0,
-              600
-            ],
-            "duration": 3
-          },
-          {
-            "d": [
-              0,
-              0,
-              -600
-            ],
-            "duration": 3
-          }
-        ]
+      "rise": {
+        "bottom": -1800,
+        "top": 3700,
+        "speed": 300
       }
     },
     {
-      "name": "LeftHigh",
+      "name": "Left2",
       "box": {
-        "piece": "LeftHigh.StaticMesh",
+        "piece": "Left2.StaticMesh",
         "thickness": 20
+      },
+      "rise": {
+        "bottom": -1800,
+        "top": 3700,
+        "speed": 300
       }
     },
     {
-      "name": "RightHigh",
+      "name": "Left3",
       "box": {
-        "piece": "RightHigh.StaticMesh",
+        "piece": "Left3.StaticMesh",
         "thickness": 20
+      },
+      "rise": {
+        "bottom": -1800,
+        "top": 3700,
+        "speed": 300
+      }
+    },
+    {
+      "name": "Left4",
+      "box": {
+        "piece": "Left4.StaticMesh",
+        "thickness": 20
+      },
+      "rise": {
+        "bottom": -1800,
+        "top": 3700,
+        "speed": 300
+      }
+    },
+    {
+      "name": "Left5",
+      "box": {
+        "piece": "Left5.StaticMesh",
+        "thickness": 20
+      },
+      "rise": {
+        "bottom": -1800,
+        "top": 3700,
+        "speed": 300
+      }
+    },
+    {
+      "name": "Mid1",
+      "box": {
+        "piece": "Mid1.StaticMesh",
+        "thickness": 20
+      },
+      "rise": {
+        "bottom": -1800,
+        "top": 3700,
+        "speed": 300
+      }
+    },
+    {
+      "name": "Mid2",
+      "box": {
+        "piece": "Mid2.StaticMesh",
+        "thickness": 20
+      },
+      "rise": {
+        "bottom": -1800,
+        "top": 3700,
+        "speed": 300
+      }
+    },
+    {
+      "name": "Mid3",
+      "box": {
+        "piece": "Mid3.StaticMesh",
+        "thickness": 20
+      },
+      "rise": {
+        "bottom": -1800,
+        "top": 3700,
+        "speed": 300
+      }
+    },
+    {
+      "name": "Mid4",
+      "box": {
+        "piece": "Mid4.StaticMesh",
+        "thickness": 20
+      },
+      "rise": {
+        "bottom": -1800,
+        "top": 3700,
+        "speed": 300
+      }
+    },
+    {
+      "name": "Mid5",
+      "box": {
+        "piece": "Mid5.StaticMesh",
+        "thickness": 20
+      },
+      "rise": {
+        "bottom": -1800,
+        "top": 3700,
+        "speed": 300
+      }
+    },
+    {
+      "name": "Right1",
+      "box": {
+        "piece": "Right1.StaticMesh",
+        "thickness": 20
+      },
+      "rise": {
+        "bottom": -1800,
+        "top": 3700,
+        "speed": 300
+      }
+    },
+    {
+      "name": "Right2",
+      "box": {
+        "piece": "Right2.StaticMesh",
+        "thickness": 20
+      },
+      "rise": {
+        "bottom": -1800,
+        "top": 3700,
+        "speed": 300
+      }
+    },
+    {
+      "name": "Right3",
+      "box": {
+        "piece": "Right3.StaticMesh",
+        "thickness": 20
+      },
+      "rise": {
+        "bottom": -1800,
+        "top": 3700,
+        "speed": 300
+      }
+    },
+    {
+      "name": "Right4",
+      "box": {
+        "piece": "Right4.StaticMesh",
+        "thickness": 20
+      },
+      "rise": {
+        "bottom": -1800,
+        "top": 3700,
+        "speed": 300
+      }
+    },
+    {
+      "name": "Right5",
+      "box": {
+        "piece": "Right5.StaticMesh",
+        "thickness": 20
+      },
+      "rise": {
+        "bottom": -1800,
+        "top": 3700,
+        "speed": 300
       }
     }
   ],
@@ -320,7 +568,7 @@
       "loc": [
         0,
         500,
-        250
+        1300
       ],
       "yaw": -90
     },
@@ -334,7 +582,7 @@
       "loc": [
         0,
         -500,
-        250
+        1300
       ],
       "yaw": 90
     },
@@ -347,8 +595,8 @@
       ],
       "loc": [
         0,
-        1900,
-        750
+        2900,
+        1850
       ],
       "yaw": -90
     },
@@ -361,8 +609,8 @@
       ],
       "loc": [
         0,
-        -1900,
-        750
+        -2900,
+        1850
       ],
       "yaw": 90
     }
@@ -377,8 +625,8 @@
       ],
       "loc": [
         0,
-        1700,
-        1100
+        1900,
+        2300
       ],
       "yaw": -90
     },
@@ -391,8 +639,8 @@
       ],
       "loc": [
         0,
-        -1700,
-        1100
+        -1900,
+        2300
       ],
       "yaw": 90
     },
@@ -405,8 +653,8 @@
       ],
       "loc": [
         0,
-        1700,
-        1100
+        1900,
+        2300
       ],
       "yaw": -90
     },
@@ -419,8 +667,8 @@
       ],
       "loc": [
         0,
-        -1700,
-        1100
+        -1900,
+        2300
       ],
       "yaw": 90
     },
@@ -433,8 +681,8 @@
       ],
       "loc": [
         0,
-        1700,
-        1100
+        1900,
+        2300
       ],
       "yaw": -90
     },
@@ -447,8 +695,8 @@
       ],
       "loc": [
         0,
-        -1700,
-        1100
+        -1900,
+        2300
       ],
       "yaw": 90
     },
@@ -461,8 +709,8 @@
       ],
       "loc": [
         0,
-        1700,
-        1100
+        1900,
+        2300
       ],
       "yaw": -90
     },
@@ -475,8 +723,8 @@
       ],
       "loc": [
         0,
-        -1700,
-        1100
+        -1900,
+        2300
       ],
       "yaw": 90
     }
@@ -513,99 +761,33 @@
   ],
   "waypoints": [
     {
-      "name": "GroundCentre",
+      "name": "Mid",
       "loc": [
         0,
         0,
-        145
+        1100
       ],
       "position": 0,
       "edge": false,
       "recovery": 0
     },
     {
-      "name": "GroundLeftEdge",
-      "loc": [
-        0,
-        850,
-        145
-      ],
-      "position": 1,
-      "edge": true,
-      "recovery": 0
-    },
-    {
-      "name": "GroundRightEdge",
-      "loc": [
-        0,
-        -850,
-        145
-      ],
-      "position": 1,
-      "edge": true,
-      "recovery": 0
-    },
-    {
-      "name": "LeftLow",
-      "loc": [
-        0,
-        1900,
-        645
-      ],
-      "position": 1,
-      "edge": false,
-      "recovery": 0
-    },
-    {
-      "name": "RightLow",
-      "loc": [
-        0,
-        -1900,
-        645
-      ],
-      "position": 1,
-      "edge": false,
-      "recovery": 0
-    },
-    {
-      "name": "LeftLowEdge",
-      "loc": [
-        0,
-        2750,
-        645
-      ],
-      "position": 1,
-      "edge": true,
-      "recovery": 0
-    },
-    {
-      "name": "RightLowEdge",
-      "loc": [
-        0,
-        -2750,
-        645
-      ],
-      "position": 1,
-      "edge": true,
-      "recovery": 0
-    },
-    {
-      "name": "LeftHigh",
+      "name": "Left",
       "loc": [
         0,
         2900,
-        1545
+        1100
       ],
       "position": 1,
       "edge": false,
       "recovery": 0
     },
     {
-      "name": "RightHigh",
+      "name": "Right",
       "loc": [
         0,
         -2900,
-        1545
+        1100
       ],
       "position": 1,
       "edge": false,

@@ -581,7 +581,9 @@ fn picked_maps_count_in_the_selectors_accept_button() {
     // Select All, then Clear All
     let a = l.find("mapSelector", "btn_SelectAll");
     l.click(a);
-    assert!(l.accept_text().contains("(16 "), "Select All: {}", l.accept_text());
+    // (the build's 16 and the shipped custom maps)
+    let all = format!("({} ", 16 + mvs_stage::shipped().len());
+    assert!(l.accept_text().contains(&all), "Select All: {}", l.accept_text());
     l.click(c);
     assert!(l.accept_text().contains("(0 "), "Clear All again: {}", l.accept_text());
 }

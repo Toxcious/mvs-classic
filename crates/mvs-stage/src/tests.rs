@@ -199,3 +199,43 @@ fn a_starter_over_the_base_composes() {
     assert!(c.data.platforms.is_none());
     assert_eq!(c.data.spawns.len(), 4);
 }
+
+/// A rise is copied to the platform's data; one that also moves, has no speed or height, or leaves its box outside
+/// it is refused.
+#[test]
+fn a_rise_is_checked_and_kept() {
+    let with = |rise: serde_json::Value, moving: bool| {
+        let mut v = layout();
+        v["platforms"][0]["rise"] = rise;
+        if moving {
+            v["platforms"][0]["moving"] =
+                serde_json::json!({ "start": [0, 0, 0], "curves": [{ "d": [0, 0, 1], "duration": 1 }] });
+        }
+        compose_stage(&base(), &[], &read(v), &bounds).map(|c| c.data)
+    };
+    let rise = serde_json::json!({ "bottom": -1800, "top": 3700, "speed": 300 });
+    let d = with(rise.clone(), false).expect("composed");
+    let r = d.platforms.as_ref().unwrap()[0].rise.as_ref().expect("the rise kept");
+    assert_eq!((r.bottom, r.top, r.speed), (-1800.0, 3700.0, 300.0));
+    let invalid = |e: Result<_, LayoutError>| matches!(e, Err(LayoutError::Invalid(_)));
+    assert!(invalid(with(rise, true)), "moves and rises");
+    assert!(invalid(with(serde_json::json!({ "bottom": -1800, "top": 3700, "speed": 0 }), false)), "no speed");
+    assert!(invalid(with(serde_json::json!({ "bottom": 3700, "top": -1800, "speed": 300 }), false)), "no height");
+    assert!(invalid(with(serde_json::json!({ "bottom": 2000, "top": 3700, "speed": 300 }), false)), "outside");
+}
+
+/// Every shipped file reads and passes the check, its map found by name and its key once.
+#[test]
+fn the_shipped_layouts_read_and_pass() {
+    let all = shipped();
+    assert_eq!(all.len(), super::shipped::FILES.len(), "a shipped file that does not read");
+    for l in &all {
+        check(l).unwrap_or_else(|e| panic!("{}: {e}", l.key));
+        let name = map_name(&l.key);
+        assert!(is_custom_map(&name) && name.starts_with("map_"));
+        assert_eq!(layout_of_map(&name).map(|x| x.key), Some(l.key.clone()));
+        assert_eq!(all.iter().filter(|x| x.key == l.key).count(), 1, "{}: two layouts", l.key);
+    }
+    assert!(layout_of_map("map_m011").is_none());
+    assert!(!fingerprint().is_empty());
+}

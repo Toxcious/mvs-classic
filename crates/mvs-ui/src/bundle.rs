@@ -594,6 +594,9 @@ pub struct MapData {
     pub rotations: Vec<String>,
     #[serde(default)]
     pub slug: String,
+    /// (the port's own) A shipped layout's map (`Bundle::add_custom_maps`): the Custom tag on its tile.
+    #[serde(skip)]
+    pub custom: bool,
 }
 
 /// A MapData with its asset name (MapInfo).
@@ -842,8 +845,38 @@ impl Bundle {
         if b.menu.is_some() {
             b.stages = mvs_data::stage_levels(store)
                 .map_err(|e| Error::Format { what: "gamedata stages".into(), why: e.to_string() })?;
+            b.add_custom_maps(&mvs_stage::shipped());
         }
         Ok(b)
+    }
+
+    /// (the port's own) A map per layout (`map_custom_<key>`) after the build's: on the custom lobby's list (the
+    /// base map's custom rotations), Local Play's and the Lab's, its level `Custom_<key>` opening the base stage. It
+    /// takes the base map's picture, players and property (the first map of the Lab's list on the base stage), its
+    /// name from `custom_text`. A layout whose base no map of the list opens is left out.
+    pub fn add_custom_maps(&mut self, layouts: &[mvs_stage::Layout]) {
+        for l in layouts {
+            let Some(menu) = &self.menu else { return };
+            let opens = |d: &MapData| d.levels.first().and_then(|v| self.stage_of_level(v)) == Some(l.base.as_str());
+            let base = menu.offline_maps.iter().filter_map(|n| menu.maps.get(n)).find(|d| opens(d));
+            let Some(base) = base.cloned() else { continue };
+            let (name, level) = (mvs_stage::map_name(&l.key), l.stage_name());
+            let data = MapData {
+                display_name: crate::menu::custom_text::custom_map_name(&l.key).to_string(),
+                experimental: false,
+                level: level.clone(),
+                levels: vec![level.clone()],
+                rotations: base.rotations.iter().filter(|r| r.starts_with("Custom")).cloned().collect(),
+                slug: name.clone(),
+                custom: true,
+                ..base
+            };
+            self.stages.push((level, l.base.clone()));
+            let Some(menu) = &mut self.menu else { return };
+            menu.maps.insert(name.clone(), data);
+            menu.offline_maps.push(name.clone());
+            menu.offline_maps_local.push(name);
+        }
     }
 
     /// UI_SocialPanel's two transitions that end at the build's Large width (AnimTransitionMediumToLarge,

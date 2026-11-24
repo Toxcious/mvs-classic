@@ -587,7 +587,7 @@ fn load_world(
                     let mut data = GameData::load(store, &refs, stage)?;
                     if let Some(l) = layout {
                         // (the port's own) a custom stage's play shapes over its base's
-                        let what = |e: String| Error::Match(format!("--stage-layout {}: {e}", l.key));
+                        let what = |e: String| Error::Match(format!("the layout {}: {e}", l.key));
                         let b = PieceBounds::read(store, l).map_err(|e| what(e.to_string()))?;
                         mvs_stage::apply(&mut data, l, &|p| b.get(l, p)).map_err(|e| what(e.to_string()))?;
                     }
@@ -620,7 +620,9 @@ impl MatchLoop {
             lab_ahead,
             layout,
         } = start;
-        // (the port's own, dev) a custom stage's match is loaded here, its parts with the layout
+        // (the port's own) a shipped custom map plays its layout; a custom stage's match is loaded here, its parts
+        // with the layout
+        let layout = layout.or_else(|| map.as_deref().and_then(mvs_stage::layout_of_map).map(Arc::new));
         if layout.is_some() {
             prepared = None;
         }

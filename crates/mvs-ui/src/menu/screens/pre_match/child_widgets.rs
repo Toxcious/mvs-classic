@@ -18,6 +18,7 @@ use crate::menu::controller::{Controller, Cx, Event, Handler};
 use crate::menu::custom_text;
 use crate::menu::lobby::loadout::BadgeRef;
 use crate::menu::manager::Manager;
+use crate::menu::map_tag::{self, MapTag};
 use crate::menu::screens::lab_selectors::{
     CollectionCharacterItem, GridItemList, SkinTile, T_CLICK, T_FOCUS, Tile, TileData, TileEvent, run_on, run_tile,
     set_color, set_text, set_vis,
@@ -704,10 +705,11 @@ impl PMStateInfo {
     }
 
     /// SetMapName @14667 (the player controller's BPI_PreMatchTransition(NextMapPath) @14863 is the caller's).
-    pub fn set_map_name(&mut self, cx: &mut Cx<'_>, name: &str, experimental: bool) {
+    pub fn set_map_name(&mut self, cx: &mut Cx<'_>, name: &str, tag: MapTag) {
         set_text(cx, "MapLabelSide", name);
-        // UI_PM_Experimental.ShowExperimentalTag(exp, false)
-        set_vis(cx, "UI_PM_Experimental", if experimental { Vis::SelfHitTestInvisible } else { Vis::Hidden });
+        // UI_PM_Experimental.ShowExperimentalTag(exp, false) (the port's own: Custom on a custom map)
+        let t = find(cx, "UI_PM_Experimental");
+        map_tag::show(cx, t, tag, Vis::SelfHitTestInvisible, Vis::Hidden);
         let me = cx.w;
         if !cx.view.is_animation_playing(me, "Mapreveal") {
             cx.view.play(me, "Mapreveal", false, 1.0);

@@ -16,6 +16,7 @@ pub mod input;
 pub mod lobby;
 pub mod local_play_match;
 pub mod manager;
+pub mod map_tag;
 pub mod match_pause;
 pub mod online;
 pub mod online_line;

@@ -206,6 +206,9 @@ pub struct Platform {
     pub z: Vec<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub moving: Option<PlatformMoving>,
+    /// The port's own rising platform (a layout's; the build has none).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rise: Option<PlatformRise>,
     /// The platform's mesh as the render draws it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mesh: Option<PlatformMesh>,
@@ -216,6 +219,16 @@ pub struct Platform {
 pub struct PlatformMoving {
     pub start: Vec<f64>,
     pub curves: Vec<PlatformCurve>,
+}
+
+/// A layout's rising platform: its box's centre climbs at `speed` (units / s) from where it is placed and, past
+/// `top`, goes back down by `top - bottom` (UE Z of the box's centre).
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct PlatformRise {
+    pub bottom: f64,
+    pub top: f64,
+    pub speed: f64,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

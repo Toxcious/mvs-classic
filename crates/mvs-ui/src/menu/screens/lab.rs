@@ -14,6 +14,7 @@ use crate::bundle::{MapInfo, Rgba, RosterEntry, SkinInfo};
 use crate::menu::controller::{Controller, Cx, Event, Handler};
 use crate::menu::custom_text;
 use crate::menu::manager::{DialogParams, Manager, NotificationParams, TransitionParams};
+use crate::menu::map_tag::{self, MapTag};
 use crate::menu::pictures::PICTURES_LAB_PERKS;
 use crate::menu::screens::lab_selectors::{
     CLEAR, LabCharacterSelector, LabMapSelector, LabSkinSelector, run_on, set_color, set_opacity, set_text, set_vis,
@@ -1029,7 +1030,8 @@ impl LabMapInfo {
         let icon = find(cx, "mapIcon");
         wd(cx, icon).tex = Some(m.data.texture.clone());
         set_text(cx, "mapLabel", &m.data.display_name);
-        set_vis(cx, "UI_PM_Experimental", if m.data.experimental { Vis::Visible } else { Vis::Collapsed });
+        let tag = find(cx, "UI_PM_Experimental");
+        map_tag::show(cx, tag, MapTag::of(&m.data), Vis::Visible, Vis::Collapsed);
     }
 
     /// UpdateContext @1011.

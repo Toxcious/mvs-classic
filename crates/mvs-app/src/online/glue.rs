@@ -519,13 +519,16 @@ fn hash53(s: &str) -> String {
 
 /// The compatibility id: what must be equal for two games to resolve the server's choices alike and
 /// run the same simulation. Deviation: its parts are the store's build id, the exe's version
-/// with the sim's numerics version, and each kind's importer version, in that order; a hash of them, 'c' and
-/// 14 hex digits.
+/// with the sim's numerics version, each kind's importer version and (the port's own) a hash of the shipped custom
+/// maps' layouts, in that order; a hash of them, 'c' and 14 hex digits.
 pub fn compat_id(m: &mvs_store::Manifest) -> String {
     let mut kinds: Vec<(&String, u64)> = m.kinds.iter().map(|(k, r)| (k, r.version)).collect();
     kinds.sort();
     let kinds: Vec<String> = kinds.iter().map(|(k, v)| format!("{k}{v}")).collect();
-    let parts = format!("{}|{}n{}|{}", m.build_id, mvs_release::VERSION, mvs_sim::NUMERICS_VERSION, kinds.join(","));
+    // (the shipped custom maps' layouts: two games play a custom map alike only with the same layouts)
+    let layouts = hash53(&mvs_stage::fingerprint());
+    let parts =
+        format!("{}|{}n{}|{}|l{layouts}", m.build_id, mvs_release::VERSION, mvs_sim::NUMERICS_VERSION, kinds.join(","));
     format!("c{}", hash53(&parts))
 }
 

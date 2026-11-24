@@ -2,6 +2,17 @@
 //! lobby's experimental settings and the rules they turn on. English only; the beta's own text comes from the
 //! player's Game.locres. The HUD's lines are `hud::custom_text`.
 
+/// The tag on a custom map's tile, in the place of the build's Experimental tag.
+pub const CUSTOM_TAG: &str = "CUSTOM";
+
+/// A shipped layout's map name by its key; the key itself for one with no name here.
+pub fn custom_map_name(key: &str) -> &str {
+    match key {
+        "rising" => "Rising Arena",
+        _ => key,
+    }
+}
+
 pub const EXPERIMENTAL_BUTTON: &str = "EXPERIMENTAL SETTINGS";
 pub const EXPERIMENTAL_TITLE: &str = "Experimental";
 pub const STOCK_MODE: &str = "Stock Mode";

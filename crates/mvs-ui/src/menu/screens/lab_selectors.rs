@@ -17,6 +17,7 @@ use crate::bundle::{CosmeticItem, MapInfo, Rgba, RosterEntry, SkinInfo};
 use crate::menu::controller::{Controller, Cx, Event, Handler};
 use crate::menu::hydra;
 use crate::menu::manager::{Manager, Modal};
+use crate::menu::map_tag::{self, MapTag};
 use crate::menu::pictures::{PICTURES_SKINS, skin_pictures};
 use crate::menu::scroll::scroll_list;
 use crate::menu::stat_trackers::{badge_item, stat_tracker_count};
@@ -1068,7 +1069,8 @@ impl GridItem for LabMapItem {
         cx.view.load_texture(&m.data.texture);
         let t = find(cx, "thumbnail");
         wd(cx, t).tex = Some(m.data.texture.clone());
-        set_vis(cx, "UI_PM_Experimental", if m.data.experimental { Vis::Visible } else { Vis::Collapsed });
+        let tag = find(cx, "UI_PM_Experimental");
+        map_tag::show(cx, tag, MapTag::of(&m.data), Vis::Visible, Vis::Collapsed);
     }
 }
 

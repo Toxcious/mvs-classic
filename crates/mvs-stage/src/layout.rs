@@ -4,7 +4,8 @@
 
 use mvs_data::fighter::Map;
 use mvs_data::stage::{
-    BlastBox, BlastBoxCorners, NumOrBool, PlatformMoving, StageCenter, StageSolidData, StageStart, Waypoint,
+    BlastBox, BlastBoxCorners, NumOrBool, PlatformMoving, PlatformRise, StageCenter, StageSolidData, StageStart,
+    Waypoint,
 };
 use serde::{Deserialize, Serialize};
 
@@ -157,6 +158,9 @@ pub struct PlatformSpec {
     pub bx: BoxSpec,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub moving: Option<PlatformMoving>,
+    /// The port's own: the platform rises and, past its top, starts again at its bottom.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rise: Option<PlatformRise>,
 }
 
 /// An item spawn area: its box (origin and half extent) and the big objects' Y offsets from its origin.

@@ -1,7 +1,7 @@
 //! The shared parts of `World.stageRun` and the stage's platforms as the record writes them: `StageRun`'s `timers`,
 //! `solids`, `boxes` and `actors`, the pass-through platforms (StagePlatform) with a moving one's `run`.
 
-use mvs_data::stage::PlatformMoving;
+use mvs_data::stage::Platform;
 use mvs_sim::world::World;
 use mvs_sim::world::stage::{PlatformRun, SolidBox, StageSolid, StageState, StageTimer};
 use mvs_sim::world::stage_actors::StageActor;
@@ -177,25 +177,31 @@ pub fn platform_put(w: &World, i: usize, x: &Wx) -> Value {
     let run =
         w.stage_run.as_ref().and_then(|r| r.platforms.iter().find(|r| i32::try_from(r.index) == Ok(p.stage_index)));
     if let Some(r) = run {
-        let data = w.data.stage.platforms.as_ref().and_then(|l| l.get(i)?.moving.as_ref());
+        let data = w.data.stage.platforms.as_ref().and_then(|l| l.get(i));
         o.push(("run", run_of_put(r, data, x)));
     }
     obj(o)
 }
 
-fn run_of_put(r: &PlatformRun, data: Option<&PlatformMoving>, x: &Wx) -> Value {
+/// A moving platform's run; its data `d`: the build's moves (`curves`, `start`) or a layout's rise (`bottom`,
+/// `top`, `speed`).
+fn run_of_put(r: &PlatformRun, data: Option<&Platform>, x: &Wx) -> Value {
     let mut o: Vec<(String, Value)> = Vec::new();
     plain_keys!(put r, x, o; "act" = m.act, "b0" = b0, "curve" = curve, "cx" = cx, "cy" = cy, "dx" = m.dx, "dy" = m.dy,
         "ev" = m.ev, "l0" = l0, "lastMoveZ" = last_move_z, "mx" = m.mx, "my" = m.my, "owner" = m.owner, "r0" = r0,
         "t0" = t0, "tpx" ~ m.tpx, "tpy" ~ m.tpy, "vx" = m.vx, "vy" = m.vy);
-    match data {
-        Some(d) => {
+    match data.map(|d| (&d.moving, &d.rise)) {
+        Some((None, Some(rs))) => {
+            let n = Value::Num;
+            o.push(("d".to_owned(), obj(vec![("bottom", n(rs.bottom)), ("speed", n(rs.speed)), ("top", n(rs.top))])));
+        }
+        Some((Some(d), _)) => {
             let nums = |v: &[f64]| Value::List(v.iter().map(|n| Value::Num(*n)).collect());
             let curves =
                 d.curves.iter().map(|c| obj(vec![("d", nums(&c.d)), ("duration", Value::Num(c.duration))])).collect();
             o.push(("d".to_owned(), obj(vec![("curves", Value::List(curves)), ("start", nums(&d.start))])));
         }
-        None => x.unmapped("a moving platform's data"),
+        _ => x.unmapped("a moving platform's data"),
     }
     Value::Obj(Obj::new(o))
 }

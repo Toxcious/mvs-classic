@@ -36,7 +36,8 @@ button masher; `combat` a seed for a player that walks to the nearest foe, attac
 up items, choosing from the last frame; `listed` the inputs tick by tick (the tutorials' scripts). A bot slot
 thinks as in a match (`labBots` makes a slot a Lab bot; `botTrees` loads the behaviour trees for a match with no
 bot slot, for a minion's controller). `until` stops a match at the first event that matches it; `calls` makes the
-app's calls into the World (the tutorials' steps) at their ticks. `--record` reads it, `matches::record` steps one
+app's calls into the World (the tutorials' steps) at their ticks; `layout` plays the match on a stage layout of the
+crate's `layouts/` (`mvs-stage`, its boxes given by hand: the trace has no mesh bounds) over its base stage. `--record` reads it, `matches::record` steps one
 match.
 
 ## The runner: `sim-trace`

@@ -552,14 +552,26 @@ pub fn store_differences(header: &Header, store: &mvs_store::Store) -> Vec<Strin
     out
 }
 
+/// A match's layout (`layout`: a file of the crate's `layouts/`, its boxes given by hand: the trace has no mesh
+/// bounds), played over its base stage.
+fn layout_of(name: &str) -> Result<mvs_stage::Layout, String> {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("layouts").join(name);
+    let text = std::fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+    mvs_stage::Layout::read(&text).map_err(|e| format!("{}: {e}", path.display()))
+}
+
 /// The World a trace's header was made with (`new World(data, header.worldSeed, header.setup)`), its data from
 /// `store`.
 pub fn world_for(header: &Header, store: &mvs_store::Store) -> Result<(World, Book), String> {
     let setup = setup_of(&header.setup)?;
     let keys = keys_of(&setup);
     let refs: Vec<&str> = keys.iter().map(String::as_str).collect();
-    let stage = header.stage.as_deref().unwrap_or(TRACE_STAGE);
+    let layout = header.spec["layout"].as_str().map(layout_of).transpose()?;
+    let stage = layout.as_ref().map(|l| l.base.as_str()).or(header.stage.as_deref()).unwrap_or(TRACE_STAGE);
     let mut data = GameData::load(store, &refs, stage).map_err(|e| format!("the gamedata kind: {e:?}"))?;
+    if let Some(l) = &layout {
+        mvs_stage::apply(&mut data, l, &|_| None).map_err(|e| format!("the layout {}: {e}", l.key))?;
+    }
     // A tutorial header's actor data: the World's tutorials (a store without the tutorial entry has none).
     if let Some(m) = header.setup.get("mode")
         && let (_, Some(d)) = mode_of(m)?
