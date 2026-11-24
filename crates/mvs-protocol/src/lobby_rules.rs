@@ -100,7 +100,7 @@ pub enum OptionKey {
     InvitedOnly,
     /// An experimental rule: the match's mutators, a set of `LOBBY_MUTATORS` (`MutatorSet`), each run at once.
     Mutators,
-    /// An experimental rule: the Chaos Wheel (`wheel_rule`), a mutator of `WHEEL_MUTATORS` rolled for every fighter
+    /// An experimental rule: the Chaos Wheel (`wheel_rule`), a mutator of `mvs_mutators::ALL` rolled for every fighter
     /// every `WHEEL_SECONDS`.
     Wheel,
 }
@@ -230,25 +230,6 @@ pub const LOBBY_MUTATORS: [&str; MUTATOR_CHOICES] = [
     "Mutator_ShrinkBlastBoxLastPoint",
 ];
 
-/// The mutators the port's own Chaos Wheel rule may roll, as MutatorData_Map keys: the ones a fighter can gain and
-/// lose in the middle of a life, and the item spawner. Left out: Grow With Damage (20 seconds barely shows it),
-/// Instant Kill (its damage stays after its window) and the whole-match rules (Silly, Final Point Shrink).
-pub const WHEEL_MUTATORS: [&str; 13] = [
-    "Mutator_Giant",
-    "Mutator_Miniature",
-    "Mutator_BigHeadAbilityBoost",
-    "Mutator_LowGravity",
-    "Mutator_Boost_UnlimitedJumps",
-    "Mutator_Boost_CooldownReductionLarge",
-    "Mutator_Boost_AttacksBreakArmor",
-    "Mutator_Boost_WeakenOnHit",
-    "Mutator_Boost_ChargeFreeze",
-    "Mutator_Boost_IceGauntlets",
-    "Mutator_Boost_AdditionalAirSpecial",
-    "Mutator_GreyHealth",
-    "Mutator_RandomItemSpawns",
-];
-
 /// The Chaos Wheel's window, seconds: the match plays one plain, then each has one mutator.
 pub const WHEEL_SECONDS: u32 = 20;
 /// How many seconds ahead of a change the Chaos Wheel's next mutator is drawn (the card names it).
@@ -256,11 +237,7 @@ pub const WHEEL_WARN: u32 = 3;
 
 /// The Chaos Wheel rule a lobby with the option on starts its match with: the whole pool.
 pub fn wheel_rule() -> WheelWire {
-    WheelWire {
-        pool: WHEEL_MUTATORS.iter().map(|k| (*k).to_owned()).collect(),
-        seconds: WHEEL_SECONDS,
-        warn: WHEEL_WARN,
-    }
+    WheelWire { pool: mvs_mutators::keys().map(str::to_owned).collect(), seconds: WHEEL_SECONDS, warn: WHEEL_WARN }
 }
 
 /// The blocker texts of the build (exe strings CustomGameLobbyError_*), in the order of the native table.

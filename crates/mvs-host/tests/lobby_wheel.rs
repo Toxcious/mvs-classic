@@ -5,7 +5,7 @@ mod common;
 
 use common::{ManualClock, MemoryPeer};
 use mvs_host::{Core, HOST_TIMES, HostOptions, HostRand, SessionKind, SystemRand};
-use mvs_protocol::lobby_rules::{WHEEL_MUTATORS, WHEEL_SECONDS, WHEEL_WARN};
+use mvs_protocol::lobby_rules::{WHEEL_SECONDS, WHEEL_WARN};
 use mvs_protocol::version::PROTOCOL;
 use serde_json::{Value, json};
 
@@ -84,5 +84,5 @@ fn the_option_reaches_the_state_and_the_set_up() {
     });
     assert_eq!(rule["seconds"], json!(WHEEL_SECONDS));
     assert_eq!(rule["warn"], json!(WHEEL_WARN));
-    assert_eq!(rule["pool"].as_array().map(Vec::len), Some(WHEEL_MUTATORS.len()));
+    assert_eq!(rule["pool"].as_array().map(Vec::len), Some(mvs_mutators::ALL.len()));
 }

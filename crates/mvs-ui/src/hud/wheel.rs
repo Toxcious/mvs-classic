@@ -1,9 +1,10 @@
 //! (the port's own) The Chaos Wheel's card under the scoreboard's clock: a small label, the mutator's name and a
-//! bar that runs down over the window. While the next mutator is drawn the name line is a reel: the pool's names
-//! scroll down through a window, the ones above and below showing at its edges, fast and then slowing, a click at
-//! each name, and it lands on the drawn one with a punch and a burst of rays, gold and beating until the change.
-//! Through the warning the bar is gold and a count of the seconds stands beside it, both pulsing at each second.
-//! The new mutator comes on with a smaller punch as the gold leaves it. The card is the change's one sign: no text
+//! bar that runs down over the window. While the next mutator is drawn the name line is a reel: the pool's names,
+//! each tinted with its tier's colour, scroll down through a window, the ones above and below showing at its edges,
+//! fast and then slowing, a click at each name, and it lands on the drawn one with a punch and a burst of sparks, in
+//! its tier's colour and beating until the change. Through the warning the bar takes that colour and a count of the
+//! seconds stands beside it, both pulsing at each second. The new mutator comes on with a smaller punch as the
+//! colour leaves it. The card is the change's one sign: no text
 //! over the screen repeats the name. The beta has no such rule, so the card is made here by hand, in the
 //! scoreboard's own fonts and colours, and laid out on its own: nothing of the scoreboard moves for it.
 //!
@@ -59,9 +60,9 @@ const PUNCH_TICKS: f64 = 15.0;
 /// The landed name's beat until the change: its scale over 1 at the top and its period in ticks.
 const BEAT: f64 = 0.06;
 const BEAT_TICKS: f64 = 30.0;
-/// The ticks the gold takes to leave the name after the change.
+/// The ticks the tier colour takes to leave the name after the change.
 const GOLD_OUT_TICKS: f64 = 40.0;
-/// The landing's flash: the ticks the name takes from white to gold.
+/// The landing's flash: the ticks the name takes from white to its tier colour.
 const FLASH_TICKS: f64 = 8.0;
 /// The landing's burst behind the name, a firework's ring of sparks flying out: the sparks (count, length and
 /// width), the ticks it lasts, how far from the middle a spark starts and ends (every other one a share nearer), the
@@ -84,8 +85,12 @@ const PULSE_BAR: f64 = 1.6;
 const PULSE_COUNT: f64 = 0.5;
 const COUNT_W: f64 = 30.0;
 const COUNT_SIZE: f64 = 20.0;
-/// The drawn mutator's colour, on the name, the bar, the count and the burst.
-const GOLD: Rgba = [1.0, 0.78, 0.18, 1.0];
+/// The tiers' colours (`mvs_mutators::Tier`): a drawn mutator's on its name, the bar, the count and the burst.
+const MILD: Rgba = [0.38, 0.78, 1.0, 1.0];
+const WILD: Rgba = [0.74, 0.48, 1.0, 1.0];
+const CHAOS: Rgba = [1.0, 0.52, 0.12, 1.0];
+/// The share of its tier's colour a name on the reel and a mutator's name before it lands take.
+const TIER_SHARE: f64 = 0.6;
 const CLEAR: Rgba = [0.0; 4];
 
 /// What the card reads in a frame: the label, the name, the reel's neighbours, the bar's fill, the count and the
@@ -106,7 +111,7 @@ pub struct CardLine {
 /// The spinning reel's names around the one in the middle (`CardLine::name`).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ReelLine {
-    /// The name coming down from above and the one going out below, by `LOBBY_MUTATORS` index.
+    /// The name coming down from above and the one going out below, by `mvs_mutators::ALL` index.
     pub above: usize,
     pub below: usize,
     /// How far the middle name has moved down from its place, in rows (0..1): the one above as far from its own.
@@ -118,11 +123,11 @@ pub struct ReelLine {
 pub struct Motion {
     /// The name's scale over 1.
     pub punch: f64,
-    /// The share of gold in the name's colour.
+    /// The share of the tier colour (past the reel's own share) in the name's colour.
     pub gold: f64,
-    /// The share of white over the gold (the landing's flash).
+    /// The share of white over it (the landing's flash).
     pub flash: f64,
-    /// The bar in gold (the warning).
+    /// The bar in the tier colour (the warning).
     pub gold_bar: bool,
     /// The second's pulse on the bar and the count: 1 at a whole second, settling to 0.
     pub pulse: f64,
@@ -146,7 +151,7 @@ pub enum Label {
 pub enum Shown {
     /// The rule's own name (the plain first window).
     Rule,
-    /// A mutator, by its index in `LOBBY_MUTATORS`.
+    /// A mutator, by its index in `mvs_mutators::ALL`.
     Mutator(usize),
 }
 
@@ -157,7 +162,7 @@ fn fade(t: f64, ticks: f64) -> f64 {
 }
 
 /// The card of a status, None when it shows nothing (before the match starts and once it is over). `pool`: the
-/// wheel's pool by `LOBBY_MUTATORS` index, the names the spin runs through.
+/// wheel's pool by `mvs_mutators::ALL` index, the names the spin runs through.
 pub fn card_line(h: &WheelHud, pool: &[usize]) -> Option<CardLine> {
     let left = h.ticks_left?;
     let fill = if h.window_ticks == 0 { 0.0 } else { (f64::from(left) / f64::from(h.window_ticks)).clamp(0.0, 1.0) };
@@ -264,11 +269,11 @@ pub struct WheelCard {
     bar: WidgetId,
     fill: WidgetId,
     count: WidgetId,
-    /// The name's and the bar's own colour (the scoreboard's), under the gold.
+    /// The name's and the bar's own colour (the scoreboard's), under the tier colour.
     color: Rgba,
-    /// The pool by `LOBBY_MUTATORS` index.
+    /// The pool by `mvs_mutators::ALL` index.
     pool: Vec<usize>,
-    /// The upper-case names by `LOBBY_MUTATORS` index.
+    /// The upper-case names by `mvs_mutators::ALL` index.
     names: Vec<String>,
     /// The status of the last observe, of what starts the sounds.
     seen: Option<Track>,
@@ -342,14 +347,24 @@ fn panel(t: &mut Tree, b: &Bundle, kind: &str, name: &str) -> WidgetId {
     w
 }
 
+/// The colour of the tier of `mvs_mutators::ALL`'s entry `i`.
+fn tier_color(i: usize) -> Rgba {
+    match mvs_mutators::ALL.get(i).map(|m| m.tier) {
+        Some(mvs_mutators::Tier::Mild) => MILD,
+        Some(mvs_mutators::Tier::Chaos) => CHAOS,
+        _ => WILD,
+    }
+}
+
 /// `c` blended toward `to` by `share`.
 fn blend(c: Rgba, to: Rgba, share: f64) -> Rgba {
     std::array::from_fn(|i| c[i] + (to[i] - c[i]) * share)
 }
 
 impl WheelCard {
-    /// The card of a match whose wheel's pool is `pool`; `label_like` and `name_like` the scoreboard's text blocks
-    /// whose fonts and colours the label and the name take; `names` the menus' mutator names.
+    /// The card of a match whose wheel's pool is `pool` (`mvs_mutators::ALL` indexes); `label_like` and
+    /// `name_like` the scoreboard's text blocks whose fonts and colours the label and the name take; `names` the
+    /// mutators' names by `mvs_mutators::ALL` index.
     pub fn new(b: &Bundle, pool: Vec<usize>, label_like: &Widget, name_like: &Widget, names: &[&str]) -> WheelCard {
         let mut t = Tree::empty(b);
         let root = t.create_plain(b, "VerticalBox", "WheelCard");
@@ -361,7 +376,7 @@ impl WheelCard {
         t.add(window, tall);
         let mut rays = Vec::with_capacity(RAYS);
         for i in 0..RAYS {
-            let r = bar_box(&mut t, b, &format!("WheelRay{i}"), RAY, GOLD);
+            let r = bar_box(&mut t, b, &format!("WheelRay{i}"), RAY, WILD);
             let x = t.widget_mut(r);
             x.h_align = HAlign::Center;
             x.v_align = VAlign::Center;
@@ -398,7 +413,7 @@ impl WheelCard {
         {
             let x = t.widget_mut(count);
             x.v_align = VAlign::Center;
-            x.color = GOLD;
+            x.color = WILD;
         }
         t.add(count_box, count_w);
         t.add(count_box, count);
@@ -425,6 +440,14 @@ impl WheelCard {
             pool,
             names,
             seen: None,
+        }
+    }
+
+    /// The colour of a shown name: its tier's for a mutator, the scoreboard's own for the rule's name.
+    fn tint_of(&self, s: Shown) -> Rgba {
+        match s {
+            Shown::Rule => self.color,
+            Shown::Mutator(i) => tier_color(i),
         }
     }
 
@@ -508,10 +531,12 @@ impl WheelCard {
         }
         let m = line.motion;
         let color = self.color;
-        // the bar: gold through the warning, swelling and whitening at each second's pulse
+        let tint = self.tint_of(line.name);
+        // the bar: the drawn name's tier colour through the warning, swelling and whitening at each second's pulse
         let fill = self.t.widget_mut(self.fill);
         fill.transform.scale = [line.fill, 1.0];
-        fill.color = if m.gold_bar { blend(GOLD, [1.0; 4], 0.6 * m.pulse) } else { color };
+        fill.color = if m.gold_bar { blend(tint, [1.0; 4], 0.6 * m.pulse) } else { color };
+        self.t.widget_mut(self.count).color = tint;
         self.t.widget_mut(self.bar).transform.scale = [1.0, 1.0 + PULSE_BAR * m.pulse];
         self.t.widget_mut(self.count).transform.scale = [1.0 + PULSE_COUNT * m.pulse; 2];
         // the reel: the window clips the names while they scroll, and no longer once landed (the punch outgrows it)
@@ -525,11 +550,15 @@ impl WheelCard {
         let (fade_by, shrink) = shown(frac * ROW);
         x.transform.scale = [(1.0 + m.punch) * shrink; 2];
         x.transform.translation = [0.0, frac * ROW];
-        x.color = blend(blend(color, GOLD, m.gold), [1.0; 4], m.flash);
+        let share = if matches!(line.name, Shown::Rule) { 0.0 } else { TIER_SHARE + (1.0 - TIER_SHARE) * m.gold };
+        x.color = blend(blend(color, tint, share), [1.0; 4], m.flash);
         x.opacity = fade_by;
-        for (w, y) in [(self.above, (frac - 1.0) * ROW), (self.below, (frac + 1.0) * ROW)] {
+        let around = line.reel.map_or([color; 2], |l| [l.above, l.below].map(tier_color));
+        for ((w, y), c) in [(self.above, (frac - 1.0) * ROW), (self.below, (frac + 1.0) * ROW)].into_iter().zip(around)
+        {
             let (fade_by, shrink) = shown(y);
             let x = self.t.widget_mut(w);
+            x.color = blend(color, c, TIER_SHARE);
             x.vis = if line.reel.is_some() { Vis::HitTestInvisible } else { Vis::Collapsed };
             x.transform.scale = [shrink; 2];
             x.transform.translation = [0.0, y];
@@ -545,6 +574,7 @@ impl WheelCard {
             let q = (t / BURST_TICKS).clamp(0.0, 1.0);
             let out = 1.0 - (1.0 - q) * (1.0 - q);
             x.vis = Vis::HitTestInvisible;
+            x.color = tint;
             #[allow(clippy::cast_precision_loss, reason = "a spark's index, below RAYS")]
             let turn = i as f64 * 360.0 / RAYS as f64 + BURST_TURN * t;
             let reach = if i % 2 == 0 { 1.0 } else { BURST_INNER };

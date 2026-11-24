@@ -13,3 +13,6 @@ serde_json.workspace = true
 sha2.workspace = true
 # the system draws of SystemRand
 rand.workspace = true
+
+[dev-dependencies]
+mvs-mutators.workspace = true

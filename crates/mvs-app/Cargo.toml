@@ -15,6 +15,7 @@ name = "mvs-launcher"
 path = "src/bin/mvs-launcher.rs"
 
 [dependencies]
+mvs-mutators.workspace = true
 mvs-audio.workspace = true
 mvs-data.workspace = true
 # the import worker (`mvs --import-worker`): the same library as the CLI

@@ -7,6 +7,7 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
+mvs-mutators.workspace = true
 mvs-math.workspace = true
 mvs-data.workspace = true
 mvs-anim = { path = "../mvs-anim" }

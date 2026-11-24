@@ -10,6 +10,7 @@ publish = false
 
 [workspace.dependencies]
 mvs-math = { path = "crates/mvs-math" }
+mvs-mutators = { path = "crates/mvs-mutators" }
 trial-tape = { path = "crates/trial-tape" }
 mvs-store = { path = "crates/mvs-store" }
 mvs-load = { path = "crates/mvs-load" }

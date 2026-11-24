@@ -838,6 +838,7 @@ dependencies = [
  "mvs-host",
  "mvs-import",
  "mvs-load",
+ "mvs-mutators",
  "mvs-net",
  "mvs-pak",
  "mvs-protocol",
@@ -926,6 +927,7 @@ name = "mvs-host"
 version = "0.1.8"
 dependencies = [
  "indexmap",
+ "mvs-mutators",
  "mvs-protocol",
  "rand",
  "serde_json",
@@ -992,6 +994,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "mvs-mutators"
+version = "0.1.8"
+
+[[package]]
 name = "mvs-net"
 version = "0.1.8"
 dependencies = [
@@ -1039,6 +1045,7 @@ dependencies = [
  "ed25519-dalek",
  "hkdf",
  "indexmap",
+ "mvs-mutators",
  "rand",
  "regex",
  "serde",
@@ -1125,6 +1132,7 @@ dependencies = [
  "mvs-collision",
  "mvs-data",
  "mvs-math",
+ "mvs-mutators",
  "mvs-sim-derive",
  "mvs-store",
  "serde",
@@ -1149,6 +1157,7 @@ dependencies = [
  "mvs-anim",
  "mvs-collision",
  "mvs-data",
+ "mvs-mutators",
  "mvs-sim",
  "mvs-stage",
  "mvs-store",
@@ -1229,6 +1238,7 @@ dependencies = [
  "mvs-data",
  "mvs-freetype",
  "mvs-material",
+ "mvs-mutators",
  "mvs-net",
  "mvs-protocol",
  "mvs-render",

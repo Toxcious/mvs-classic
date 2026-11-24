@@ -120,6 +120,8 @@ pub struct Wheel {
     pub seconds: Real,
     /// How long ahead of a change the next mutator is drawn, so the HUD can name it, in seconds.
     pub warn: Real,
+    /// How many of the pool's Chaos mutators a round of the draw's bag holds.
+    pub chaos: mvs_mutators::ChaosRate,
 }
 
 impl Wheel {
@@ -130,7 +132,7 @@ impl Wheel {
 
     /// A custom game's rule over `pool`.
     pub fn of(pool: Vec<String>) -> Wheel {
-        Wheel { pool, seconds: Wheel::SECONDS, warn: Wheel::WARN }
+        Wheel { pool, seconds: Wheel::SECONDS, warn: Wheel::WARN, chaos: mvs_mutators::ChaosRate::Normal }
     }
 }
 

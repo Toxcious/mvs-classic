@@ -10,7 +10,7 @@ use mvs_sim::world::wheel::{change_to, status};
 use mvs_sim::{Event, InputState, Real, World};
 use mvs_sim_trace::harness::{self, Harness};
 
-/// `mvs_protocol::lobby_rules::WHEEL_MUTATORS`, the pool the app passes.
+/// `mvs_mutators::ALL`, the pool the app passes.
 const POOL: [&str; 13] = [
     "Mutator_Giant",
     "Mutator_Miniature",
@@ -37,7 +37,7 @@ fn setup(pool: &[&str], seconds: Real, flow: bool) -> MatchSetup {
         players: vec![player("superman"), player("shaggy")],
         rules: Some(Rules { knockouts_to_win: 99.0, duration: 420.0, stocks: false }),
         flow,
-        wheel: Some(Wheel { pool: pool.iter().map(|&s| s.to_owned()).collect(), seconds, warn: 1.0 }),
+        wheel: Some(Wheel { seconds, warn: 1.0, ..Wheel::of(pool.iter().map(|&s| s.to_owned()).collect()) }),
         ..MatchSetup::default()
     }
 }
@@ -309,7 +309,7 @@ fn the_draw_goes_through_the_whole_pool_before_a_mutator_comes_back() {
     let c = changes(&mut h, 30 * 120);
     assert!(c.len() > 100, "{} changes", c.len());
     // each round of the bag is the whole pool once
-    for round in c.chunks_exact(POOL.len()) {
+    for round in c.as_chunks::<{ POOL.len() }>().0 {
         let mut r = round.to_vec();
         r.sort_unstable();
         assert_eq!(r, (0..13).collect::<Vec<i32>>(), "{c:?}");

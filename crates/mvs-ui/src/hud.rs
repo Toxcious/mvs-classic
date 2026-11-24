@@ -764,7 +764,7 @@ impl Hud {
         let scoreboard = Scoreboard::new(b, &players, 0.0, &sb, &ui, &abilities);
         let wheel_card = setup.wheel.clone().map(|pool| {
             let (clock, mode) = scoreboard.text_styles();
-            WheelCard::new(b, pool, mode, clock, &crate::menu::custom_text::MUTATORS)
+            WheelCard::new(b, pool, mode, clock, &crate::menu::custom_text::wheel_names())
         });
         // (contexts 1 to 3: the versus levels' InToCountdown; the Lab and the tutorial level make none)
         let stage = setup.arcade.map(|a| arcade_stage(text, CD_ARCADE_STAGE, "{Round}", a));
@@ -2219,7 +2219,7 @@ mod tests {
         Some((h, hud, bundle))
     }
 
-    /// A Lab HUD with the Chaos Wheel (pool `[4, 6]`, Giant and Low Gravity) and one without it: the card under the
+    /// A Lab HUD with the Chaos Wheel (pool `[0, 3]`, Giant and Low Gravity) and one without it: the card under the
     /// clock, the scoreboard where it is without the card, the roll's and the change's sounds with no text over the
     /// screen, and the world mutators' texts (needs the dev store).
     #[test]
@@ -2235,7 +2235,7 @@ mod tests {
         let mut s = setup(4, &[0, 1], &[false, true]);
         s.max_score = -1;
         let mut plain = Hud::new(&bundle, &text, &h.w, &s).expect("the HUD");
-        s.wheel = Some(vec![4, 6]);
+        s.wheel = Some(vec![0, 3]);
         let mut hud = Hud::new(&bundle, &text, &h.w, &s).expect("the HUD");
         let id: mvs_view::M4 = std::array::from_fn(|r| std::array::from_fn(|c| f64::from(u8::from(r == c))));
         let cam = Camera { origin: [0.0; 3], translated_world_to_view: id, view_to_clip: id };
@@ -2286,16 +2286,16 @@ mod tests {
         assert_eq!(hud.scoreboard.clock_place(), plain.scoreboard.clock_place());
         hud.take_sounds();
         // the roll: its sound once
-        step(&mut hud, Some(status(None, Some(6), Some(180))), 4.0);
-        step(&mut hud, Some(status(None, Some(6), Some(179))), 4.1);
+        step(&mut hud, Some(status(None, Some(3), Some(180))), 4.0);
+        step(&mut hud, Some(status(None, Some(3), Some(179))), 4.1);
         assert_eq!(hud.take_sounds(), vec![wheel::ROLL_SOUND.to_owned()]);
         // the landing: its sounds once
-        step(&mut hud, Some(status(None, Some(6), Some(90))), 4.5);
-        step(&mut hud, Some(status(None, Some(6), Some(89))), 4.6);
+        step(&mut hud, Some(status(None, Some(3), Some(90))), 4.5);
+        step(&mut hud, Some(status(None, Some(3), Some(89))), 4.6);
         assert_eq!(hud.take_sounds(), wheel::LAND_SOUNDS.map(String::from).to_vec());
         // the change: its sound, the card's name and no text over the screen
         let before = hud.pops.pops().len();
-        step(&mut hud, Some(status(Some(6), None, Some(1200))), 5.0);
+        step(&mut hud, Some(status(Some(3), None, Some(1200))), 5.0);
         assert_eq!(hud.take_sounds(), vec![wheel::CHANGE_SOUND.to_owned()]);
         assert_eq!(hud.pops.pops().len(), before);
         draw(&mut hud, 5.0);

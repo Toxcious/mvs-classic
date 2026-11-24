@@ -189,40 +189,71 @@ fn runnable(w: &World, i: usize) -> bool {
 /// The most draws held back from the next ones: a third of the pool, at most 3.
 const HELD_BACK: usize = 3;
 
+/// Whether pool entry `i` is a Chaos mutator (`mvs_mutators::Tier::Chaos`).
+fn is_chaos(w: &World, i: usize) -> bool {
+    mvs_mutators::tier_of(&wheel(w).pool[i]) == mvs_mutators::Tier::Chaos
+}
+
+fn as_index(i: usize) -> i32 {
+    i32::try_from(i).expect("a short pool")
+}
+
+/// A new round of the bag: every entry of the pool but the Chaos ones, and of those as many as the set-up's rate
+/// keeps (`mvs_mutators::ChaosRate::of`), picked from the rule's stream (no draw when it keeps all or none).
+fn new_round(w: &mut World) -> Vec<i32> {
+    let n = wheel(w).pool.len();
+    let mut chaos: Vec<i32> = (0..n).filter(|&i| is_chaos(w, i)).map(as_index).collect();
+    let keep = wheel(w).chaos.of(chaos.len());
+    let mut bag: Vec<i32> = (0..n).filter(|&i| !is_chaos(w, i)).map(as_index).collect();
+    if keep > 0 && keep < chaos.len() {
+        let st = state_mut(w);
+        let mut rng = Rng::new(st.rng);
+        for _ in 0..keep {
+            let count = crate::real(u32::try_from(chaos.len()).expect("a short pool"));
+            let k = usize::try_from(math::to_int32(rng.int(count))).expect("a draw below the bound");
+            bag.push(chaos.remove(k));
+        }
+        st.rng = rng.s;
+    } else if keep > 0 {
+        bag.append(&mut chaos);
+    }
+    bag.sort_unstable();
+    bag
+}
+
 /// The draw, a shuffle bag rather than a free pick, so a match goes through the whole pool before a mutator comes
 /// back and none comes back soon after it was on: one of the bag's runnable entries, but the one on and the last
 /// few draws (`HELD_BACK`, a third of the pool at most), from the rule's stream. A bag with none to give is refilled
-/// with the whole pool; the last draws are held back across the refill as long as some other entry may be drawn,
-/// then only the one on. -1 when no entry but the one on may be drawn.
+/// with a new round (`new_round`: the pool, Chaos mutators at the set-up's rate); the last draws are held back across
+/// the refill as long as some other entry may be drawn, then only the one on. -1 when no entry but the one on may be
+/// drawn. A Chaos mutator is never drawn at the rate Off.
 fn draw(w: &mut World) -> i32 {
     let n = wheel(w).pool.len();
     let current = state(w).current;
     let held = HELD_BACK.min(n / 3);
+    let off = wheel(w).chaos == mvs_mutators::ChaosRate::Off;
     let runnable: Vec<i32> = (0..n)
-        .filter(|&i| runnable(w, i))
-        .map(|i| i32::try_from(i).expect("a short pool"))
+        .filter(|&i| runnable(w, i) && !(off && is_chaos(w, i)))
+        .map(as_index)
         .filter(|&i| i != current)
         .collect();
-    let st = state(w);
-    let recent = &st.recent[st.recent.len().saturating_sub(held)..];
-    let fresh = |from: &[i32]| runnable.iter().copied().filter(|i| from.contains(i) && !recent.contains(i)).collect();
-    let mut picks: Vec<i32> = fresh(&st.bag);
-    let mut refill = false;
+    let fresh = |st: &WheelState, from: &[i32]| -> Vec<i32> {
+        let recent = &st.recent[st.recent.len().saturating_sub(held)..];
+        runnable.iter().copied().filter(|i| from.contains(i) && !recent.contains(i)).collect()
+    };
+    let mut picks = fresh(state(w), &state(w).bag);
     if picks.is_empty() {
-        refill = true;
-        let all: Vec<i32> = (0..n).map(|i| i32::try_from(i).expect("a short pool")).collect();
-        picks = fresh(&all);
+        let bag = new_round(w);
+        picks = fresh(state(w), &bag);
         if picks.is_empty() {
             picks.clone_from(&runnable);
         }
+        state_mut(w).bag = bag;
     }
     if picks.is_empty() {
         return -1;
     }
     let st = state_mut(w);
-    if refill {
-        st.bag = (0..n).map(|i| i32::try_from(i).expect("a short pool")).collect();
-    }
     let mut rng = Rng::new(st.rng);
     let count = crate::real(u32::try_from(picks.len()).expect("a short pool"));
     let k = usize::try_from(math::to_int32(rng.int(count))).expect("a draw below the bound");
@@ -236,7 +267,7 @@ fn draw(w: &mut World) -> i32 {
     pick
 }
 
-/// The clock has started: BPI_SetMatchStarted in a match with its flow, the first step in one without.
+// The clock has started: BPI_SetMatchStarted in a match with its flow, the first step in one without.
 fn started(w: &World) -> bool {
     !w.setup.flow || w.flow.match_started
 }

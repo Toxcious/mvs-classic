@@ -404,6 +404,7 @@ impl LocalLobby {
                 pool: w.pool.clone(),
                 seconds: mvs_sim::math::narrow(f64::from(w.seconds)),
                 warn: mvs_sim::math::narrow(f64::from(w.warn)),
+                chaos: mvs_mutators::ChaosRate::Normal,
             }),
             ..MatchSetup::default()
         };

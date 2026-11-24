@@ -45,6 +45,29 @@ pub const MUTATORS: [&str; 18] = [
     "Random Items",
     "Final Point Shrink",
 ];
+/// The name of a Chaos Wheel mutator (`mvs_mutators::ALL`'s keys); "" for a key not on the list.
+pub fn wheel_name(key: &str) -> &'static str {
+    match key {
+        "Mutator_Giant" => "Giant",
+        "Mutator_Miniature" => "Miniature",
+        "Mutator_BigHeadAbilityBoost" => "Big Head",
+        "Mutator_LowGravity" => "Low Gravity",
+        "Mutator_Boost_UnlimitedJumps" => "Unlimited Jumps",
+        "Mutator_Boost_CooldownReductionLarge" => "Faster Cooldowns",
+        "Mutator_Boost_AttacksBreakArmor" => "Attacks Break Armor",
+        "Mutator_Boost_WeakenOnHit" => "Weaken on Hit",
+        "Mutator_Boost_ChargeFreeze" => "Charge Freeze",
+        "Mutator_Boost_IceGauntlets" => "Ice Gauntlets",
+        "Mutator_Boost_AdditionalAirSpecial" => "Extra Air Special",
+        "Mutator_GreyHealth" => "Grey Health",
+        "Mutator_RandomItemSpawns" => "Random Items",
+        _ => "",
+    }
+}
+/// The wheel's names by `mvs_mutators::ALL` index.
+pub fn wheel_names() -> Vec<&'static str> {
+    mvs_mutators::keys().map(wheel_name).collect()
+}
 /// The lobby's ring-out drop under the stock rule.
 pub const STOCKS: &str = "Stocks";
 /// The custom game browser's tag on a row: the backend the lobby was found on.
