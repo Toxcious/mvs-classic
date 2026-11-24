@@ -13,7 +13,7 @@ pub fn custom_map_name(key: &str) -> &str {
     }
 }
 
-pub const EXPERIMENTAL_BUTTON: &str = "EXPERIMENTAL SETTINGS";
+pub const EXPERIMENTAL_BUTTON: &str = "EXPERIMENTAL";
 pub const EXPERIMENTAL_TITLE: &str = "Experimental";
 pub const STOCK_MODE: &str = "Stock Mode";
 pub const CHAOS_WHEEL: &str = "Chaos Wheel";
@@ -55,7 +55,7 @@ pub const CHAOS_QUEUE_TITLE: &str = "Chaos Queue";
 pub const CHAOS_QUEUE_SUB: &str = "A new mutator every 20 seconds";
 pub const CHAOS_QUEUE: &str = "CHAOS";
 /// The mutators row's values, in the order of mvs_protocol::lobby_rules::LOBBY_MUTATORS: Off clears the list.
-pub const MUTATORS: [&str; 30] = [
+pub const MUTATORS: [&str; 28] = [
     "Off",
     "Silly (Random)",
     "Big Head",
@@ -81,8 +81,6 @@ pub const MUTATORS: [&str; 30] = [
     "Dodge Frenzy",
     "Lava Floor",
     "Ghosts",
-    "Turbo",
-    "Slow Motion",
     "Ice Rink",
     "Wind",
     "Magnet",
@@ -115,8 +113,6 @@ pub fn wheel_name(key: &str) -> &'static str {
         "Chaos_ProjectileParty" => "Projectile Party",
         "Chaos_LavaFloor" => "Lava Floor",
         "Chaos_Ghosts" => "Ghosts",
-        "Chaos_Turbo" => "Turbo",
-        "Chaos_SlowMotion" => "Slow Motion",
         "Chaos_IceRink" => "Ice Rink",
         "Chaos_Wind" => "Wind",
         "Chaos_Magnet" => "Magnet",

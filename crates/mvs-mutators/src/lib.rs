@@ -62,8 +62,6 @@ pub const ALL: &[Mutator] = &[
     wheel_only("Chaos_ProjectileParty", Tier::Wild),
     m("Chaos_LavaFloor", Tier::Wild),
     m("Chaos_Ghosts", Tier::Wild),
-    m("Chaos_Turbo", Tier::Wild),
-    m("Chaos_SlowMotion", Tier::Wild),
     m("Chaos_IceRink", Tier::Wild),
     m("Chaos_Wind", Tier::Wild),
     m("Chaos_Magnet", Tier::Mild),

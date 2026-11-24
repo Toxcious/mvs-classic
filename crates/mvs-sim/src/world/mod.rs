@@ -330,8 +330,6 @@ pub struct World {
     ///
     /// [`consts::DELTA_SECONDS`]: crate::consts::DELTA_SECONDS
     pub time_seconds: Real,
-    /// (the port's own) Turbo's and Slow Motion's ticks owed and input held (`own_rules::paced_step`).
-    pub pace: own_rules::Pace,
 
     /// `stageRun`: the stage's own state, where the stage has some.
     pub stage_run: Option<StageState>,
@@ -445,7 +443,6 @@ impl World {
             overlap_mid_frame: false,
             rng: Rng::new(crate::math::dbl::to_int32(f64::from(seed) * 31337.0 + 7.0)),
             time_seconds: 0.0,
-            pace: own_rules::Pace::default(),
             stage_run: None,
             item_area: None,
             world_mutators: None,
@@ -473,19 +470,8 @@ impl World {
         Ok(w)
     }
 
-    /// `step(inputs)`: one frame: one tick, or under the port's own Turbo or Slow Motion the ticks the frame owes
-    /// (`own_rules::paced_step`).
-    pub fn step(&mut self, inputs: &[InputState]) {
-        let pace = own_rules::pace(self);
-        if pace == 1.0 && self.pace.held.is_none() && self.pace.owed == 0.0 {
-            self.step_once(inputs);
-        } else {
-            own_rules::paced_step(self, inputs, pace);
-        }
-    }
-
     /// One tick, in the order of the step.
-    pub fn step_once(&mut self, inputs: &[InputState]) {
+    pub fn step(&mut self, inputs: &[InputState]) {
         let w = self;
         w.scratch.inputs.clear();
         w.scratch.inputs.extend(inputs.iter().map(canon_input));

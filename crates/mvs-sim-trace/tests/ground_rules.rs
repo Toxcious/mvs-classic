@@ -1,4 +1,4 @@
-//! The port's own Turbo, Slow Motion, Ice Rink, Wind and Magnet (`mvs_sim::world::own_rules`), each on all match
+//! The port's own Ice Rink, Wind and Magnet (`mvs_sim::world::own_rules`), each on all match
 //! from the set-up's mutators (the Mutators row) as the wheel's window turns it on for its window.
 
 use mvs_sim::fighter::FighterId;
@@ -31,33 +31,6 @@ fn idle(h: &mut Harness, n: usize) {
 
 fn x(h: &Harness, f: FighterId) -> Real {
     h.w.fighter(f).body.x
-}
-
-#[test]
-fn turbo_and_slow_motion_run_more_and_fewer_ticks_a_frame() {
-    for (rule, ticks) in [("", 100), ("Chaos_Turbo", 130), ("Chaos_SlowMotion", 70)] {
-        let Some(mut h) = landed(rule) else { return };
-        h.w.pace.owed = 0.0;
-        let t0 = h.w.flow.tick;
-        idle(&mut h, 100);
-        let ran = h.w.flow.tick - t0;
-        assert!((ran - ticks).abs() <= 1, "{rule}: {ran} ticks in 100 frames");
-    }
-}
-
-#[test]
-fn slow_motion_keeps_a_press_of_a_frame_it_does_not_run() {
-    let Some(mut h) = landed("Chaos_SlowMotion") else { return };
-    let f = h.fighter(0);
-    assert!(h.w.fighter(f).body.on_floor);
-    h.w.pace.owed = 0.0; // the next frame owes 0.7: not run
-    let t0 = h.w.flow.tick;
-    let mut i = [InputState::default(); 2];
-    i[0].jump = true;
-    h.step(&i);
-    assert_eq!(h.w.flow.tick, t0, "the frame is not run");
-    idle(&mut h, 20);
-    assert!(!h.w.fighter(f).body.on_floor, "the held press jumped");
 }
 
 fn slide(rule: &str) -> Option<Real> {

@@ -1128,8 +1128,8 @@ impl CustomGame {
         w
     }
 
-    /// (the port's own) CHAOS WHEEL, a button of EXPERIMENTAL SETTINGS' kind beside it, the two in a row in
-    /// EXPERIMENTAL SETTINGS' slot (the column under the settings has no room for a second line): the wheel's page
+    /// (the port's own) CHAOS WHEEL, a button of EXPERIMENTAL's kind beside it, the two in a row in
+    /// EXPERIMENTAL's slot (the column under the settings has no room for a second line): the wheel's page
     /// (`wheel_page`).
     fn add_wheel_button(cx: &mut Cx<'_>, reset: WidgetId) {
         let (user, props, parent, at, pad, ha, va, fill) = {

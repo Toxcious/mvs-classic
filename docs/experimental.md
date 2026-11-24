@@ -1,12 +1,12 @@
 # Experimental settings
 
 Rules of the port's own that the beta does not have, for custom games only. The custom lobby's
-EXPERIMENTAL SETTINGS button (in the place of the beta's Reset To Defaults) opens them. Each is a lobby option
+EXPERIMENTAL button (in the place of the beta's Reset To Defaults) opens them. Each is a lobby option
 (`mvs-protocol` `lobby_rules::OptionKey`): off when a lobby is made, set by the leader, the same for every member
 (online the host core keeps it). A lobby kept across its matches keeps its options. The page's rows are
 `experimental_page` in `mvs-ui` `menu/widgets/custom_settings.rs`; their words are in `menu/custom_text.rs`.
 
-The Lab has the same page with the Mutators row alone: its EXPERIMENTAL SETTINGS button under Move List in the
+The Lab has the same page with the Mutators row alone: its EXPERIMENTAL button under Move List in the
 pause menu (`lab_experimental_page`, `mvs-ui` `menu/screens/lab.rs`). The Lab's config holds the set
 (`LabConfig::mutators`); a change restarts the match at the unpause, as another roster does.
 
@@ -85,7 +85,7 @@ builds the rule itself, as it builds a queue match's tables).
 - The pool (`mvs-mutators`, each with its tier): Mild (sky blue): Giant, Miniature, Low Gravity, Air Show,
   Shields Up, Moon Jump, Heavyweight, Vampire, Magnet; Wild (violet): Big Head, Unlimited Jumps, Ability Frenzy, Heavy
   Hitters, Double Damage, Ice Charge, Freeze Touch, Random Items, Grow, Featherweight, Dodge Frenzy, Projectile
-  Party, Lava Floor, Ghosts, Turbo, Slow Motion, Ice Rink, Wind; Chaos (hot orange): Sudden Death (Instant Kill), Shrinking Arena (Final Point
+  Party, Lava Floor, Ghosts, Ice Rink, Wind; Chaos (hot orange): Sudden Death (Instant Kill), Shrinking Arena (Final Point
   Shrink), Bomb Rain, and the events Damage Swap, Shuffle, Fresh Start, Underdog, Hot Potato, Body Swap. The reel and the card show a mutator in its tier's colour. Not on the wheel: Silly (a
   whole-match rule).
 - On the wheel, two of the build's mutators end with their window: Sudden Death's 200 damage is taken back off a
@@ -97,9 +97,7 @@ builds the rule itself, as it builds a queue match's tables).
   Featherweight and Heavyweight (every fighter takes x1.5 or x0.6 knockback), Vampire (damage a fighter deals heals
   half of it off its own), Dodge Frenzy (a dodge spends no dodge meter, air dodges never run out), Lava Floor (1
   damage every half second on the ground), Ghosts (a fighter is not drawn but while it attacks, is in hitstun, or
-  for a flash of 8 ticks each second), Turbo and Slow Motion (the whole match runs 1.3 or 0.7 ticks a frame:
-  a frame runs the whole ticks it owes, so the picture moves in uneven steps; a press on a frame that runs no tick
-  is kept for the next), Ice Rink (the ground keeps a tenth of its friction and braking: walks slide and turns are
+  for a flash of 8 ticks each second), Ice Rink (the ground keeps a tenth of its friction and braking: walks slide and turns are
   slow), Wind (every live player drifts 300 units a second, left for 10 seconds, then right, and so on) and Magnet
   (every live player drifts 200 units a second toward the stage's middle). Bomb Rain (dynamite and mines) and Projectile Party (thrown items) run the
   item spawner as Random Items' window does, with that share of its list and one item every 2 seconds; they are
@@ -127,7 +125,7 @@ builds the rule itself, as it builds a queue match's tables).
 - A cooldown multiplier's end (Ability Frenzy, Big Head) multiplies each cooldown's length by new / old, as the
   build's buffs end: some lengths come back one float step off (14 seconds as 14.000001).
 - The rule's saved state is by player slot: a mode with more pawns than players (Waves) does not take it.
-- Settings: the lobby's CHAOS WHEEL button (beside EXPERIMENTAL SETTINGS) opens the wheel's page
+- Settings: the lobby's CHAOS WHEEL button (beside EXPERIMENTAL) opens the wheel's page
   (`custom_settings::wheel_page`): Chaos Wheel Off / On; Time per Change 10, 15, 20, 30, 45 or 60 seconds;
   Warning 3 or 5 seconds; Chaos Events Off / Rare / Normal / Often; Two at Once; and Mutators, a checklist of
   every mutator with its tier and three quick picks (All, Mild Only, No Chaos). The Lab's Experimental Settings
