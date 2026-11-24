@@ -68,6 +68,43 @@ pub fn project(cam: &Camera, size: [u32; 2], x: f64, y: f64, z: f64) -> Option<[
     Some([((nx + 1.0) / 2.0) * w, ((1.0 - ny) / 2.0) * h])
 }
 
+/// The part of the segment `a`-`b` inside `area` (left, top, right, bottom), pixels; None when none of it is, or a
+/// point is not a number (Liang-Barsky).
+fn clip(a: [f64; 2], b: [f64; 2], area: [f64; 4]) -> Option<([f64; 2], [f64; 2])> {
+    if !(a.iter().chain(&b).all(|v| v.is_finite())) {
+        return None;
+    }
+    let d = [b[0] - a[0], b[1] - a[1]];
+    let (mut t0, mut t1) = (0.0_f64, 1.0_f64);
+    for (p, q) in [(-d[0], a[0] - area[0]), (d[0], area[2] - a[0]), (-d[1], a[1] - area[1]), (d[1], area[3] - a[1])] {
+        if p == 0.0 {
+            if q < 0.0 {
+                return None;
+            }
+            continue;
+        }
+        let t = q / p;
+        if p < 0.0 {
+            t0 = t0.max(t);
+        } else {
+            t1 = t1.min(t);
+        }
+        if t0 > t1 {
+            return None;
+        }
+    }
+    let at = |t: f64| {
+        if t == 0.0 {
+            a
+        } else if t == 1.0 {
+            b
+        } else {
+            [a[0] + d[0] * t, a[1] + d[1] * t]
+        }
+    };
+    Some((at(t0), at(t1)))
+}
+
 impl Canvas<'_> {
     /// A hex colour at `a` alpha, linear.
     pub fn color(c: Hex, a: f64) -> [f64; 4] {
@@ -98,9 +135,24 @@ impl Canvas<'_> {
         }
         let mut on = true;
         let mut left = DASH[0];
-        let mut run: Vec<[f64; 2]> = vec![pts[0]];
+        let mut run: Vec<[f64; 2]> = Vec::new();
+        let area = self.dash_area();
         for seg in pts.windows(2) {
-            let (mut a, b) = (seg[0], seg[1]);
+            // (a segment cut to the area around the picture first: a point beside the camera's plane projects
+            // millions of pixels away, and dashing all of it would never end)
+            let Some((mut a, b)) = clip(seg[0], seg[1], area) else {
+                if on && run.len() > 1 {
+                    self.line(std::mem::take(&mut run), c);
+                }
+                run.clear();
+                continue;
+            };
+            if run.last() != Some(&a) {
+                if on && run.len() > 1 {
+                    self.line(std::mem::take(&mut run), c);
+                }
+                run = vec![a];
+            }
             let mut len = (b[0] - a[0]).hypot(b[1] - a[1]);
             while len > left {
                 let k = left / len;
@@ -124,6 +176,14 @@ impl Canvas<'_> {
         if on {
             self.line(run, c);
         }
+    }
+
+    /// The area a dashed stroke is cut to: the picture with its own size again on every side, pixels (left, top,
+    /// right, bottom).
+    fn dash_area(&self) -> [f64; 4] {
+        let [w, h] = self.size.map(f64::from);
+        let m = w.max(h);
+        [-m, -m, w + m, h + m]
     }
 
     /// A convex polygon filled (one-pixel rows).
@@ -275,5 +335,31 @@ impl Canvas<'_> {
         let geometry = PaintGeometry { size: [m.width, m.height], transform: [1.0, 0.0, 0.0, 1.0, at[0], at[1]] };
         let el = TextEl { geometry, run, color, outline_color: [0.0, 0.0, 0.0, LABEL_OUTLINE_ALPHA], material: None };
         self.list.push(self.layer, None, DrawEffects::NONE, Element::Text(el));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const AREA: [f64; 4] = [-100.0, -100.0, 200.0, 200.0];
+
+    #[test]
+    fn a_segment_inside_is_kept_whole() {
+        let (a, b) = ([0.0, 0.0], [50.0, 80.0]);
+        assert_eq!(clip(a, b, AREA), Some((a, b)));
+    }
+
+    #[test]
+    fn a_far_segment_is_cut_to_the_area_or_dropped() {
+        // a corner beside the camera's plane: a thousand billion pixels away
+        let (a, b) = clip([50.0, 50.0], [1e15, 50.0], AREA).expect("the part inside");
+        assert_eq!(a, [50.0, 50.0]);
+        assert!((b[0] - 200.0).abs() < 1e-3 && (b[1] - 50.0).abs() < 1e-9, "{b:?}");
+        assert_eq!(clip([-1e15, 50.0], [1e15, 50.0], AREA).map(|(a, b)| (a[0], b[0])), Some((-100.0, 200.0)));
+        // all of it outside, or not a number
+        assert_eq!(clip([300.0, 0.0], [1e15, 0.0], AREA), None);
+        assert_eq!(clip([0.0, 0.0], [f64::INFINITY, 0.0], AREA), None);
+        assert_eq!(clip([0.0, f64::NAN], [10.0, 0.0], AREA), None);
     }
 }
