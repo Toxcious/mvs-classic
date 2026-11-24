@@ -208,7 +208,7 @@ pub fn plants() -> Vec<(&'static str, Entry, &'static str)> {
         ("the key as raw bytes", file(LICENSE, raw), "as raw bytes"),
         ("the key inside base64url data", file(LICENSE, URL_SAFE_NO_PAD.encode(&inner).into_bytes()), "as base64url"),
         (
-            "the EOS secret outside resources/eos.json",
+            "the EOS client credentials outside resources/eos.json",
             file(LICENSE, format!("{{\"secret\":\"{FAKE_SECRET}\"}}").into_bytes()),
             "the EOS client credentials",
         ),

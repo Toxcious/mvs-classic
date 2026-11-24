@@ -49,8 +49,8 @@ pub struct Options {
     pub store: Option<PathBuf>,
 }
 
-/// The EOS files a release adds, checked before anything is built. The credentials are never printed: a bad file is
-/// named by its path and the missing key's name only.
+/// The EOS files a release adds, checked before anything is built: a bad credentials file is named by its path and
+/// the missing entry's name.
 struct EosFiles {
     dll: PathBuf,
     credentials: Vec<u8>,
