@@ -6,10 +6,10 @@
 //! SCS_SceneDepth, RTF_R16f, FOVAngle = CameraComponent.FieldOfView). Capture N shows the stack's indexes 0..N-1,
 //! so the three share one depth buffer: the fighters of index N-1 are added to it before capture N is written.
 
+use mvs_d3d::Direct3D::D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+use mvs_d3d::Direct3D11::*;
+use mvs_d3d::Dxgi::Common::*;
 use mvs_view::Camera;
-use windows::Win32::Graphics::Direct3D::D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-use windows::Win32::Graphics::Direct3D11::*;
-use windows::Win32::Graphics::Dxgi::Common::*;
 
 use crate::Result;
 use crate::draw::{DrawItem, PassMask, execute};

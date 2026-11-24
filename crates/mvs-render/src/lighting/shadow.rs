@@ -13,9 +13,9 @@
 // Deviation: the translucency lighting volume and translucent sections take no dynamic shadow (the menu fighters'
 // translucent parts are lit unshadowed).
 
+use mvs_d3d::Direct3D11::*;
+use mvs_d3d::Dxgi::Common::*;
 use mvs_view::{Camera, M4};
-use windows::Win32::Graphics::Direct3D11::*;
-use windows::Win32::Graphics::Dxgi::Common::*;
 
 use super::{fill, in_frustum, shares};
 use crate::Result;
@@ -323,7 +323,7 @@ impl Maps {
         };
         let sd = D3D11_SHADER_RESOURCE_VIEW_DESC {
             Format: DXGI_FORMAT_R16_UNORM,
-            ViewDimension: windows::Win32::Graphics::Direct3D::D3D_SRV_DIMENSION_TEXTURE2DARRAY,
+            ViewDimension: mvs_d3d::Direct3D::D3D_SRV_DIMENSION_TEXTURE2DARRAY,
             Anonymous: D3D11_SHADER_RESOURCE_VIEW_DESC_0 {
                 Texture2DArray: D3D11_TEX2D_ARRAY_SRV {
                     MostDetailedMip: 0,

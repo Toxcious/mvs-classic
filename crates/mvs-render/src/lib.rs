@@ -50,7 +50,7 @@ pub use swap::SwapChain;
 pub enum Error {
     /// A D3D11 or DXGI call that failed.
     #[error("{what}: {source}")]
-    Device { what: String, source: windows::core::Error },
+    Device { what: String, source: mvs_d3d::core::Error },
     /// An entry that does not read as its format says, or holds what the renderer cannot draw.
     #[error("{what}: {why}")]
     Format { what: String, why: String },

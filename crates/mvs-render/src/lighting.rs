@@ -13,14 +13,20 @@ pub mod capture;
 pub mod shadow;
 pub mod tlv;
 
+#[cfg(windows)]
 use std::ffi::c_void;
 
+use mvs_d3d::Direct3D::D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+#[cfg(windows)]
+use mvs_d3d::Direct3D::ID3DBlob;
+use mvs_d3d::Direct3D11::*;
+use mvs_d3d::Dxgi::Common::*;
+use mvs_d3d::core::Interface;
+#[cfg(windows)]
+use mvs_d3d::core::PCSTR;
 use mvs_view::{Camera, M4};
+#[cfg(windows)]
 use windows::Win32::Graphics::Direct3D::Fxc::{D3DCOMPILE_OPTIMIZATION_LEVEL3, D3DCompile};
-use windows::Win32::Graphics::Direct3D::{D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST, ID3DBlob};
-use windows::Win32::Graphics::Direct3D11::*;
-use windows::Win32::Graphics::Dxgi::Common::*;
-use windows::core::{Interface, PCSTR};
 
 use crate::assets::Assets;
 use crate::gpu::{
@@ -266,6 +272,7 @@ fn translated_world_to_clip(c: &Camera) -> M4 {
 }
 
 /// HLSL of the port's own compiled by d3dcompiler_47.
+#[cfg(windows)]
 pub(crate) fn compile(src: &str, entry: &str, target: &str) -> Result<Vec<u8>> {
     let e = format!("{entry}\0");
     let t = format!("{target}\0");
@@ -294,6 +301,28 @@ pub(crate) fn compile(src: &str, entry: &str, target: &str) -> Result<Vec<u8>> {
         }
         Ok(blob(code.as_ref().expect("D3DCompile gave no code")).to_vec())
     }
+}
+
+/// HLSL of the port's own as the DXBC d3dcompiler_47 made of it on Windows (Linux has no `D3DCompile`): the blob
+/// `shaders/keys.txt` names for the source, entry and target's `mvs_d3d::dxbc_key`.
+#[cfg(not(windows))]
+#[track_caller]
+pub(crate) fn compile(src: &str, entry: &str, target: &str) -> Result<Vec<u8>> {
+    let caller = std::panic::Location::caller();
+    let key = format!("{:016x}", mvs_d3d::dxbc_key(src, entry, target));
+    let name = include_str!("../shaders/keys.txt")
+        .lines()
+        .find_map(|l| l.split_once(' ').filter(|(_, k)| *k == key).map(|(n, _)| n));
+    // (the listed entry of that name, when it is still the same source, entry and target)
+    let blob = name.and_then(|n| {
+        crate::shaders::shaders()
+            .into_iter()
+            .find(|s| s.name == n && s.entry == entry && s.target == target && s.src == src)
+    });
+    blob.map(|s| s.dxbc.to_vec()).ok_or_else(|| Error::Format {
+        what: format!("shader {entry} {target} at {caller}"),
+        why: format!("no compiled blob has key {key}: add it to src/shaders.rs and regenerate the blobs"),
+    })
 }
 
 /// The pass's shaders and buffers.

@@ -9,12 +9,12 @@
 //! over SceneColor: rgb = scene.rgb x sep.a x mod.rgb + sep.rgb, alpha 0. Before its first pass it takes the scene
 //! colour copy (SceneColorCopy 141d79f00) a material's SceneColor node reads.
 
-use mvs_view::M4;
-use windows::Win32::Graphics::Direct3D::D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-use windows::Win32::Graphics::Direct3D11::*;
-use windows::Win32::Graphics::Dxgi::Common::{
+use mvs_d3d::Direct3D::D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+use mvs_d3d::Direct3D11::*;
+use mvs_d3d::Dxgi::Common::{
     DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_FORMAT_R11G11B10_FLOAT, DXGI_FORMAT_R32_UINT, DXGI_FORMAT_R32G32B32A32_FLOAT,
 };
+use mvs_view::M4;
 
 use crate::Result;
 use crate::assets::Assets;

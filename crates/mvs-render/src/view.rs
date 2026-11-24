@@ -5,8 +5,8 @@
 
 use std::sync::Arc;
 
+use mvs_d3d::Dxgi::Common::DXGI_FORMAT_B8G8R8A8_UNORM;
 use mvs_view::{Camera, FrameTime, M4};
-use windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_B8G8R8A8_UNORM;
 
 use crate::Result;
 use crate::gpu::{BufDesc, BufKind, Buffer, Gpu, Subresource, TexDesc, TexKind, TexViews, Texture, rows_bytes};

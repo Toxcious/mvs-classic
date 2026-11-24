@@ -7,11 +7,9 @@
 //! skip's own; the cooked pass drawn full screen under a stencil-equal test (the hardware's early stencil rejects the
 //! rest) and the other pixels copied from its input, so the blendable's output is the same picture.
 
-use windows::Win32::Graphics::Direct3D::{
-    D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST, D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP,
-};
-use windows::Win32::Graphics::Direct3D11::*;
-use windows::Win32::Graphics::Dxgi::Common::*;
+use mvs_d3d::Direct3D::{D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST, D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP};
+use mvs_d3d::Direct3D11::*;
+use mvs_d3d::Dxgi::Common::*;
 
 use super::pass::{Rows, constant_buffer, unbind, write};
 use crate::Result;

@@ -5,12 +5,17 @@
 
 use std::time::{Duration, Instant};
 
-use windows::Win32::Foundation::{CloseHandle, HANDLE, HWND};
-use windows::Win32::Graphics::Direct3D11::ID3D11Texture2D;
-use windows::Win32::Graphics::Dxgi::Common::*;
-use windows::Win32::Graphics::Dxgi::*;
+use mvs_d3d::Direct3D11::ID3D11Texture2D;
+use mvs_d3d::Dxgi::Common::*;
+use mvs_d3d::Dxgi::*;
+#[cfg(windows)]
+use mvs_d3d::Foundation::HANDLE;
+use mvs_d3d::Foundation::HWND;
+use mvs_d3d::core::{BOOL, Interface};
+#[cfg(windows)]
+use windows::Win32::Foundation::CloseHandle;
+#[cfg(windows)]
 use windows::Win32::System::Threading::WaitForSingleObjectEx;
-use windows::core::{BOOL, Interface};
 
 use crate::Result;
 use crate::gpu::{Gpu, TexDesc, TexKind, TexViews, Texture, dx};
@@ -24,6 +29,7 @@ pub struct SwapChain {
     pub size: [u32; 2],
     swap: IDXGISwapChain2,
     /// The frame latency waitable object.
+    #[cfg(windows)]
     latency: HANDLE,
     /// DXGI_PRESENT_ALLOW_TEARING is passed with a present without vsync (the factory's
     /// DXGI_FEATURE_PRESENT_ALLOW_TEARING).
@@ -114,11 +120,13 @@ impl SwapChain {
             factory.MakeWindowAssociation(hwnd, DXGI_MWA_NO_ALT_ENTER).map_err(dx("MakeWindowAssociation"))?;
             let swap: IDXGISwapChain2 = swap1.cast().map_err(dx("IDXGISwapChain2"))?;
             swap.SetMaximumFrameLatency(1).map_err(dx("SetMaximumFrameLatency"))?;
+            #[cfg(windows)]
             let latency = swap.GetFrameLatencyWaitableObject();
             let back = back_buffer(gpu, &swap, size)?;
             Ok(SwapChain {
                 size,
                 swap,
+                #[cfg(windows)]
                 latency,
                 tearing: allowed,
                 back,
@@ -139,10 +147,17 @@ impl SwapChain {
         if !std::mem::replace(&mut self.presented, false) {
             return;
         }
+        #[cfg(windows)]
         // SAFETY: the swap chain's own waitable object, open until drop.
         unsafe {
             WaitForSingleObjectEx(self.latency, timeout_ms, true);
         }
+        // Unverified: DXVK-native has no waitable object (GetFrameLatencyWaitableObject is null there, and there is
+        // no WaitForSingleObjectEx): its Present blocks instead, in SyncFrameLatency (d3d11_swapchain.cpp:707-739),
+        // until the frame `dxgi.maxFrameLatency` back is shown, and mvs_d3d::set_linux_wsi caps that at 1, the one
+        // frame queued Windows' wait keeps (local/gates/0b-swap.md; checked in the run of plan Task 7).
+        #[cfg(not(windows))]
+        let _ = timeout_ms;
         if self.pace_next {
             self.pace();
         }
@@ -235,6 +250,7 @@ impl SwapChain {
     }
 }
 
+#[cfg(windows)]
 impl Drop for SwapChain {
     fn drop(&mut self) {
         // SAFETY: the waitable object GetFrameLatencyWaitableObject handed over, closed once.

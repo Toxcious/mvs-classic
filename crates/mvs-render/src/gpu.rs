@@ -5,17 +5,17 @@ use std::collections::HashMap;
 use std::ffi::c_void;
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use windows::Win32::Foundation::{HMODULE, S_FALSE};
-use windows::Win32::Graphics::Direct3D::*;
-use windows::Win32::Graphics::Direct3D11::*;
-use windows::Win32::Graphics::Dxgi::Common::*;
-use windows::Win32::Graphics::Dxgi::{CreateDXGIFactory1, IDXGIAdapter1, IDXGIFactory1};
-use windows::core::{Interface, PCSTR};
+use mvs_d3d::Direct3D::*;
+use mvs_d3d::Direct3D11::*;
+use mvs_d3d::Dxgi::Common::*;
+use mvs_d3d::Dxgi::{CreateDXGIFactory1, IDXGIAdapter1, IDXGIFactory1};
+use mvs_d3d::Foundation::{HMODULE, S_FALSE};
+use mvs_d3d::core::{Interface, PCSTR};
 
 use crate::{Error, Result};
 
 /// A failed D3D11 / DXGI call as the crate's error.
-pub(crate) fn dx(what: impl Into<String>) -> impl FnOnce(windows::core::Error) -> Error {
+pub(crate) fn dx(what: impl Into<String>) -> impl FnOnce(mvs_d3d::core::Error) -> Error {
     let what = what.into();
     move |source| Error::Device { what, source }
 }
@@ -282,7 +282,7 @@ fn depth_views(f: DXGI_FORMAT) -> Option<(DXGI_FORMAT, DXGI_FORMAT)> {
     }
 }
 
-fn bool32(b: bool) -> windows::core::BOOL {
+fn bool32(b: bool) -> mvs_d3d::core::BOOL {
     b.into()
 }
 
@@ -294,6 +294,13 @@ impl Gpu {
     /// The device on the first adapter whose description holds `adapter` (any case), or the default one; `debug`
     /// adds the D3D11 debug layer.
     pub fn new(adapter: Option<&str>, debug: bool) -> Result<Gpu> {
+        // (DXVK-native reads DXVK_WSI_DRIVER and DXVK_CONFIG when the factory and device are made; set once, before
+        // the first)
+        #[cfg(not(windows))]
+        {
+            static WSI: std::sync::Once = std::sync::Once::new();
+            WSI.call_once(mvs_d3d::set_linux_wsi);
+        }
         // SAFETY: DXGI and D3D11 creation calls with valid out-pointers; the adapter outlives the call.
         unsafe {
             let factory: IDXGIFactory1 = CreateDXGIFactory1().map_err(dx("CreateDXGIFactory1"))?;
@@ -303,8 +310,7 @@ impl Gpu {
             while let Ok(a) = factory.EnumAdapters1(i) {
                 i += 1;
                 let d = a.GetDesc1().map_err(dx("GetDesc1"))?;
-                let n = d.Description.iter().position(|&c| c == 0).unwrap_or(d.Description.len());
-                let name = String::from_utf16_lossy(&d.Description[..n]);
+                let name = mvs_d3d::wide_str(&d.Description);
                 let take = match adapter {
                     Some(want) => name.to_lowercase().contains(&want.to_lowercase()),
                     None => i == 1,

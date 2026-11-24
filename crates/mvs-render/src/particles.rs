@@ -9,14 +9,14 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use mvs_d3d::Direct3D::{
+    D3D_PRIMITIVE_TOPOLOGY, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST, D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP,
+};
+use mvs_d3d::Direct3D11::*;
+use mvs_d3d::Dxgi::Common::*;
 use mvs_material::{Frequency, ShaderCode};
 use mvs_vfx::draw::{DrawParams, EmitterDraw, EmitterKind};
 use mvs_vfx::fill::{MESH_STRIDE, RIBBON_STRIDE, SPRITE_STRIDE};
-use windows::Win32::Graphics::Direct3D::{
-    D3D_PRIMITIVE_TOPOLOGY, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST, D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP,
-};
-use windows::Win32::Graphics::Direct3D11::*;
-use windows::Win32::Graphics::Dxgi::Common::*;
 
 use crate::assets::{Assets, Mesh};
 use crate::draw::{PassInput, StageTables, Streams};
@@ -1146,7 +1146,7 @@ impl Particles {
 
     /// The read-only view of the scene depth (the depth tested while the pixel shaders read it).
     fn read_only_depth(&mut self, gpu: &Gpu, depth: &Texture) -> Result<ID3D11DepthStencilView> {
-        use windows::core::Interface;
+        use mvs_d3d::core::Interface;
         let key = depth.res.as_raw() as usize;
         if let Some((k, v)) = &self.read_only_depth
             && *k == key

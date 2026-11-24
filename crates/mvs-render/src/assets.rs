@@ -5,8 +5,8 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock, Weak};
 
+use mvs_d3d::Dxgi::Common::*;
 use serde::Deserialize;
-use windows::Win32::Graphics::Dxgi::Common::*;
 
 use crate::gpu::{BufDesc, BufKind, Buffer, Gpu, Subresource, TexDesc, TexKind, TexViews, Texture};
 use crate::{Error, Result};

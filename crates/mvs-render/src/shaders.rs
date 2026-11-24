@@ -99,3 +99,33 @@ mod tests {
         }
     }
 }
+
+#[cfg(all(test, not(windows)))]
+mod linux_tests {
+    use super::shaders;
+    use mvs_d3d::dxbc_key;
+
+    /// A source edited on Windows without its blobs made again fails here: every listed shader's current key is in
+    /// `keys.txt` under its name, with a blob, and no blob in `shaders/` is unlisted.
+    #[test]
+    fn every_listed_shader_has_its_blob() {
+        let list = shaders();
+        let keys = include_str!("../shaders/keys.txt");
+        for s in &list {
+            let line = format!("{} {:016x}", s.name, dxbc_key(&s.src, s.entry, s.target));
+            assert!(keys.lines().any(|l| l == line), "keys.txt does not hold `{line}`: regenerate the blobs");
+            assert!(!s.dxbc.is_empty(), "{}: the blob is empty", s.name);
+        }
+        for l in keys.lines() {
+            let name = l.split_once(' ').map_or(l, |(n, _)| n);
+            assert!(list.iter().any(|s| s.name == name), "keys.txt names `{name}`, which src/shaders.rs does not list");
+        }
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("shaders");
+        for entry in std::fs::read_dir(&dir).expect("read the blob folder") {
+            let file = entry.expect("a blob folder entry").file_name().into_string().expect("a UTF-8 file name");
+            if let Some(name) = file.strip_suffix(".dxbc") {
+                assert!(list.iter().any(|s| s.name == name), "{file} is not listed in src/shaders.rs");
+            }
+        }
+    }
+}

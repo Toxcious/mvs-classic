@@ -6,11 +6,11 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use mvs_d3d::Direct3D::D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+use mvs_d3d::Direct3D11::*;
+use mvs_d3d::Dxgi::Common::*;
+use mvs_d3d::core::Interface;
 use serde_json::Value;
-use windows::Win32::Graphics::Direct3D::D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-use windows::Win32::Graphics::Direct3D11::*;
-use windows::Win32::Graphics::Dxgi::Common::*;
-use windows::core::Interface;
 
 use super::compile;
 use crate::gpu::{

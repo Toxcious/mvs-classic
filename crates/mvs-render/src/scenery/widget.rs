@@ -10,10 +10,10 @@
 
 use std::sync::Arc;
 
+use mvs_d3d::Direct3D::D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+use mvs_d3d::Direct3D11::*;
+use mvs_d3d::Dxgi::Common::DXGI_FORMAT_R8G8B8A8_UNORM;
 use mvs_view::{Camera, M4};
-use windows::Win32::Graphics::Direct3D::D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-use windows::Win32::Graphics::Direct3D11::*;
-use windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_R8G8B8A8_UNORM;
 
 use super::host::SceneryHost;
 use crate::Result;

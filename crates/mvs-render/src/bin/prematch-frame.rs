@@ -17,13 +17,13 @@
 use std::path::PathBuf;
 use std::process::ExitCode;
 
+use mvs_d3d::Dxgi::Common::DXGI_FORMAT_R8G8B8A8_UNORM;
 use mvs_render::assets::Assets;
 use mvs_render::gpu::{Gpu, TexDesc, TexKind, TexViews};
 use mvs_render::image::write_png;
 use mvs_render::menuscene::format::{LevelName, SceneData, load_level};
 use mvs_render::menuscene::{MenuLevel, PreviewSpec, SeqCmd};
 use mvs_render::renderer::Renderer;
-use windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_R8G8B8A8_UNORM;
 
 struct Args {
     store: PathBuf,

@@ -2,8 +2,8 @@
 //! cooked FPostProcessMaterialVS / PS over scene colour (PostProcessInput_0) into a target of its own. The stages'
 //! one blendable is the team outline, ColoredOutlines_Inst, which reads the custom stencil.
 
+use mvs_d3d::Direct3D11::{ID3D11DepthStencilView, ID3D11ShaderResourceView};
 use mvs_material::PreshaderInputs;
-use windows::Win32::Graphics::Direct3D11::{ID3D11DepthStencilView, ID3D11ShaderResourceView};
 
 use super::pass::{Binds, Quad, Rows, Stage, States, constant_buffer, draw_rect, set_target, unbind, write};
 use crate::assets::Assets;

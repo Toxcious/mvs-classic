@@ -1,7 +1,7 @@
 //! The scene targets of the deferred path: SceneColor, the G-buffer, the depth-stencil (reversed Z), custom depth,
 //! separate translucency, and the camera's priority captures.
 
-use windows::Win32::Graphics::Dxgi::Common::*;
+use mvs_d3d::Dxgi::Common::*;
 
 use crate::Result;
 use crate::gpu::{Gpu, TexDesc, TexKind, TexViews, Texture};

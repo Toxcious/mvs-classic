@@ -13,9 +13,9 @@ mod upscale;
 
 pub(crate) use tonemap::DEFAULT_AA_LEVEL;
 
+use mvs_d3d::Direct3D11::*;
+use mvs_d3d::Dxgi::Common::*;
 use mvs_data::stage::StageData;
-use windows::Win32::Graphics::Direct3D11::*;
-use windows::Win32::Graphics::Dxgi::Common::*;
 
 use crate::assets::Assets;
 use crate::draw::execute;
@@ -363,7 +363,7 @@ fn stencil_view(gpu: &Gpu, t: &Texture) -> Result<ID3D11ShaderResourceView> {
     }
     let sd = D3D11_SHADER_RESOURCE_VIEW_DESC {
         Format: DXGI_FORMAT_X32_TYPELESS_G8X24_UINT,
-        ViewDimension: windows::Win32::Graphics::Direct3D::D3D_SRV_DIMENSION_TEXTURE2D,
+        ViewDimension: mvs_d3d::Direct3D::D3D_SRV_DIMENSION_TEXTURE2D,
         Anonymous: D3D11_SHADER_RESOURCE_VIEW_DESC_0 {
             Texture2D: D3D11_TEX2D_SRV { MostDetailedMip: 0, MipLevels: 1 },
         },
