@@ -73,6 +73,11 @@ pub struct WheelState {
     pub current: i32,
     /// The pool index of the next one once drawn, -1 for none.
     pub next: i32,
+    /// The draw's bag: the pool indexes not drawn yet this round (`draw`), refilled with the whole pool once none
+    /// of it may be drawn.
+    pub bag: Vec<i32>,
+    /// The last draws, newest last, at most `HELD_BACK`: held back from the next draws across a refill.
+    pub recent: Vec<i32>,
     /// The match is over: the rule has stopped.
     pub over: bool,
     /// The rule's Random Items window runs the item area's spawner.
@@ -132,6 +137,8 @@ pub fn new_state(setup: &MatchSetup, seed: i32) -> Option<WheelState> {
         change_at: -1,
         current: -1,
         next: -1,
+        bag: Vec::new(),
+        recent: Vec::new(),
         over: false,
         items: false,
         saved: setup.players.iter().map(|_| WheelSaved::default()).collect(),
@@ -179,19 +186,54 @@ fn runnable(w: &World, i: usize) -> bool {
     cls == RANDOM_ITEMS && !flow::ffa_items_on(&w.setup) && !w.data.spawn_areas.is_empty() && w.item_area.is_some()
 }
 
-/// The draw: one of the pool's runnable entries but the one on, from the rule's stream; -1 when there is none.
+/// The most draws held back from the next ones: a third of the pool, at most 3.
+const HELD_BACK: usize = 3;
+
+/// The draw, a shuffle bag rather than a free pick, so a match goes through the whole pool before a mutator comes
+/// back and none comes back soon after it was on: one of the bag's runnable entries, but the one on and the last
+/// few draws (`HELD_BACK`, a third of the pool at most), from the rule's stream. A bag with none to give is refilled
+/// with the whole pool; the last draws are held back across the refill as long as some other entry may be drawn,
+/// then only the one on. -1 when no entry but the one on may be drawn.
 fn draw(w: &mut World) -> i32 {
-    let current = index(state(w).current);
-    let picks: Vec<usize> = (0..wheel(w).pool.len()).filter(|&i| Some(i) != current && runnable(w, i)).collect();
+    let n = wheel(w).pool.len();
+    let current = state(w).current;
+    let held = HELD_BACK.min(n / 3);
+    let runnable: Vec<i32> = (0..n)
+        .filter(|&i| runnable(w, i))
+        .map(|i| i32::try_from(i).expect("a short pool"))
+        .filter(|&i| i != current)
+        .collect();
+    let st = state(w);
+    let recent = &st.recent[st.recent.len().saturating_sub(held)..];
+    let fresh = |from: &[i32]| runnable.iter().copied().filter(|i| from.contains(i) && !recent.contains(i)).collect();
+    let mut picks: Vec<i32> = fresh(&st.bag);
+    let mut refill = false;
+    if picks.is_empty() {
+        refill = true;
+        let all: Vec<i32> = (0..n).map(|i| i32::try_from(i).expect("a short pool")).collect();
+        picks = fresh(&all);
+        if picks.is_empty() {
+            picks.clone_from(&runnable);
+        }
+    }
     if picks.is_empty() {
         return -1;
     }
     let st = state_mut(w);
+    if refill {
+        st.bag = (0..n).map(|i| i32::try_from(i).expect("a short pool")).collect();
+    }
     let mut rng = Rng::new(st.rng);
-    let n = crate::real(u32::try_from(picks.len()).expect("a short pool"));
-    let k = usize::try_from(math::to_int32(rng.int(n))).expect("a draw below the bound");
+    let count = crate::real(u32::try_from(picks.len()).expect("a short pool"));
+    let k = usize::try_from(math::to_int32(rng.int(count))).expect("a draw below the bound");
     st.rng = rng.s;
-    i32::try_from(picks[k]).expect("a short pool")
+    let pick = picks[k];
+    st.bag.retain(|&i| i != pick);
+    st.recent.push(pick);
+    if st.recent.len() > HELD_BACK {
+        st.recent.remove(0);
+    }
+    pick
 }
 
 /// The clock has started: BPI_SetMatchStarted in a match with its flow, the first step in one without.

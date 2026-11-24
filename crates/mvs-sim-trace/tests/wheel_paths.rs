@@ -304,6 +304,21 @@ fn a_stage_with_no_item_area_never_rolls_random_items() {
 }
 
 #[test]
+fn the_draw_goes_through_the_whole_pool_before_a_mutator_comes_back() {
+    let Some(mut h) = harness::fresh(&setup(&POOL, 0.5, false), 5) else { return };
+    let c = changes(&mut h, 30 * 120);
+    assert!(c.len() > 100, "{} changes", c.len());
+    // each round of the bag is the whole pool once
+    for round in c.chunks_exact(POOL.len()) {
+        let mut r = round.to_vec();
+        r.sort_unstable();
+        assert_eq!(r, (0..13).collect::<Vec<i32>>(), "{c:?}");
+    }
+    // and across a refill the last three are held back: no mutator within four changes of its last
+    assert!(c.windows(4).all(|p| (1..4).all(|i| p[i] != p[0])), "{c:?}");
+}
+
+#[test]
 fn the_draw_never_gives_a_mutator_the_set_up_lists() {
     let mut s = setup(&POOL, 0.5, false);
     s.mutators = vec!["Mutator_Giant".to_owned(), "Mutator_RandomItemSpawns".to_owned()];

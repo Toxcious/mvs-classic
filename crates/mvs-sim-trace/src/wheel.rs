@@ -14,12 +14,14 @@ use crate::cx::{Lx, Wx};
 plain_struct!(WheelSaved { "air" = air, "gauntlet" = gauntlet, "gravity" = gravity, "held" = held });
 
 plain_struct!(WheelState {
+    "bag" = bag,
     "changeAt" = change_at,
     "current" = current,
     "from" = from,
     "items" = items,
     "next" = next,
     "over" = over,
+    "recent" = recent,
     "rng" = rng,
     "saved" = saved,
 });
