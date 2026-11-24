@@ -381,8 +381,10 @@ impl LanListener {
     /// Binds the discovery port (reuse-address); Err when it cannot (the reason is `why` too).
     pub fn start(&mut self) -> Result<(), String> {
         let port = self.o.port.unwrap_or(DISCOVERY_PORT);
-        // A LAN that is not loopback binds every address; the tests use 127.0.0.1.
-        let ip = if self.o.loopback { Ipv4Addr::LOCALHOST } else { Ipv4Addr::UNSPECIFIED };
+        // A LAN that is not loopback binds every address; the tests use 127.0.0.1. On Linux a socket on 127.0.0.1 is
+        // not given a broadcast to 127.255.255.255, so loopback binds every address there too, and `pump` takes what
+        // comes from 127/8 alone.
+        let ip = if self.o.loopback && cfg!(windows) { Ipv4Addr::LOCALHOST } else { Ipv4Addr::UNSPECIFIED };
         let open = || -> std::io::Result<UdpSocket> {
             let s = Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::UDP))?;
             s.set_reuse_address(true)?;
@@ -433,6 +435,12 @@ impl LanListener {
                     return;
                 }
             };
+            // (Linux, loopback: the socket is on every address, and what does not come from this PC is not heard, as
+            // on Windows, where it is on 127.0.0.1)
+            #[cfg(not(windows))]
+            if self.o.loopback && !from.ip().is_loopback() {
+                continue;
+            }
             let addr = from.ip().to_string();
             let why = self.take(&buf[..n], &addr, now);
             // (one line per sender per window at the most; none past its rate)
