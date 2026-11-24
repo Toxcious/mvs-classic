@@ -1,0 +1,61 @@
+# Checks the Linux build on every push and pull request. The game is developed on Windows, so a change can build
+# and pass there and still break Linux: a renderer change that names a Direct3D 11 item the Linux bindings do not
+# have, say. This job catches that when the change is made. It runs tools/linux-build.sh, which builds in the Steam
+# Runtime sniper container as a release does, and checks:
+#   - cargo fmt --check;
+#   - cargo clippy --release --all-targets, with any warning an error (the Linux build has none, so a new one fails);
+#   - the tests that need no GPU, window or store (those that need one skip without it);
+#   - that crates/mvs-d3d's Linux bindings are what tools/d3d-bindings writes from names.txt;
+#   - that no `// Unverified: stub` is left in crates/.
+# It builds no release and publishes nothing.
+name: Linux
+
+on: [push, pull_request]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      # The runner has 14 GB of disk for the container image (about 4 GB), the toolchains and the builds (about
+      # 7 GB): remove preinstalled toolchains this job never uses, for room to spare.
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
+          df -h /
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # DXVK-native, built by `deps` at the tag the script pins, is kept between runs: `deps` always rebuilds it.
+      - name: DXVK tag
+        id: dxvk
+        run: echo "tag=$(sed -n 's/^DXVK_TAG=//p' tools/linux-build.sh)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: dxvk-cache
+        with:
+          path: target/linux-deps/dxvk
+          key: dxvk-${{ steps.dxvk.outputs.tag }}
+      - name: Build DXVK-native
+        if: steps.dxvk-cache.outputs.cache-hit != 'true'
+        run: tools/linux-build.sh deps
+
+      - name: Format
+        run: tools/linux-build.sh cargo fmt --check
+      - name: Clippy
+        run: tools/linux-build.sh cargo clippy --release --all-targets -- -D warnings
+      # Without incremental data and debug info, which a run that starts cold never uses: the test build is about
+      # 6 GB, not 40.
+      - name: Tests
+        run: >-
+          tools/linux-build.sh cargo test --profile trace --config profile.trace.incremental=false
+          --config profile.trace.debug=false --workspace --no-fail-fast
+      # On the runner itself: the generator is not part of the workspace, and rust-toolchain.toml picks its compiler
+      # and the rustfmt it formats with.
+      - name: D3D bindings
+        run: |
+          rustup toolchain install
+          cargo run --manifest-path tools/d3d-bindings/Cargo.toml -- --check
+      - name: No stubs left
+        run: "! grep -rn '// Unverified: stub' crates/"
