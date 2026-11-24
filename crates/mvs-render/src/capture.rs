@@ -25,7 +25,7 @@ use crate::view::{VIEW_ROWS, ViewMembers, ViewParams, view_rows};
 
 /// The depth-to-scene-depth pass (the port's own): a full-screen triangle reading the capture's device Z and writing
 /// ConvertFromDeviceZ's scene depth (cm), the far value where nothing was drawn.
-const SOURCE: &str = r"
+pub(crate) const SOURCE: &str = r"
 cbuffer Constants : register(b0) { float4 P; }
 Texture2D<float> Depth : register(t0);
 void MainVS(uint id : SV_VertexID, out float4 pos : SV_Position) {

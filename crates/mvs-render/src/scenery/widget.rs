@@ -123,7 +123,7 @@ fn draws_before(key: (f32, bool, f32), z: f32) -> bool {
 
 /// The quad: its corners' clip positions from the constants (u, v: (0, 0), (0, 1), (1, 1), (1, 0)), two
 /// triangles; the picture un-premultiplied, sRGB decoded (straight alpha, sRGB colour space).
-const QUAD: &str = r"
+pub(crate) const QUAD: &str = r"
 cbuffer Quad : register(b0) { float4 Corner[4]; };
 Texture2D<float4> Picture : register(t0);
 SamplerState Linear : register(s0);

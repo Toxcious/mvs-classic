@@ -35,7 +35,7 @@ use crate::targets::SceneTargets;
 // Deviation: the targets are read texel by texel (Load at the pixel) where the build samples them bilinearly at the
 // pixel's centre clamped to SeparateTranslucencyBilinearUVMinMax: the same texels at full size (r.SeparateTranslucency
 // ScreenPercentage 100), and the port makes no reduced target.
-const COMPOSE: &str = r"
+pub(crate) const COMPOSE: &str = r"
 Texture2D<float4> Separate : register(t0);
 Texture2D<float4> Modulate : register(t1);
 void MainVS(uint id : SV_VertexID, out float4 pos : SV_Position) {

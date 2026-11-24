@@ -12,6 +12,7 @@ pub mod key_names;
 pub mod launcher;
 pub mod menu;
 pub mod results;
+mod shaders;
 pub mod slate;
 pub mod tape;
 pub mod text;

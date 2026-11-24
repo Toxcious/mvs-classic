@@ -860,6 +860,7 @@ name = "mvs-render"
 version = "0.1.8"
 dependencies = [
  "indexmap",
+ "mvs-d3d",
  "mvs-data",
  "mvs-load",
  "mvs-material",
@@ -969,6 +970,7 @@ name = "mvs-ui"
 version = "0.1.8"
 dependencies = [
  "indexmap",
+ "mvs-d3d",
  "mvs-data",
  "mvs-freetype",
  "mvs-material",

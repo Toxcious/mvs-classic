@@ -17,6 +17,8 @@ const KINDS = new Set([
   'ttf', 'ico', 'png',
   // the README's screenshots
   'jpg',
+  // the port's own shaders compiled for Linux, which has no D3DCompile
+  'dxbc',
   // the Expert bot's trained network (our own weights) and the scripts that train it
   'net', 'py',
 ]);

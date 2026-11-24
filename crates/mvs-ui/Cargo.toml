@@ -9,6 +9,7 @@ publish.workspace = true
 [dependencies]
 indexmap.workspace = true
 mvs-data.workspace = true
+mvs-d3d.workspace = true
 mvs-freetype.workspace = true
 mvs-material.workspace = true
 # the online menus' view of the net service (its requests, events and targets)

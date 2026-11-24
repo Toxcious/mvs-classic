@@ -34,7 +34,7 @@ use crate::view::{inverse, mul};
 use crate::{Error, Result};
 use shadow::SpotShadows;
 
-const SOURCE: &str = include_str!("lighting/deferred.hlsl");
+pub(crate) const SOURCE: &str = include_str!("lighting/deferred.hlsl");
 
 /// The stencil bits the base pass writes the lighting channels to (SetDepthStencilStateForBasePass 14193d4a0).
 const CHANNEL_BITS: u8 = 0x70;

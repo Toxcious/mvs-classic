@@ -242,7 +242,7 @@ fn texture2d(gpu: &Gpu, [w, h]: [u32; 2], format: DXGI_FORMAT, bpp: u32, bytes: 
 /// The device depth and the stencil's channel bits of a dump written into the depth-stencil target: SV_Depth from
 /// the depth, drawn once per stencil value (the capture's channel mask) over that value's pixels with the reference set
 /// to its base-pass bits (channel_stencil).
-const DEPTH_FILL: &str = r"
+pub(crate) const DEPTH_FILL: &str = r"
 Texture2D<float> Depth : register(t0);
 Texture2D<uint> Stencil : register(t1);
 cbuffer C : register(b0) { uint Value; };

@@ -162,7 +162,7 @@ fn row_of(s: &Shape, atlas_scale: f32) -> Row {
     Row(r)
 }
 
-const SOURCE: &str = r#"
+pub(crate) const SOURCE: &str = r#"
 struct Shape {
     float4 rect; float4 color; float4 border_color; float4 misc; float4 grad; float4 gparams;
     float4 uv; float4 clip; float4 xform; float4 origin; float4 p; float4 fade;
@@ -300,7 +300,7 @@ float4 MainPS(V v) : SV_Target {
 "#;
 
 /// HLSL of the launcher's own compiled by d3dcompiler_47.
-fn compile(entry: &str, target: &str) -> Result<Vec<u8>> {
+pub(crate) fn compile(entry: &str, target: &str) -> Result<Vec<u8>> {
     let e = format!("{entry}\0");
     let t = format!("{target}\0");
     let mut code: Option<ID3DBlob> = None;

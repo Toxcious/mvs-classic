@@ -31,6 +31,7 @@ pub mod post;
 pub mod renderer;
 pub mod scene;
 pub mod scenery;
+mod shaders;
 pub mod stage;
 pub mod stagedraw;
 pub mod swap;

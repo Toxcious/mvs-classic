@@ -107,7 +107,7 @@ fn dx(what: &'static str) -> impl FnOnce(windows::core::Error) -> Error {
 }
 
 /// HLSL of the port's own compiled by d3dcompiler_47.
-fn compile(entry: &str, target: &str) -> Result<Vec<u8>> {
+pub(crate) fn compile(entry: &str, target: &str) -> Result<Vec<u8>> {
     const SOURCE: &str = include_str!("blur.hlsl");
     let e = format!("{entry}\0");
     let t = format!("{target}\0");

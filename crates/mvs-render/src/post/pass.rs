@@ -123,7 +123,7 @@ pub(super) fn bilinear_range(size: [u32; 2]) -> [f32; 4] {
 /// z and w passed on.
 // Deviation: the build draws its downsample with the cooked FScreenPassVS (AddDrawScreenPass's), whose linkage the
 // driver resolves by the system value; the port's VS gives the same positions.
-const SCREEN_POSITION_VS: &str = r"
+pub(crate) const SCREEN_POSITION_VS: &str = r"
 cbuffer DrawRectangleParameters : register(b0) {
     float4 PosScaleBias;
     float4 UVScaleBias;

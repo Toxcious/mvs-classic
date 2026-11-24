@@ -6,8 +6,8 @@
 mod bloom;
 mod fog;
 mod outline;
-mod pass;
-mod skip;
+pub(crate) mod pass;
+pub(crate) mod skip;
 mod tonemap;
 mod upscale;
 

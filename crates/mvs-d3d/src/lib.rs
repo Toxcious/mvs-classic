@@ -91,8 +91,26 @@ pub fn set_linux_wsi() {
     }
 }
 
+/// The key a compiled shader is found by on Linux, where there is no `D3DCompile`: FNV-1a 64 over the HLSL source,
+/// a 0 byte, the entry point, a 0 byte and the target profile.
+pub fn dxbc_key(src: &str, entry: &str, target: &str) -> u64 {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for part in [src.as_bytes(), &[0], entry.as_bytes(), &[0], target.as_bytes()] {
+        for &b in part {
+            h = (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3);
+        }
+    }
+    h
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn dxbc_key_is_fnv1a_64_of_the_three_parts() {
+        let key = crate::dxbc_key("float4 Main() : SV_Target { return 1; }", "Main", "ps_5_0");
+        assert_eq!(key, 0x7ba5_3528_f594_f2b3);
+    }
+
     #[test]
     fn wide_str_stops_at_zero() {
         let w: Vec<crate::Wchar> = "RTX\0junk".chars().map(|c| c as crate::Wchar).collect();
