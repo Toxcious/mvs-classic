@@ -301,6 +301,8 @@ impl Gpu {
             static WSI: std::sync::Once = std::sync::Once::new();
             WSI.call_once(mvs_d3d::set_linux_wsi);
         }
+        // (with no display, an error here: DXVK is not called, and does not crash at the next try)
+        mvs_d3d::linux_wsi_ready().map_err(|why| Error::Format { what: "the window system".into(), why })?;
         // SAFETY: DXGI and D3D11 creation calls with valid out-pointers; the adapter outlives the call.
         unsafe {
             let factory: IDXGIFactory1 = CreateDXGIFactory1().map_err(dx("CreateDXGIFactory1"))?;

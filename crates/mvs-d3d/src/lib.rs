@@ -104,6 +104,38 @@ pub fn set_linux_wsi() {
     }
 }
 
+/// Whether DXVK-native's window system can start, asked before the first DXGI or D3D11 call (after
+/// [`set_linux_wsi`]): with the SDL3 window system, SDL's video has to start; Err says why it does not (no display).
+/// DXVK-native 3.1 crashes in a factory made after one whose window system failed to start, so a program with no
+/// display stops here and never calls DXVK. A program with a window has SDL's video up already and nothing is done;
+/// a video started here stays up for the program's life, as DXVK leaves the one it starts. Ok on Windows, and with
+/// another window system the player chose.
+pub fn linux_wsi_ready() -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        Ok(())
+    }
+    #[cfg(not(windows))]
+    {
+        use sdl3_sys::init::{SDL_INIT_VIDEO, SDL_InitSubSystem, SDL_WasInit};
+        let sdl = std::env::var_os("DXVK_WSI_DRIVER").is_none_or(|d| d.eq_ignore_ascii_case("SDL3"));
+        if !sdl {
+            return Ok(());
+        }
+        // (one thread at a time: the device tests make devices on several)
+        static ASK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        let _one = ASK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        // SAFETY: SDL's init calls with a flag constant; SDL_GetError returns a nul-terminated string SDL owns.
+        unsafe {
+            if SDL_WasInit(SDL_INIT_VIDEO) == SDL_INIT_VIDEO || SDL_InitSubSystem(SDL_INIT_VIDEO) {
+                return Ok(());
+            }
+            let why = std::ffi::CStr::from_ptr(sdl3_sys::error::SDL_GetError()).to_string_lossy().into_owned();
+            Err(format!("SDL's video, which DXVK's window system needs, does not start: {why}"))
+        }
+    }
+}
+
 /// The key a compiled shader is found by on Linux, where there is no `D3DCompile`: FNV-1a 64 over the HLSL source,
 /// a 0 byte, the entry point, a 0 byte and the target profile.
 pub fn dxbc_key(src: &str, entry: &str, target: &str) -> u64 {

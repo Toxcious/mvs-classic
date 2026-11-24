@@ -17,6 +17,8 @@ windows = { workspace = true, features = [
 ] }
 
 [target.'cfg(not(windows))'.dependencies]
+# asks whether SDL's video starts before DXVK-native's SDL3 window system is (`linux_wsi_ready`)
+sdl3-sys.workspace = true
 windows-core.workspace = true
 
 [build-dependencies]

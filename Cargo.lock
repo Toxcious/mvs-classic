@@ -665,6 +665,7 @@ name = "mvs-d3d"
 version = "0.1.8"
 dependencies = [
  "pkg-config",
+ "sdl3-sys",
  "windows",
  "windows-core",
 ]
