@@ -1,12 +1,13 @@
 # The default set of a plain sim-trace run: each match runs a region of the sim no other kept match runs
-# (tools/check/sim-coverage.js, 262993 regions over 158 matches, at commit ecbb47511b8373ece9bc42d92cacd54a07a51411).
+# (tools/check/sim-coverage.js, 265099 regions over 160 matches, at commit c7cb4181c74b10318ec0128a7b230c94fc5248f4).
 arya-arya
 arya-combat
 batman-batman
 batman-combat
+big-3v3
+big-ffa8
 blackadam-blackadam
 blackadam-combat
-blackadam-shaggy
 bot-batman
 bot-expert
 bot-ffa-a
@@ -59,6 +60,8 @@ marvin-shaggy
 morty-combat
 morty-morty
 morty-shaggy
+mut-chargefreeze
+mut-greyhealth
 mut-instantkill
 mut-mini
 mut-shrink
