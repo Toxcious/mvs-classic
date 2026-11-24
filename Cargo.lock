@@ -688,6 +688,7 @@ name = "mvs-dist"
 version = "0.1.8"
 dependencies = [
  "base64",
+ "mvs-pak",
  "mvs-release",
  "serde",
  "serde_json",

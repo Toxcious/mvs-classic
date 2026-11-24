@@ -17,7 +17,8 @@ Create `content/local.json` (the `content/` folder is ignored by git):
 ```
 
 with the path of your own `depot_1818751`. The importer reads the paks' key from the beta's exe beside them; it is
-never typed in or printed. `mvs-import setup <paks dir>` checks that a folder holds the build the port expects.
+never typed in or printed. The release tool's guard reads the key the same way, or from `MVS_PAK_KEY`.
+`mvs-import setup <paks dir>` checks that a folder holds the build the port expects.
 
 ## Build the store
 The game never reads the paks while it runs: the import builds everything it uses into a store, one pack per kind.

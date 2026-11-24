@@ -652,7 +652,7 @@ pub fn run(o: &Options) -> Result<(), String> {
     let mut linux =
         if build_game { None } else { game_linux.as_deref().map(|d| linux_folder(d, &o.version)).transpose()? };
     let key_file = o.repo.join("content/local.json");
-    let key = if key_file.is_file() { Some(guard::read_key(&key_file)?) } else { None };
+    let key = guard::key_here(Some(&key_file).filter(|f| f.is_file()).map(PathBuf::as_path))?;
     // the build list the exe embeds (mvs-pak's include_str!): names, sizes and hashes only
     let list = BUILD_LIST;
     let found = guard::check_build_json(list, &String::from_utf8_lossy(&read(&o.repo.join(list))?));
@@ -791,9 +791,11 @@ pub fn run(o: &Options) -> Result<(), String> {
     println!("dist: {relay_name} ({} bytes)", relay_zip.len());
 
     // the guard over what is handed out
-    if key.is_none() {
-        println!("dist: no content/local.json: the key search is skipped");
+    match &key {
+        Some(k) => println!("dist: the key from {}", k.source),
+        None => println!("dist: {}", guard::NO_KEY),
     }
+    let key = key.map(|k| k.key);
     let mut secrets = eos.as_ref().and_then(|e| guard::eos_secrets(&e.credentials)).unwrap_or_default();
     let mut findings = Vec::new();
     // the game's zips first: the relay's is searched for the credentials of their resources/eos.json too

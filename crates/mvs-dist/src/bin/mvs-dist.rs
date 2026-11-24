@@ -15,7 +15,8 @@
 //!       built in the container (tools/linux-build.sh) unless --game-linux and --relay-linux name them; --no-build
 //!       packs their last builds too.
 //!   mvs-dist guard <game zip> [<relay zip>] [--key <local.json>]
-//!       the guard alone (the key from <repo>/content/local.json unless --key names one)
+//!       the guard alone (the key from MVS_PAK_KEY, else <repo>/content/local.json unless --key names one: its
+//!       "key", else the exe beside its "paks")
 //!   mvs-dist serve <dir> [--port <n>]
 //!       serves <dir> on 127.0.0.1 (port 0 or none: any free port; the URL is printed) until stopped
 //!   mvs-dist release-check [--store <dir>] [--keep]
@@ -122,10 +123,12 @@ fn guard_only(args: &[String]) -> Result<(), String> {
         Some(k) => Some(PathBuf::from(k)),
         None => repo.as_ref().map(|r| r.join("content/local.json")).filter(|f| f.is_file()),
     };
-    let key = key_file.as_deref().map(guard::read_key).transpose()?;
-    if key.is_none() {
-        println!("guard: no content/local.json: the key search is skipped");
+    let key = guard::key_here(key_file.as_deref())?;
+    match &key {
+        Some(k) => println!("guard: the key from {}", k.source),
+        None => println!("guard: {}", guard::NO_KEY),
     }
+    let key = key.map(|k| k.key);
     let mut findings = Vec::new();
     // the build list the exe embeds, when run inside the repo
     match &repo {
