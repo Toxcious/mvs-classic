@@ -17,7 +17,7 @@ use crate::combat::buffs::{
 use crate::combat::elem::{ElemExt, actor_inst_def, elem_buff, elem_buff_mut, elem_of, spawn_actor_buff};
 use crate::combat::hit::timer_ticks;
 use crate::events::{Event, NotifyRef, TazHealKind, UiStateOp, UiStateParams};
-use crate::fighter::common::{latent_frames, peers, timer_frames, warn_once};
+use crate::fighter::common::{allies, latent_frames, peers, timer_frames, warn_once};
 use crate::fighter::control::{emit, pawn_prop, trigger_ability, update_ability_cooldown};
 use crate::fighter::{FighterId, actor_y, cap_radius, capsule_half, is_attacking};
 use crate::math::ue::size;
@@ -97,13 +97,9 @@ pub struct TastyOnHitActor {
     pub open: bool,
 }
 
-/// Comp_Actor_Destructible.GetAllies: the fighters of the owner's team but the owner, in player order.
-// Deviation: the build's Allies drops a knocked-out ally until its respawn (OnPlayerKnockedOut -> RemoveItem @2338),
-// is players only and in join order (`common::allies`); here a knocked-out ally (and a minion of the team) is counted
-// and the order is the player order, as the TS port has it (the taz-taz trace moves at tick 348 with the build's list).
+/// Comp_Actor_Destructible.GetAllies of the owner ([`allies`]): the live players of its team but the owner.
 fn allies_of(w: &World, f: FighterId) -> Vec<FighterId> {
-    let team = w.fighter(f).team.team;
-    peers(w).iter().copied().filter(|&o| o != f && w.fighter(o).team.team == team).collect()
+    allies(w, f).collect()
 }
 
 /// An actor buff's Instigator, kept as the fighter's id (`byId`).
