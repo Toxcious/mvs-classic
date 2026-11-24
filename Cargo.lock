@@ -586,7 +586,7 @@ dependencies = [
 
 [[package]]
 name = "mvs-anim"
-version = "0.1.11"
+version = "0.1.12"
 dependencies = [
  "indexmap",
  "mvs-data",
@@ -597,7 +597,7 @@ dependencies = [
 
 [[package]]
 name = "mvs-app"
-version = "0.1.11"
+version = "0.1.12"
 dependencies = [
  "flate2",
  "indexmap",
@@ -632,7 +632,7 @@ dependencies = [
 
 [[package]]
 name = "mvs-audio"
-version = "0.1.11"
+version = "0.1.12"
 dependencies = [
  "indexmap",
  "lewton",
@@ -650,7 +650,7 @@ dependencies = [
 
 [[package]]
 name = "mvs-collision"
-version = "0.1.11"
+version = "0.1.12"
 dependencies = [
  "indexmap",
  "mvs-math",
@@ -660,7 +660,7 @@ dependencies = [
 
 [[package]]
 name = "mvs-data"
-version = "0.1.11"
+version = "0.1.12"
 dependencies = [
  "indexmap",
  "mvs-store",
@@ -673,7 +673,7 @@ dependencies = [
 
 [[package]]
 name = "mvs-dist"
-version = "0.1.11"
+version = "0.1.12"
 dependencies = [
  "base64",
  "mvs-release",
@@ -684,7 +684,7 @@ dependencies = [
 
 [[package]]
 name = "mvs-freetype"
-version = "0.1.11"
+version = "0.1.12"
 dependencies = [
  "cc",
  "thiserror",
@@ -692,7 +692,7 @@ dependencies = [
 
 [[package]]
 name = "mvs-host"
-version = "0.1.11"
+version = "0.1.12"
 dependencies = [
  "indexmap",
  "mvs-mutators",
@@ -704,7 +704,7 @@ dependencies = [
 
 [[package]]
 name = "mvs-import"
-version = "0.1.11"
+version = "0.1.12"
 dependencies = [
  "indexmap",
  "lewton",
@@ -726,7 +726,7 @@ dependencies = [
 
 [[package]]
 name = "mvs-load"
-version = "0.1.11"
+version = "0.1.12"
 dependencies = [
  "rayon",
  "windows",
@@ -734,7 +734,7 @@ dependencies = [
 
 [[package]]
 name = "mvs-material"
-version = "0.1.11"
+version = "0.1.12"
 dependencies = [
  "indexmap",
  "mvs-math",
@@ -747,14 +747,14 @@ dependencies = [
 
 [[package]]
 name = "mvs-math"
-version = "0.1.11"
+version = "0.1.12"
 dependencies = [
  "trial-tape",
 ]
 
 [[package]]
 name = "mvs-math-check"
-version = "0.1.11"
+version = "0.1.12"
 dependencies = [
  "astro-float",
  "mvs-math",
@@ -763,11 +763,11 @@ dependencies = [
 
 [[package]]
 name = "mvs-mutators"
-version = "0.1.11"
+version = "0.1.12"
 
 [[package]]
 name = "mvs-net"
-version = "0.1.11"
+version = "0.1.12"
 dependencies = [
  "base64",
  "ed25519-dalek",
@@ -793,7 +793,7 @@ dependencies = [
 
 [[package]]
 name = "mvs-pak"
-version = "0.1.11"
+version = "0.1.12"
 dependencies = [
  "aes",
  "flate2",
@@ -806,7 +806,7 @@ dependencies = [
 
 [[package]]
 name = "mvs-protocol"
-version = "0.1.11"
+version = "0.1.12"
 dependencies = [
  "chacha20poly1305",
  "curve25519-dalek",
@@ -827,7 +827,7 @@ dependencies = [
 
 [[package]]
 name = "mvs-relay"
-version = "0.1.11"
+version = "0.1.12"
 dependencies = [
  "base64",
  "ed25519-dalek",
@@ -846,7 +846,7 @@ dependencies = [
 
 [[package]]
 name = "mvs-release"
-version = "0.1.11"
+version = "0.1.12"
 dependencies = [
  "flate2",
  "serde",
@@ -856,7 +856,7 @@ dependencies = [
 
 [[package]]
 name = "mvs-render"
-version = "0.1.11"
+version = "0.1.12"
 dependencies = [
  "indexmap",
  "mvs-data",
@@ -878,7 +878,7 @@ dependencies = [
 
 [[package]]
 name = "mvs-settings"
-version = "0.1.11"
+version = "0.1.12"
 dependencies = [
  "flate2",
  "indexmap",
@@ -893,7 +893,7 @@ dependencies = [
 
 [[package]]
 name = "mvs-sim"
-version = "0.1.11"
+version = "0.1.12"
 dependencies = [
  "indexmap",
  "mvs-anim",
@@ -910,7 +910,7 @@ dependencies = [
 
 [[package]]
 name = "mvs-sim-derive"
-version = "0.1.11"
+version = "0.1.12"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -919,7 +919,7 @@ dependencies = [
 
 [[package]]
 name = "mvs-sim-trace"
-version = "0.1.11"
+version = "0.1.12"
 dependencies = [
  "indexmap",
  "mvs-anim",
@@ -936,7 +936,7 @@ dependencies = [
 
 [[package]]
 name = "mvs-stage"
-version = "0.1.11"
+version = "0.1.12"
 dependencies = [
  "mvs-data",
  "mvs-math",
@@ -948,7 +948,7 @@ dependencies = [
 
 [[package]]
 name = "mvs-store"
-version = "0.1.11"
+version = "0.1.12"
 dependencies = [
  "indexmap",
  "serde",
@@ -959,7 +959,7 @@ dependencies = [
 
 [[package]]
 name = "mvs-trace"
-version = "0.1.11"
+version = "0.1.12"
 dependencies = [
  "serde",
  "serde_json",
@@ -969,7 +969,7 @@ dependencies = [
 
 [[package]]
 name = "mvs-uasset"
-version = "0.1.11"
+version = "0.1.12"
 dependencies = [
  "indexmap",
  "lz4_flex",
@@ -981,7 +981,7 @@ dependencies = [
 
 [[package]]
 name = "mvs-ui"
-version = "0.1.11"
+version = "0.1.12"
 dependencies = [
  "indexmap",
  "mvs-data",
@@ -1008,7 +1008,7 @@ dependencies = [
 
 [[package]]
 name = "mvs-vfx"
-version = "0.1.11"
+version = "0.1.12"
 dependencies = [
  "indexmap",
  "mvs-math",
@@ -1021,7 +1021,7 @@ dependencies = [
 
 [[package]]
 name = "mvs-view"
-version = "0.1.11"
+version = "0.1.12"
 dependencies = [
  "indexmap",
  "mvs-anim",
@@ -1442,7 +1442,7 @@ dependencies = [
 
 [[package]]
 name = "trial-tape"
-version = "0.1.11"
+version = "0.1.12"
 dependencies = [
  "serde",
  "serde_json",
