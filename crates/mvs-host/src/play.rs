@@ -47,7 +47,7 @@ impl Core {
         set: Option<PmId>,
     ) -> MatchId {
         let local = peers.len() == 1;
-        let count = if setup.team_style == 2 { 4 } else { 2 };
+        let count = mvs_protocol::setup::team_count(setup.team_style, setup.players.len());
         let teams = setup
             .players
             .iter()

@@ -1740,11 +1740,12 @@ impl CustomGame {
         Self::apply_team_caps(cx);
     }
 
-    /// The two team columns' MaxPlayers, Versus's 2 a team (only Versus shows them; the build's 1 vs 1 had 1), and
+    /// The two team columns' MaxPlayers, the build's 2 a team (only Versus shows them; the build's 1 vs 1 had 1), and
     /// every column's empty slots: on the drop's click and on every style the lobby applies (a member's lobby follows
-    /// the leader's pick).
+    /// the leader's pick). The columns keep the build's two places though the lobby takes four a team: their layout
+    /// has room for two above the chat.
     fn apply_team_caps(cx: &mut Cx<'_>) {
-        let cap = LobbyStyle::Versus.cap();
+        let cap = mvs_protocol::lobby_rules::BUILD_MAX_PLAYERS / 2;
         for i in 0..2 {
             let t = Self::team(cx, i);
             cx.view.tree_mut().set_prop(t, "MaxPlayers", json!(cap));
@@ -1849,12 +1850,32 @@ impl CustomGame {
         }
     }
 
+    /// (the port's own) The enabled maps the lobby's match may draw from: every one, or for a big match (more than
+    /// four players) the ones whose stage holds it (`Bundle::map_holds_big`).
+    fn start_maps(&self, cx: &Cx<'_>) -> Vec<String> {
+        let bundle = &cx.view.bundle;
+        self.lobby().rules().match_maps(&|m, s| {
+            let style = match s {
+                LobbyStyle::Versus => mvs_sim::setup::TeamStyle::TwoVsTwo,
+                LobbyStyle::FreeForAll => mvs_sim::setup::TeamStyle::FreeForAll,
+            };
+            bundle.map_holds_big(m, style)
+        })
+    }
+
     /// The last blocker of the list is the one shown.
     fn update_start_match_enabled(&mut self, cx: &mut Cx<'_>) {
-        let (leader, blockers, can, ready_button) = {
+        let maps = self.start_maps(cx);
+        let (leader, mut blockers, mut can, ready_button) = {
             let l = self.lobby();
             (l.am_i_leader(), l.get_start_match_blockers(), l.can_start_match(), l.has_ready_button())
         };
+        // (the port's own) a big match with no enabled map that holds it: first in the list, so it shows once the
+        // build's own are gone
+        if maps.is_empty() && !self.lobby().enabled_maps().is_empty() {
+            blockers.insert(0, custom_text::BLOCKER_NO_BIG_MAP);
+            can = false;
+        }
         if leader {
             let error = find(cx, "ErrorInfoText");
             let w = wd(cx, error);
@@ -2053,7 +2074,8 @@ impl CustomGame {
             self.lobby_mut().set_ready(on);
             return;
         }
-        if !self.lobby().can_start_match() {
+        let maps = self.start_maps(cx);
+        if !self.lobby().can_start_match() || maps.is_empty() {
             return;
         }
         // CG@17287: the Game Mode drop off; CG@17346-17556: the fade to black, which stays over the 1.0 s before the
@@ -2064,7 +2086,7 @@ impl CustomGame {
             cx,
             TransitionParams { kind: 0, level_options: "Lobby".into(), ..TransitionParams::default() },
         );
-        self.lobby_mut().start_match();
+        self.lobby_mut().start_match(maps);
     }
 
     fn on_team_event(&mut self, cx: &mut Cx<'_>, team: usize, kind: u32, arg: &dyn Any) {

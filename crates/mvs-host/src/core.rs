@@ -972,7 +972,7 @@ impl Core {
             "lobby.promoteNewLeader" => self.on_lobby_promote(k, m),
             "lobby.setReady" => self.on_lobby_set_ready(k, m),
             "lobby.joinTeam" => self.on_lobby_join_team(k, m),
-            "lobby.startMatch" => self.on_lobby_start(k),
+            "lobby.startMatch" => self.on_lobby_start(k, m),
             "queue.join" => self.on_queue_join(k, m),
             "queue.cancel" => self.on_queue_cancel(k),
             "pm.preview" => self.on_pm_preview(k, m),

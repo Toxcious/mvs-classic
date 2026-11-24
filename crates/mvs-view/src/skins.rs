@@ -295,7 +295,9 @@ pub fn fighter_colours(setup: &MatchSetup, me: usize, playing_online: bool, team
             } else {
                 usize::from(team)
             };
-            let stencil = if palette == 0 { if local_online { 4 } else { 2 } } else { [3, 5, 6][palette - 1] };
+            // Unverified: a Local Play team past the build's four (the port's big matches) takes the fourth
+            // team's stencil.
+            let stencil = if palette == 0 { if local_online { 4 } else { 2 } } else { [3, 5, 6][(palette - 1).min(2)] };
             FighterColour {
                 color_index,
                 variant,

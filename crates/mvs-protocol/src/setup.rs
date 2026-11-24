@@ -11,6 +11,13 @@ pub const ONE_VS_ONE: TeamStyle = 0;
 pub const TWO_VS_TWO: TeamStyle = 1;
 pub const FREE_FOR_ALL: TeamStyle = 2;
 
+/// The match's team count for `players` players (`mvs-sim` `setup::team_count`, which the match plays by): a
+/// player's team is its index modulo it. 2 in 1v1 and 2v2; 4 in Free For All, or one team per player past four (the
+/// port's own big matches).
+pub fn team_count(style: TeamStyle, players: usize) -> u32 {
+    if style == FREE_FOR_ALL { u32::try_from(players.clamp(4, crate::match_wire::MAX_SLOTS)).unwrap_or(4) } else { 2 }
+}
+
 /// A player of the match. `difficulty`: a bot's lobby choice, 0 VeryEasy .. 3 Hard (MatchPlayerData BotBehavior
 /// 2..5), 4 the port's own Expert; `character` a roster name (absent: the default one); `team`, `start` and `starting_damage` the Lab's slots'
 /// own values (TrainGameMode.PopulateMatchPlayerData); `perks` MatchPlayerData.AssignPerks' SelectedPerks in slot

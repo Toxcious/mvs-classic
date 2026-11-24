@@ -70,6 +70,31 @@ fn a_hosted_lobby_links_its_members_by_a_knock() {
 }
 
 #[test]
+fn a_hosted_lobby_of_eight_seats_four_a_team_and_refuses_a_ninth() {
+    let max = mvs_protocol::lobby_rules::MAX_LOBBY_PLAYERS;
+    let mut w = hosting();
+    let ps: Vec<P> = (0..=max).map(|i| w.join_at(&format!("p{i}"), &format!("10.0.0.{}", i + 1))).collect();
+    let r = w.req(&ps[0], json!({ "op": "create", "bucket": "b", "max": max, "host": true }));
+    let (lobby, host) = (r["lobby"].as_str().unwrap().to_string(), r["host"].as_str().unwrap().to_string());
+    for (i, p) in ps[..max].iter().enumerate() {
+        if i > 0 {
+            w.req(p, json!({ "op": "join", "lobby": lobby }));
+        }
+        w.knock(p, &host);
+        w.say(p, &host, "hello", json!({}));
+        let t = if i == 0 { "lobby.enter" } else { "lobby.join" };
+        w.say(p, &host, t, json!({ "lobby": lobby }));
+        let f = p.f.clone();
+        w.until("lobby.state", || f.host_has("lobby.state"));
+    }
+    let state = ps[max - 1].f.host_took("lobby.state").expect("the last one in sees the lobby");
+    let teams: Vec<usize> =
+        state["data"]["teams"].as_array().expect("teams").iter().map(|t| t.as_array().map_or(0, Vec::len)).collect();
+    assert_eq!(teams, [4, 4], "a Versus of four a team: {state}");
+    assert_eq!(w.refusal(&ps[max], json!({ "op": "join", "lobby": lobby })), mvs_relay::core::FULL, "a ninth");
+}
+
+#[test]
 fn a_message_with_no_link_is_answered_closed() {
     let mut w = hosting();
     let (a, b) = (w.join("a"), w.join("b"));

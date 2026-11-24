@@ -165,12 +165,35 @@ fn floor_top(st: &StageData, x: f64, y: f64) -> Option<f64> {
     best
 }
 
-/// Whether stage `st` has a start and a respawn for every player of a big match of team style `style` (up to
-/// [`S::MAX_PLAYERS`], [`match_starts`]): the stage's four with the style's tag, and a place clear of the others for
-/// each extra one. A match of fewer players takes a subset of these indexes, which then finds its places too. A lobby
-/// leaves a stage without them out of its big matches.
+/// Whether stage `st` has a start and a respawn for every player of every big match of team style `style` a lobby
+/// can make ([`match_starts`]): the stage's four with the style's tag, and a place clear of the others for each extra
+/// one. A lobby leaves a stage without them out of its big matches.
 pub fn big_match_starts_ok(st: &StageData, style: TeamStyle) -> bool {
     let tag = S::START_TAGS[style as usize];
-    let all: Vec<usize> = (0..S::MAX_PLAYERS).collect();
-    match_starts(st, StartKind::Spawn, tag, &all).is_some() && match_starts(st, StartKind::Respawn, tag, &all).is_some()
+    big_match_indexes(style).iter().all(|ns| {
+        match_starts(st, StartKind::Spawn, tag, ns).is_some() && match_starts(st, StartKind::Respawn, tag, ns).is_some()
+    })
+}
+
+/// The team-sorted indexes ([`sorted_index`]) of every match of more than [`STAGE_STARTS`] players of `style`: Free
+/// For All's player indexes of 5 to [`S::MAX_PLAYERS`] players; in 2v2, every split of up to four a team (the larger
+/// team is the match's team 0: its k-th player takes 2k, the other team's 2k + 1). The extra starts are placed in
+/// index order clear of those before, so a split's set is judged as its own, not as a part of the eight.
+pub fn big_match_indexes(style: TeamStyle) -> Vec<Vec<usize>> {
+    let most = S::MAX_PLAYERS;
+    if style != TeamStyle::TwoVsTwo {
+        return (STAGE_STARTS + 1..=most).map(|n| (0..n).collect()).collect();
+    }
+    let side = most / 2;
+    let mut out = Vec::new();
+    for a in 1..=side {
+        for b in 1..=a {
+            if a + b > STAGE_STARTS {
+                let mut ns: Vec<usize> = (0..a).map(|k| 2 * k).chain((0..b).map(|k| 2 * k + 1)).collect();
+                ns.sort_unstable();
+                out.push(ns);
+            }
+        }
+    }
+    out
 }

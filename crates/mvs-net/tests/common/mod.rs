@@ -130,9 +130,7 @@ pub struct At {
 /// game stands still (no frame, nothing sent or taken); drop: a peer's way is lost (every packet, both ways, lost for
 /// good); leave: its owner calls Referee::left; mute: every packet of a peer is lost from a tick on; deaf: every packet
 /// to it; go: the start gate in ticks; fine: the peers nothing is wrong with; twin: a peer whose session runs twice,
-/// keeping a predicted line that held and going back every frame; extra: human slots past the set-up's players, whose
-/// streams the referee rules and every session carries and confirms while the World has no fighter for them (a
-/// match's slot count on the wire past the fighters the stages place); pump_each: the referee pumped after every packet
+/// keeping a predicted line that held and going back every frame; pump_each: the referee pumped after every packet
 /// it takes (the relay's core and an app's referee), not on its owner's beat alone. A slot the referee finds gone ends the match: its
 /// owner takes it out, and every other peer stops once its confirmed line reaches the end of that slot's stream.
 #[derive(Clone, Debug, Default)]
@@ -152,7 +150,6 @@ pub struct Net {
     pub go: f64,
     pub fine: Vec<usize>,
     pub twin: Option<usize>,
-    pub extra: usize,
     pub pump_each: bool,
 }
 
@@ -196,10 +193,8 @@ pub type Outcome = Result<String, String>;
 #[allow(clippy::cast_possible_truncation, reason = "ticks of a short match")]
 pub fn session_test(setup: &MatchSetup, ticks: u32, net: &Net) -> Option<Outcome> {
     let data = data()?;
-    let fighters = setup.players.len();
-    let slots = fighters + net.extra;
-    let humans: Vec<usize> =
-        setup.players.iter().enumerate().filter(|(_, p)| !p.bot).map(|(i, _)| i).chain(fighters..slots).collect();
+    let slots = setup.players.len();
+    let humans: Vec<usize> = setup.players.iter().enumerate().filter(|(_, p)| !p.bot).map(|(i, _)| i).collect();
     let ms = |t: f64| t * TICK_MS;
     let way = |lat: f64| Way { latency: lat * TICK_MS, jitter: net.jitter * TICK_MS, loss: net.loss, cut: false };
     let mut lat = net.lat.clone();

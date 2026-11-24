@@ -72,7 +72,9 @@ pub use page::PageId;
 /// A custom lobby's bucket. The compatibility id is not in it: the host core refuses a joiner of another one
 /// (lobby.join's compat), and a lobby is found by its code only.
 pub const CUSTOM_BUCKET: &str = "mvs:custom";
-pub const CUSTOM_MAX: u32 = 4;
+/// A custom lobby's places (`lobby_rules::MAX_LOBBY_PLAYERS`: a Versus of 4v4, a Free For All of eight).
+pub const CUSTOM_MAX: u32 = 8;
+const _: () = assert!(CUSTOM_MAX as usize == mvs_protocol::lobby_rules::MAX_LOBBY_PLAYERS);
 /// With LAN on, the LAN lobbies are listened for from a browse until this long after the last one (the browser's own
 /// refresh, every 15 s, keeps it open while it is up). Unverified: the port's own number.
 pub const BROWSE_LISTEN_MS: f64 = 30000.0;

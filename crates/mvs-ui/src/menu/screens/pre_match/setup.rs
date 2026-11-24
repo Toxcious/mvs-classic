@@ -119,12 +119,11 @@ pub fn spec_of(c: &RosterEntry, skin: &str, team: u8) -> Option<PreviewSpec> {
 }
 
 impl LocalLobby {
-    /// The started match's players with their teams (PlayerIndex % team count), a
+    /// The started match's players with their teams (the match's own: the lobby's columns, `SetupPlayer::team`), a
     /// bot's row and cosmetics, the team style and the map. A human's row carries no character (the pick is made on
     /// the screen); a bot's carries its own. The local account is the leader of a local lobby.
     pub fn pre_match_setup(&mut self, src: &SetupSource<'_>, random: &mut dyn FnMut() -> f64) -> PreMatchSetup {
         let started = self.rules.match_setup();
-        let teams = if started.setup.team_style == 2 { 4 } else { 2 };
         let mut players = Vec::new();
         for (i, id) in started.ids.iter().enumerate() {
             let row = self.rules.players().into_iter().find(|p| &p.account_id == id).cloned();
@@ -133,7 +132,7 @@ impl LocalLobby {
             players.push(PreMatchPlayer {
                 account_id: id.clone(),
                 username: started.usernames[i].clone(),
-                team: u8::try_from(i % teams).unwrap_or(0),
+                team: u8::try_from(started.setup.players[i].team).unwrap_or(0),
                 is_bot,
                 character: row.as_ref().filter(|_| is_bot).map(|p| p.character.clone()).filter(|c| !c.is_empty()),
                 skin: row.as_ref().filter(|_| is_bot).map(|p| p.skin.clone()).unwrap_or_default(),

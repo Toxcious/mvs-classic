@@ -207,10 +207,11 @@ impl Lobby {
             Lobby::Net(l) => l.invite(id),
         }
     }
-    pub fn start_match(&mut self) {
+    /// `maps`: the enabled maps the match may draw from (`LobbyRules::match_maps`).
+    pub fn start_match(&mut self, maps: Vec<String>) {
         match self {
-            Lobby::Local(l) => l.start_match(),
-            Lobby::Net(l) => l.start_match(),
+            Lobby::Local(l) => l.start_match(maps),
+            Lobby::Net(l) => l.start_match(maps),
         }
     }
     pub fn leave(&mut self) {

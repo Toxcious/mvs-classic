@@ -23,8 +23,8 @@ use serde_json::{Map, Value};
 
 pub use input::{InputPlayerSettings, InputSettings, LOCAL_PLAYERS};
 pub use saved::{
-    AssetRef, CharacterPrefs, HydraDefaultsRun, HydraSettings, LabSettings, LocalPlayPlayer, LocalPlaySettings,
-    RememberedPerks,
+    AssetRef, CharacterPrefs, HydraDefaultsRun, HydraSettings, LOCAL_PLAY_MAX, LOCAL_PLAY_PADS, LabSettings,
+    LocalPlayPlayer, LocalPlaySettings, RememberedPerks,
 };
 
 /// The settings file's name in the data folder.

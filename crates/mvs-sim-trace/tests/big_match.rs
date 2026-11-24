@@ -192,3 +192,50 @@ fn a_perk_counts_twice_at_most_from_a_team() {
     assert_ne!(one, two, "a teammate's copy stacks");
     assert_eq!(two, three, "a third copy on the team gives nothing more");
 }
+
+/// Every stage of the store holds every big match a lobby can make in both styles (`big_match_starts_ok` is the
+/// lobby's filter: a safety net that leaves no stage out today): Free For All of 5 to 8, every 2v2 split of up to four
+/// a team (3v2, 4v1, 3v3, 4v2, 4v3, 4v4). A stage that fails is named with the set and the first start that finds no
+/// place. A stage without the style's four starts plays no match of that style at all (the tutorial's room: 1v1
+/// starts only) and is listed apart.
+#[test]
+fn every_stage_holds_a_big_match() {
+    use mvs_sim::world::starts::{StartKind, big_match_indexes, match_starts};
+    let Ok(store) = mvs_store::Store::open(mvs_store::dev_store_dir()) else {
+        eprintln!("note: no dev store; nothing checked");
+        return;
+    };
+    let stages = mvs_data::stage_levels(&store).expect("the stage list");
+    let (mut failed, mut no_style) = (Vec::new(), Vec::new());
+    for (_, key) in &stages {
+        let st: Arc<mvs_data::StageEntry> =
+            mvs_data::shared(&store, &mvs_data::path::stage(key)).expect("the stage's data");
+        for style in [TeamStyle::TwoVsTwo, TeamStyle::FreeForAll] {
+            let tag = mvs_sim::setup::START_TAGS[style as usize];
+            let four: Vec<usize> = (0..4).collect();
+            if match_starts(&st.data, StartKind::Spawn, tag, &four).is_none()
+                || match_starts(&st.data, StartKind::Respawn, tag, &four).is_none()
+            {
+                assert!(!big_match_starts_ok(&st.data, style));
+                no_style.push(format!("{key} {style:?}"));
+                continue;
+            }
+            let before = failed.len();
+            for ns in big_match_indexes(style) {
+                for kind in [StartKind::Spawn, StartKind::Respawn] {
+                    if match_starts(&st.data, kind, tag, &ns).is_some() {
+                        continue;
+                    }
+                    let first = (1..=ns.len()).find(|&k| match_starts(&st.data, kind, tag, &ns[..k]).is_none());
+                    failed.push(format!(
+                        "{key} {style:?} {ns:?} {kind:?}: index {:?} has no place",
+                        first.map(|k| ns[k - 1])
+                    ));
+                }
+            }
+            assert_eq!(big_match_starts_ok(&st.data, style), failed.len() == before, "{key} {style:?}");
+        }
+    }
+    eprintln!("big match starts: {} stages judged; without the style's own four: {no_style:?}", stages.len());
+    assert!(failed.is_empty(), "stages that do not hold a big match:\n{}", failed.join("\n"));
+}

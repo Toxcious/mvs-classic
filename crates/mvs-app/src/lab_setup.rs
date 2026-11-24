@@ -247,9 +247,13 @@ pub fn lab_default_perks(s: &Settings, character: &str) -> Vec<Option<String>> {
 
 // ---------- the setups ----------
 
-/// The config's occupied slots as the match's players.
+/// The config's occupied slots as the match's players: the first four (the Lab's panels hold four; a config of more,
+/// which no Lab menu makes, plays its first four rather than a match whose map may not hold it).
 pub fn lab_slots(c: &LabConfig) -> Vec<usize> {
-    (0..c.players.len()).filter(|&n| !c.players[n].account_id.is_empty()).collect()
+    (0..c.players.len())
+        .filter(|&n| !c.players[n].account_id.is_empty())
+        .take(mvs_protocol::lobby_rules::BUILD_MAX_PLAYERS)
+        .collect()
 }
 
 /// The Lab's first match when it opens from the menus: the owner is the fighter locked on

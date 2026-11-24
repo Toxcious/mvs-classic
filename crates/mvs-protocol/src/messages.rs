@@ -82,8 +82,13 @@ pub enum ClientMessage {
     LobbyKickPlayer { id: String },
     #[serde(rename = "lobby.promoteNewLeader")]
     LobbyPromoteNewLeader { id: String },
+    /// `maps`: the enabled maps the match may draw from, the leader's game's `LobbyRules::match_maps` (a big match's
+    /// stages are known to the games only); absent: every enabled map.
     #[serde(rename = "lobby.startMatch")]
-    LobbyStartMatch,
+    LobbyStartMatch {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        maps: Option<Vec<String>>,
+    },
     /// `draw`: a random whole number in [0, 2^32) the game draws for each join; the core combines every human's into
     /// the found match's draws. `waited`: ms this player has queued already under another host (the bot wait counts
     /// from then). `party`: the sender queues with its party. `rtt`: the game's smallest round trip to the relay (ms),

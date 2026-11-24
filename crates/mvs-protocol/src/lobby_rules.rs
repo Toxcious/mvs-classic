@@ -13,7 +13,7 @@ use crate::setup::{FREE_FOR_ALL, ONE_VS_ONE, TWO_VS_TWO, TeamStyle, WheelWire};
 /// The lobby's style, its Game Mode drop: on the wire its number (`teamStyle`, `lobby.setTeamStyle`, a listing's
 /// `style`). The match it starts has the ETeamStyle `match_setup` derives from its teams.
 /// Deviation: the build's lobby offers ETeamStyle's 1 vs 1, Teams (2 vs 2) and Free For All; the port's offers
-/// Versus (two teams of up to 2, any split with a player on each side) and Free For All.
+/// Versus (two teams of up to 4, any split with a player on each side) and Free For All (4 to 8 players).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(try_from = "u8", into = "u8")]
 pub enum LobbyStyle {
@@ -38,13 +38,21 @@ impl LobbyStyle {
     }
 
     /// Players a team takes; Free For All: the lobby's total.
+    /// Deviation: the port's own big matches; the build's lobby takes 2 a team and a Free For All of 4.
     pub fn cap(self) -> usize {
         match self {
-            LobbyStyle::Versus => 2,
-            LobbyStyle::FreeForAll => 4,
+            LobbyStyle::Versus => MAX_LOBBY_PLAYERS / 2,
+            LobbyStyle::FreeForAll => MAX_LOBBY_PLAYERS,
         }
     }
 }
+
+/// The most players a lobby holds, bots included: the sim's `MAX_PLAYERS` and the wire's `MAX_SLOTS`.
+pub const MAX_LOBBY_PLAYERS: usize = crate::match_wire::MAX_SLOTS;
+/// The fewest players of a Free For All (the build's lobby: exactly this many).
+pub const FFA_MIN_PLAYERS: usize = 4;
+/// The most players of a match the build has (a lobby of more is a big match: only the maps that hold it).
+pub const BUILD_MAX_PLAYERS: usize = 4;
 
 impl TryFrom<u8> for LobbyStyle {
     type Error = String;
@@ -363,6 +371,17 @@ pub struct SetupPlayer {
     /// EBotDifficulty - 2 (level 0..3, 4 Expert) of a bot; 0 of a human.
     pub difficulty: i32,
     pub character: Option<String>,
+    /// The match's team: the lobby's column in Versus (the larger column's 0), the player index in Free For All.
+    pub team: u32,
+}
+
+impl SetupPlayer {
+    /// The team the wire names: None where it is the slot's own (slot % the match's team count, which a lobby of the
+    /// build's sizes always gives), so those set-ups stay as they were.
+    pub fn wire_team(&self, slot: usize, team_style: u8, players: usize) -> Option<u32> {
+        let own = u32::try_from(slot).unwrap_or(u32::MAX) % crate::setup::team_count(team_style, players);
+        (self.team != own).then_some(self.team)
+    }
 }
 
 /// The rules of a started lobby's match (MatchSetupWire.rules).
@@ -534,9 +553,11 @@ impl LobbyRules {
     }
 
     /// A team over its size hands players to the other team while that has room, its last bots first; the bots
-    /// left over go. A human with no place stays (the lobby then has too many players to start).
+    /// left over go. A human with no place stays (the lobby then has too many players to start). The size: the
+    /// build's 2 a team, or half the lobby (rounded up) past four players, so the sides come out even.
     fn rebalance(&mut self) {
-        let cap = self.cap();
+        let half = self.player_count().div_ceil(2);
+        let cap = half.clamp(BUILD_MAX_PLAYERS / 2, self.cap());
         for t in 0..2 {
             let mut team = std::mem::take(&mut self.teams[t]);
             let other = &mut self.teams[1 - t];
@@ -554,8 +575,12 @@ impl LobbyRules {
         }
     }
 
+    /// A bot joins team `team` (0 or 1): nothing when the lobby is full, or in Versus when that team is.
     pub fn add_bot(&mut self, team: usize, character: &str, skin: &str, difficulty: i32) {
-        if self.get_available_player_slot_count() == 0 {
+        if self.get_available_player_slot_count() == 0
+            || team > 1
+            || (self.team_style == LobbyStyle::Versus && self.teams[team].len() >= self.cap())
+        {
             return;
         }
         self.bots += 1;
@@ -687,8 +712,9 @@ impl LobbyRules {
     ///   NotAllPlayersReady  the ready count differs from the count of players that are not bots (@1410c6290..6369)
     ///   YouAreNotTheLeader  (the widget asks for the leader only)
     ///
-    /// Deviation: Versus (the port's own style) takes any split of up to 2 a team: NotEnoughPlayers while a team is
-    /// empty, TooManyPlayers for a team over 2, no UnbalancedTeams. Free For All keeps the build's rule.
+    /// Deviation: Versus (the port's own style) takes any split of up to 4 a team: NotEnoughPlayers while a team is
+    /// empty, TooManyPlayers for a team over 4, no UnbalancedTeams. Free For All keeps the build's NotEnoughPlayers
+    /// under 4 and takes up to 8 (the port's own big matches; the build's TooManyPlayers is over 4).
     pub fn get_start_match_blockers(&self) -> Vec<&'static str> {
         let mut out = Vec::new();
         let n = self.player_count();
@@ -702,11 +728,10 @@ impl LobbyRules {
                 }
             }
             LobbyStyle::FreeForAll => {
-                let need = self.cap();
-                if n < need {
+                if n < FFA_MIN_PLAYERS {
                     out.push(BLOCKER_NOT_ENOUGH);
                 }
-                if n > need {
+                if n > self.cap() {
                     out.push(BLOCKER_TOO_MANY);
                 }
             }
@@ -724,9 +749,25 @@ impl LobbyRules {
         self.get_start_match_blockers().is_empty()
     }
 
+    /// (the port's own) More players than a match of the build has: a big match, played only on the maps whose stage
+    /// has a start for each of them.
+    pub fn is_big(&self) -> bool {
+        self.player_count() > BUILD_MAX_PLAYERS
+    }
+
+    /// The enabled maps the started match draws from: every one, or for a big match the ones `holds_big` says hold
+    /// one of the lobby's style (the game's own stages decide it: the host core has no game data, so the leader's
+    /// game sends this list with its start). Empty: the match cannot start.
+    pub fn match_maps(&self, holds_big: &dyn Fn(&str, LobbyStyle) -> bool) -> Vec<String> {
+        let big = self.is_big();
+        self.enabled_maps.iter().filter(|m| !big || holds_big(m, self.team_style)).cloned().collect()
+    }
+
     /// The active match config of the started match, with the account of each player index. The team index of a
     /// player is PlayerIndex % team count (AssignPlayerAndTeamIndex), so the two teams' players alternate, the larger
-    /// team's first (a tie: the lobby's first team); Free For All keeps the lobby order. Versus's match is a 1v1 for
+    /// team's first (a tie: the lobby's first team); Free For All keeps the lobby order. (the port's own) Each
+    /// player's team is the lobby's column (`SetupPlayer::team`): sides uneven by more than one (3v1, 4v2) keep
+    /// their columns, where the alternation alone would not. Versus's match is a 1v1 for
     /// one against one and a 2v2 for every other split, the build's rule for teams of uneven size
     /// (TrainGameMode.GetTeamStyleFromTrainingConfiguration: a team of 2 or more is 2v2).
     /// Deviation: when the lobby's second team is the larger (1v2), its players are the match's team 0 and the
@@ -739,17 +780,17 @@ impl LobbyRules {
     pub fn match_setup(&self) -> StartedMatch {
         let ffa = self.team_style == LobbyStyle::FreeForAll;
         let stocks = self.options.stocks;
-        let mut order: Vec<&LobbyPlayer> = Vec::new();
+        let mut order: Vec<(&LobbyPlayer, u32)> = Vec::new();
         let sizes = [self.teams[0].len(), self.teams[1].len()];
         let team_style = if ffa {
-            order.extend(self.players());
+            order.extend(self.players().into_iter().zip(0..));
             FREE_FOR_ALL
         } else {
             let first = usize::from(sizes[1] > sizes[0]);
             for k in 0..sizes[0].max(sizes[1]) {
-                for t in [first, 1 - first] {
+                for (t, team) in [(first, 0), (1 - first, 1)] {
                     if let Some(p) = self.teams[t].get(k) {
-                        order.push(p);
+                        order.push((p, team));
                     }
                 }
             }
@@ -761,10 +802,11 @@ impl LobbyRules {
                 team_style,
                 players: order
                     .iter()
-                    .map(|p| SetupPlayer {
+                    .map(|&(p, team)| SetupPlayer {
                         bot: p.is_bot,
                         difficulty: if p.is_bot { p.difficulty - 2 } else { 0 },
                         character: character(p),
+                        team,
                     })
                     .collect(),
                 rules: SetupRules {
@@ -777,8 +819,8 @@ impl LobbyRules {
                 mutators: self.options.mutators.names(),
                 wheel: wheel_rule(self.options.wheel),
             },
-            usernames: order.iter().map(|p| p.username.clone()).collect(),
-            ids: order.iter().map(|p| p.account_id.clone()).collect(),
+            usernames: order.iter().map(|(p, _)| p.username.clone()).collect(),
+            ids: order.iter().map(|(p, _)| p.account_id.clone()).collect(),
         }
     }
 }
@@ -808,7 +850,7 @@ mod tests {
         let r = lobby();
         assert_eq!(r.team_style, LobbyStyle::Versus);
         assert_eq!(r.leader_id, "local");
-        assert_eq!(r.get_available_player_slot_count(), 3);
+        assert_eq!(r.get_available_player_slot_count(), 7);
         // an empty team blocks
         assert_eq!(r.get_start_match_blockers(), vec![BLOCKER_NOT_ENOUGH]);
     }
@@ -868,10 +910,12 @@ mod tests {
         assert_eq!(r.get_start_match_blockers(), vec![BLOCKER_NOT_ENOUGH]);
         r.join_team("local", 1);
         assert!(r.can_start_match(), "1v1 after a switch");
-        let mut r = versus(2, 2);
+        let mut r = versus(4, 4);
+        assert!(r.can_start_match(), "4v4: {:?}", r.get_start_match_blockers());
         assert_eq!(r.get_available_player_slot_count(), 0);
         r.add_bot(0, "batman", "", 3);
-        assert_eq!(r.player_count(), 4);
+        assert_eq!(r.player_count(), 8);
+        assert!(!r.add_player("ninth", "Ninth", ""), "a ninth join is refused");
         // a full team takes nobody from the other
         r.join_team("local", 1);
         assert_eq!(r.teams[0][0].account_id, "local");
@@ -911,14 +955,155 @@ mod tests {
         r.add_bot(0, "shaggy", "", 3);
         r.add_bot(1, "batman", "", 3);
         r.set_team_style(LobbyStyle::FreeForAll);
+        for _ in 0..3 {
+            r.add_bot(0, "finn", "", 3);
+        }
+        r.join_team("bot-2", 0);
+        assert_eq!(r.teams[0].len(), 6);
+        r.set_team_style(LobbyStyle::Versus);
+        // six: the sides even out at three, the first team's last bots going over
+        assert_eq!(r.player_count(), 6);
+        assert_eq!(r.teams[0].len(), 3);
+        assert_eq!(
+            r.teams[1].iter().map(|p| p.account_id.as_str()).collect::<Vec<_>>(),
+            vec!["bot-2", "bot-5", "bot-4"]
+        );
+        // four: two a team, as the build's lobby
+        let mut r = lobby();
+        r.add_bot(0, "shaggy", "", 3);
+        r.add_bot(1, "batman", "", 3);
+        r.set_team_style(LobbyStyle::FreeForAll);
         r.add_bot(0, "finn", "", 3);
         r.join_team("bot-2", 0);
         assert_eq!(r.teams[0].len(), 4);
         r.set_team_style(LobbyStyle::Versus);
-        // Versus takes two a team: the first team's last bots go over
-        assert_eq!(r.player_count(), 4);
         assert_eq!(r.teams[0].len(), 2);
         assert_eq!(r.teams[1].iter().map(|p| p.account_id.as_str()).collect::<Vec<_>>(), vec!["bot-2", "bot-3"]);
+    }
+
+    #[test]
+    fn a_versus_team_takes_four_and_a_fifth_is_refused() {
+        let mut r = versus(4, 1);
+        assert!(r.can_start_match(), "4v1: {:?}", r.get_start_match_blockers());
+        r.add_bot(0, "batman", "", 3);
+        assert_eq!(r.teams[0].len(), 4, "a fifth bot on a full team");
+        r.add_player("b", "B", "");
+        assert_eq!(r.teams[1].len(), 2, "a human joins the smaller team");
+        r.join_team("b", 0);
+        assert_eq!(r.teams[0].len(), 4, "a fifth by a team switch");
+        // a fifth by way of Free For All: the change back hands a bot over
+        r.set_team_style(LobbyStyle::FreeForAll);
+        r.join_team("b", 0);
+        assert_eq!(r.teams[0].len(), 5);
+        r.set_team_style(LobbyStyle::Versus);
+        assert_eq!((r.teams[0].len(), r.teams[1].len()), (3, 3), "the switch to Versus evens the sides");
+        // 3v3 and 4v3: the teams alternate, the larger first, as a 2v2's
+        for (a, b) in [(3, 3), (4, 3), (4, 4)] {
+            let r = versus(a, b);
+            let m = r.match_setup();
+            assert_eq!(m.setup.team_style, TWO_VS_TWO);
+            assert_eq!(m.ids.len(), a + b);
+            for (slot, id) in m.ids.iter().enumerate() {
+                let lobby_team = usize::from(r.teams[1].iter().any(|p| &p.account_id == id));
+                assert_eq!(slot % 2, lobby_team, "{a}v{b} slot {slot}");
+            }
+            assert!(r.is_big());
+            assert_columns(&r);
+        }
+    }
+
+    /// The started match's teams are the lobby's columns: the larger column is team 0 (a tie: the first), every
+    /// player of a column on its team; Free For All a team per player.
+    fn assert_columns(r: &LobbyRules) {
+        let m = r.match_setup();
+        let first = usize::from(r.teams[1].len() > r.teams[0].len());
+        for (slot, id) in m.ids.iter().enumerate() {
+            let team = m.setup.players[slot].team;
+            if r.team_style == LobbyStyle::FreeForAll {
+                assert_eq!(team, u32::try_from(slot).unwrap(), "{id}");
+                continue;
+            }
+            let column = usize::from(r.teams[1].iter().any(|p| &p.account_id == id));
+            assert_eq!(team, u32::from(column != first), "{id}: column {column}");
+        }
+        let n = m.setup.players.len();
+        let own = |slot: usize| u32::try_from(slot).unwrap() % crate::setup::team_count(m.setup.team_style, n);
+        // (the wire names a team only where it is not the slot's own)
+        for (slot, p) in m.setup.players.iter().enumerate() {
+            assert_eq!(p.wire_team(slot, m.setup.team_style, n), (p.team != own(slot)).then_some(p.team));
+        }
+    }
+
+    #[test]
+    fn a_match_plays_the_lobbys_columns() {
+        // 3v1 by a team switch: the alternation alone would play it 2v2
+        let mut r = versus(2, 1);
+        r.add_player("b", "B", "");
+        assert_eq!((r.teams[0].len(), r.teams[1].len()), (2, 2));
+        r.join_team("b", 0);
+        assert_eq!((r.teams[0].len(), r.teams[1].len()), (3, 1));
+        assert_columns(&r);
+        let m = r.match_setup();
+        assert_eq!(m.setup.players.iter().map(|p| p.team).collect::<Vec<_>>(), [0, 1, 0, 0]);
+        assert_eq!(m.setup.players[3].wire_team(3, m.setup.team_style, 4), Some(0), "slot 3 would be team 1");
+        // 4v2
+        let r = versus(4, 2);
+        assert_columns(&r);
+        assert_eq!(r.match_setup().setup.players.iter().filter(|p| p.team == 0).count(), 4);
+        // 1v2: the larger column is team 0
+        assert_columns(&versus(1, 2));
+        // a four-player Free For All to Versus: a 2v2 again
+        let mut r = lobby();
+        r.set_team_style(LobbyStyle::FreeForAll);
+        for _ in 0..3 {
+            r.add_bot(0, "shaggy", "", 3);
+        }
+        assert_columns(&r);
+        r.set_team_style(LobbyStyle::Versus);
+        assert_eq!((r.teams[0].len(), r.teams[1].len()), (2, 2));
+        assert_columns(&r);
+        // seven (the leader and six bots) in Free For All to Versus: 4v3
+        let mut r = lobby();
+        r.set_team_style(LobbyStyle::FreeForAll);
+        for _ in 0..6 {
+            r.add_bot(0, "shaggy", "", 3);
+        }
+        assert_eq!(r.teams[0].len(), 7);
+        assert_columns(&r);
+        r.set_team_style(LobbyStyle::Versus);
+        assert_eq!((r.teams[0].len(), r.teams[1].len()), (4, 3));
+        assert_eq!(r.player_count(), 7, "no bot goes");
+        assert_columns(&r);
+    }
+
+    #[test]
+    fn a_free_for_all_takes_eight() {
+        let mut r = lobby();
+        r.set_team_style(LobbyStyle::FreeForAll);
+        for _ in 0..8 {
+            r.add_bot(0, "finn", "", 3);
+        }
+        assert_eq!(r.player_count(), 8);
+        assert!(!r.add_player("ninth", "Ninth", ""), "a ninth join is refused");
+        assert!(r.can_start_match(), "{:?}", r.get_start_match_blockers());
+        let m = r.match_setup();
+        assert_eq!(m.setup.team_style, FREE_FOR_ALL);
+        assert_eq!(m.ids.len(), 8);
+        assert_eq!(crate::setup::team_count(m.setup.team_style, m.ids.len()), 8);
+        assert_eq!(crate::setup::team_count(FREE_FOR_ALL, 4), 4);
+        assert_eq!(crate::setup::team_count(TWO_VS_TWO, 8), 2);
+    }
+
+    #[test]
+    fn a_big_match_draws_only_the_maps_that_hold_it() {
+        let mut r = versus(2, 2);
+        r.set_maps(&["small".into(), "large".into()]);
+        let holds = |m: &str, s: LobbyStyle| m == "large" && s == LobbyStyle::Versus;
+        assert_eq!(r.match_maps(&holds), vec!["small", "large"], "four players: every map");
+        r.add_bot(1, "finn", "", 3);
+        assert_eq!(r.match_maps(&holds), vec!["large"]);
+        r.set_team_style(LobbyStyle::FreeForAll);
+        assert!(r.match_maps(&holds).is_empty());
     }
 
     #[test]

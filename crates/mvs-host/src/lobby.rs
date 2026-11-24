@@ -11,7 +11,7 @@ use mvs_protocol::names::clean_name;
 use mvs_protocol::online::{PmKind, QueuePlayer, SEED_MAX, app_of, compat_note, compat_of};
 use mvs_protocol::queue_rules::pick_bots;
 use mvs_protocol::roster::CHARACTERS;
-use mvs_protocol::setup::{MatchPlayerWire, MatchRulesWire, MatchSetupWire};
+use mvs_protocol::setup::{MatchPlayerWire, MatchRulesWire, MatchSetupWire, team_count};
 use mvs_protocol::version::PROTOCOL;
 use serde_json::{Map, Value};
 
@@ -77,10 +77,12 @@ fn setup_wire(r: &LobbyRules) -> (MatchSetupWire, Vec<String>, Vec<String>) {
     let players = s
         .players
         .iter()
-        .map(|p| MatchPlayerWire {
+        .enumerate()
+        .map(|(slot, p)| MatchPlayerWire {
             bot: p.bot,
             difficulty: p.bot.then_some(p.difficulty),
             character: p.character.clone(),
+            team: p.wire_team(slot, s.team_style, s.players.len()),
             perks: Some(Vec::new()),
             ..MatchPlayerWire::default()
         })
@@ -629,7 +631,11 @@ impl Core {
     /// row's that the port lacks is drawn from them, as a queue's bots: one pick for every game). The lobby's ready
     /// list and screens are cleared as at a match's start; the lobby stays (a pre-match that ends sends its members
     /// to the main menu).
-    pub(crate) fn on_lobby_start(&mut self, k: ConnKey) {
+    /// (the port's own) `maps`: the enabled maps the leader's game says hold the match (a big match's stages, which
+    /// only the games know): the map is drawn from those of them the lobby has enabled, every enabled one when it is
+    /// absent from a start of four or fewer; none left, or none sent for a bigger lobby (the leader's game judged a
+    /// stale copy of the lobby), refuses the start.
+    pub(crate) fn on_lobby_start(&mut self, k: ConnKey, m: &Map<String, Value>) {
         // (the referee has no room for one more match: the relay's limit)
         if !self.leader_of(k) || !self.room() {
             return self.send(k, &ServerMessage::LobbyStartFailed);
@@ -639,13 +645,25 @@ impl Core {
         if !r.can_start_match() || l.members.keys().any(|id| !r.ready.contains(id)) {
             return self.send(k, &ServerMessage::LobbyStartFailed);
         }
+        let maps: Vec<String> = match m.get("maps") {
+            Some(Value::Array(a)) => {
+                let sent: Vec<String> = a.iter().take(64).filter_map(map_name).collect();
+                r.enabled_maps.iter().filter(|x| sent.contains(x)).cloned().collect()
+            }
+            _ if r.is_big() => Vec::new(),
+            _ => r.enabled_maps.clone(),
+        };
+        if maps.is_empty() {
+            return self.send(k, &ServerMessage::LobbyStartFailed);
+        }
         let (setup, usernames, ids) = setup_wire(r);
-        let teams: u32 = if setup.team_style == 2 { 4 } else { 2 };
+        // (the sim's team count: a player's team is its slot modulo it, where the set-up names none)
+        let teams = team_count(setup.team_style, ids.len());
         let rows: Vec<Option<LobbyPlayer>> = ids.iter().map(|id| r.find(id).cloned()).collect();
         let mut taken: Vec<String> = Vec::new();
         let mut players: Vec<QueuePlayer> = Vec::new();
         for (slot, id) in ids.iter().enumerate() {
-            let team = u32::try_from(slot).expect("a lobby's slot") % teams;
+            let team = setup.players[slot].team.unwrap_or(u32::try_from(slot).expect("a lobby's slot") % teams);
             let row = rows[slot].as_ref().filter(|r| r.is_bot);
             let Some(row) = row else {
                 players.push(QueuePlayer {
@@ -705,7 +723,6 @@ impl Core {
         let l = self.lobby_mut();
         l.rules.ready.clear();
         l.up.clear();
-        let maps = l.rules.enabled_maps.clone();
         let mut base = setup;
         for (slot, p) in base.players.iter_mut().enumerate() {
             if players[slot].bot {

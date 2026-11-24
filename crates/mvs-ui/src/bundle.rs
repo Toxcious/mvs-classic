@@ -50,6 +50,9 @@ pub struct Bundle {
     /// The stages the build can load: (gameplay level's package name, stage key) each (stageOfLevel's table; the
     /// menu bundle's, read from the gamedata kind).
     pub stages: Vec<(String, String)>,
+    /// (the port's own) The stages that hold a big match (more than four players, `mvs_sim::world::starts::
+    /// big_match_starts_ok`), each with the team style it holds one of: the menu bundle's, judged at its load.
+    pub big_stages: Vec<(String, mvs_sim::setup::TeamStyle)>,
 }
 
 /// The menu bundle's data the menus read (the importer's `kinds/ui/menu.rs` and `kinds/ui/mod.rs` MenuBundle). The
@@ -828,6 +831,26 @@ struct TexturesOnly {
 }
 
 /// The ui kind's entry path of `entry` (`hud`, `menu`).
+/// The stages of `stages` (the gamedata kind's, by level) that hold a big match, per team style (Versus plays as
+/// 2v2): each stage's data is the store's one copy, which `stage_levels` has read already.
+fn big_stages(
+    store: &mvs_store::Store,
+    stages: &[(String, String)],
+) -> Result<Vec<(String, mvs_sim::setup::TeamStyle)>> {
+    use mvs_sim::setup::TeamStyle;
+    let mut out = Vec::new();
+    for (_, key) in stages {
+        let st: std::sync::Arc<mvs_data::StageEntry> = mvs_data::shared(store, &mvs_data::path::stage(key))
+            .map_err(|e| Error::Format { what: format!("gamedata stage {key}"), why: e.to_string() })?;
+        for style in [TeamStyle::TwoVsTwo, TeamStyle::FreeForAll] {
+            if mvs_sim::world::starts::big_match_starts_ok(&st.data, style) {
+                out.push((key.clone(), style));
+            }
+        }
+    }
+    Ok(out)
+}
+
 fn entry_path(pack: &mvs_store::Pack, entry: &str) -> Result<String> {
     let tail = format!("/{entry}.{entry}");
     pack.paths()
@@ -845,6 +868,7 @@ impl Bundle {
         if b.menu.is_some() {
             b.stages = mvs_data::stage_levels(store)
                 .map_err(|e| Error::Format { what: "gamedata stages".into(), why: e.to_string() })?;
+            b.big_stages = big_stages(store, &b.stages)?;
             b.add_custom_maps(&mvs_stage::shipped());
         }
         Ok(b)
@@ -917,6 +941,16 @@ impl Bundle {
         Ok(out)
     }
 
+    /// (the port's own) Whether the MapData `map` opens a stage that holds a big match of `style` ([`Bundle::
+    /// big_stages`]).
+    /// Deviation: a custom map (a stage editor layout over its base) is never one: its composed stage needs the
+    /// render store's piece bounds, which the menus do not load.
+    pub fn map_holds_big(&self, map: &str, style: mvs_sim::setup::TeamStyle) -> bool {
+        let Some(d) = self.menu.as_ref().and_then(|m| m.maps.get(map)) else { return false };
+        let stage = d.levels.first().and_then(|l| self.stage_of_level(l));
+        !d.custom && stage.is_some_and(|k| self.big_stages.iter().any(|(s, t)| s == k && *t == style))
+    }
+
     /// The stage whose gameplay level is the package `level` (`Map_M011`), or None (stageOfLevel).
     pub fn stage_of_level(&self, level: &str) -> Option<&str> {
         self.stages.iter().find(|(l, _)| l == level).map(|(_, k)| k.as_str())
@@ -962,6 +996,7 @@ impl Bundle {
             char_textures: r.char_textures,
             menu,
             stages: Vec::new(),
+            big_stages: Vec::new(),
         };
         if bundle.menu.is_some() {
             bundle.narrow_social_panel();

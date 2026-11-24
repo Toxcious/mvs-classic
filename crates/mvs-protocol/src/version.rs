@@ -13,7 +13,9 @@
 /// 30: the Chaos Wheel option is its choices (`lobby_rules::WheelOptions`: window, warning, Chaos rate, two at once,
 /// pool), and the set-up's `wheel` carries the rate and two at once.
 /// 31: a match of up to eight slots: an input packet's header holds an ack per slot of the match
-/// (`match_wire::input_header`), and the referee's ref.go and start carry the match's slot count.
+/// (`match_wire::input_header`), and the referee's ref.go and start carry the match's slot count; a custom lobby takes
+/// eight (four a Versus team, `lobby_rules::MAX_LOBBY_PLAYERS`), its start's `lobby.startMatch` names the `maps` that
+/// hold a lobby of more than four, and a set-up player's `team` is sent where it is not the slot's own.
 pub const PROTOCOL: u32 = 31;
 
 /// The origin of the app's game window (`mvs://game/`): the raw `Origin` header the server lets in by default.

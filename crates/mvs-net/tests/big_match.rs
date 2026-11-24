@@ -1,9 +1,8 @@
 //! Matches of more than four slots online over the in-memory network: six and eight peers, each with its own session
 //! and World, the referee ruling every stream (`common::session_test`'s checks), and a big match's prediction limit
 //! (`BIG_MATCH_PREDICTION`): a peer whose way stands still waits at it, then is level again, and no rollback runs more
-//! than 16 ticks. The stages place four fighters today: the Worlds play the set-up's four, and the slots past them are
-//! humans whose streams the referee rules and every session carries and confirms (`Net::extra`). Without a store
-//! nothing is checked.
+//! than 16 ticks. Every slot is a human with a fighter of its own on the trace stage (a Versus of 3v3 and 4v4). Without
+//! a store nothing is checked.
 
 mod common;
 
@@ -12,8 +11,8 @@ use mvs_net::session::{
     BIG_MATCH_KEEP_BEHIND, BIG_MATCH_PREDICTION, KEEP_BEHIND, MAX_PREDICTION, SessionConfig, SlotKind,
 };
 
-fn net(lat: &[f64], jitter: f64, slots: usize) -> Net {
-    Net { lat: lat.to_vec(), jitter, extra: slots - 4, ..Net::default() }
+fn net(lat: &[f64], jitter: f64) -> Net {
+    Net { lat: lat.to_vec(), jitter, ..Net::default() }
 }
 
 /// The prediction limit and the snapshot's lag by the match's slots: the deepest rollback (the two together) is 24
@@ -33,21 +32,21 @@ fn the_deepest_rollback_is_16_ticks_past_four_slots() {
 
 #[test]
 fn six_peers_mixed() {
-    let n = Net { start: vec![0.0, 2.0, 1.0, 4.0, 0.0, 3.0], ..net(&[0.5, 1.5, 3.0, 2.0, 1.0, 2.5], 2.0, 6) };
-    check("session, 6 peers, mixed, packets overtaking", &setup(&versus(4, None)), 1800, &n);
+    let n = Net { start: vec![0.0, 2.0, 1.0, 4.0, 0.0, 3.0], ..net(&[0.5, 1.5, 3.0, 2.0, 1.0, 2.5], 2.0) };
+    check("session, 6 peers, mixed, packets overtaking", &setup(&versus(6, None)), 1800, &n);
 }
 
 #[test]
 fn eight_peers_mixed() {
     let n = Net {
         start: vec![0.0, 2.0, 1.0, 4.0, 0.0, 3.0, 1.0, 2.0],
-        ..net(&[0.5, 1.5, 3.0, 2.0, 1.0, 2.5, 1.2, 0.8], 2.0, 8)
+        ..net(&[0.5, 1.5, 3.0, 2.0, 1.0, 2.5, 1.2, 0.8], 2.0)
     };
-    check("session, 8 peers, mixed, packets overtaking", &setup(&versus(4, None)), 1800, &n);
+    check("session, 8 peers, mixed, packets overtaking", &setup(&versus(8, None)), 1800, &n);
 }
 
 /// A peer whose way stands still runs on on guesses up to BIG_MATCH_PREDICTION ticks and waits there; once its way
-/// goes again it is level within a second. Peer 2 plays a fighter, peer 5 a slot past them. The peers near the referee
+/// goes again it is level within a second. Peers 2 and 5 are held. The peers near the referee
 /// (one tick each way) go on undisturbed; one further away waits now and then while the still slot's ticks are ruled
 /// at the deadline: its confirmed line trails the clock by DEADLINE and its own way down, close to the limit of 10.
 #[test]
@@ -59,9 +58,9 @@ fn eight_peers_one_held_past_the_limit_waits_then_catches_up() {
             Fault { peer: 2, from: 700.0, to: 820.0 },
         ],
         fine: vec![0, 3, 7],
-        ..net(&[1.0, 1.5, 2.0, 1.0, 1.5, 1.2, 2.0, 1.0], 1.0, 8)
+        ..net(&[1.0, 1.5, 2.0, 1.0, 1.5, 1.2, 2.0, 1.0], 1.0)
     };
-    check("session, 8 peers, one way stands still for 30, 40 and 120 ticks", &setup(&versus(4, None)), 1200, &n);
+    check("session, 8 peers, one way stands still for 30, 40 and 120 ticks", &setup(&versus(8, None)), 1200, &n);
 }
 
 /// A measure, not a check: the referee's bytes a second out, each peer's in and out, and how far a frame's shown line
@@ -80,8 +79,8 @@ fn bytes_a_second_by_slots_and_way() {
         (8, 6.0, 0.0, 2.0),
         (8, 6.0, 0.05, 1.0),
     ] {
-        let n = Net { pump_each: true, loss, pace: vec![pace; slots], ..net(&vec![lat; slots], 0.0, slots) };
+        let n = Net { pump_each: true, loss, pace: vec![pace; slots], ..net(&vec![lat; slots], 0.0) };
         let name = format!("bytes, {slots} slots, {lat} ticks one way, loss {loss}, {pace} ticks a frame");
-        check(&name, &setup(&versus(4, None)), 900, &n);
+        check(&name, &setup(&versus(slots, None)), 900, &n);
     }
 }

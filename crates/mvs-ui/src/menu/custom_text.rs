@@ -2,6 +2,9 @@
 //! lobby's experimental settings and the rules they turn on. English only; the beta's own text comes from the
 //! player's Game.locres. The HUD's lines are `hud::custom_text`.
 
+/// The custom lobby's start blocker of a big match (more than four players) whose enabled maps hold none of it.
+pub const BLOCKER_NO_BIG_MAP: &str = "No selected map holds this many players";
+
 /// The tag on a custom map's tile, in the place of the build's Experimental tag.
 pub const CUSTOM_TAG: &str = "CUSTOM";
 

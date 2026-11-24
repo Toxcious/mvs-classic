@@ -615,8 +615,11 @@ impl NetLobby {
             self.out.push(OnlineCmd::Invite { to: id.to_string() });
         }
     }
-    pub fn start_match(&mut self) {
-        self.send(ClientMessage::LobbyStartMatch);
+    /// `maps`: the enabled maps the match may draw from (`LobbyRules::match_maps`), sent for a big match only (the
+    /// host core draws from every enabled one otherwise).
+    pub fn start_match(&mut self, maps: Vec<String>) {
+        let maps = self.rules.is_big().then_some(maps);
+        self.send(ClientMessage::LobbyStartMatch { maps });
     }
     pub fn set_ready(&mut self, on: bool) {
         self.send(ClientMessage::LobbySetReady { on });

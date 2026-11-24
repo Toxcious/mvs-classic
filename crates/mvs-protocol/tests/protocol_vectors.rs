@@ -404,7 +404,7 @@ fn lobby_listing() {
 #[test]
 fn lobby_data() {
     let Some(v) = vectors::read("protocol.json") else { return };
-    let (mut steps, mut skipped, mut resumed) = (0, 0, 0);
+    let (mut steps, mut skipped, mut resumed, mut sized) = (0, 0, 0, 0);
     for (s, script) in field(&v, "lobbyRules")["scripts"].as_array().unwrap().iter().enumerate() {
         let mut lobby = LobbyRules::new();
         // (in an oracle 1v1 stretch: the ops still run, nothing is compared; the stretch ends at the oracle's next
@@ -479,13 +479,38 @@ fn lobby_data() {
                 skipped += 1;
                 continue;
             }
+            // (the oracle's lobby stops at four, two a Versus team; the port's takes eight, four a team: where the
+            // port's lobby is past those sizes, everything but the teams is compared and the compare goes on from
+            // the oracle's teams)
+            let got = norm(serde_json::to_value(lobby.data()).unwrap());
+            if past_build_sizes(&got) {
+                let (mut g, mut w) = (got.clone(), norm(untag(&want)));
+                g.as_object_mut().unwrap().remove("teams");
+                w.as_object_mut().unwrap().remove("teams");
+                assert_eq!(g, w, "lobby data past the build's sizes, but for its teams, step {}", s * 100 + i);
+                if got != norm(untag(&want)) {
+                    lobby.load(&serde_json::from_value(want).expect("the oracle's lobby data"));
+                    sized += 1;
+                }
+                steps += 1;
+                continue;
+            }
             same(&lobby.data(), &want, "lobby data", s * 100 + i);
             steps += 1;
         }
     }
     eprintln!(
-        "lobby data: {steps} steps compared, {skipped} in an oracle 1v1 skipped, {resumed} resumed from the oracle's state"
+        "lobby data: {steps} steps compared, {skipped} in an oracle 1v1 skipped, {resumed} resumed from the oracle's state, {sized} past the build's sizes resumed from the oracle's teams"
     );
+}
+
+/// Whether the port's lobby state is past the sizes the build's lobby takes: more than four players, or a Versus
+/// team of more than two.
+fn past_build_sizes(data: &Value) -> bool {
+    let teams = data["teams"].as_array().unwrap();
+    let sizes: Vec<usize> = teams.iter().map(|t| t.as_array().unwrap().len()).collect();
+    let versus = data["teamStyle"].as_f64() == Some(f64::from(u8::from(LobbyStyle::Versus)));
+    sizes.iter().sum::<usize>() > 4 || (versus && sizes.iter().any(|&n| n > 2))
 }
 
 /// An oracle lobby state in the port's form: an icon the oracle cleared by setIcon (it stays as icon:'' there; here
