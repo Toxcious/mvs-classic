@@ -1497,6 +1497,8 @@ fn ext_load(e: &mut BuffExt, v: &Value, l: &mut Lx) {
         (BuffExt::C023ACarBuff(e), v) => crate::gizmo::car::car_buff_load(e, v, l),
         (BuffExt::ItemCarBuff(e), v) => crate::items::car::car_buff_load(e, v, l),
         (BuffExt::InstantKill(e), v) => crate::mutators::instant_kill_load(e, v, l),
+        // (Freeze Touch's has no extension until its first hit)
+        (e @ BuffExt::Chaos(_), Value::Null) => *e = BuffExt::None,
         (BuffExt::Chaos(e), v) => crate::mutators::chaos_load(e, v, l),
         (BuffExt::GrowWithDamage(e), v) => crate::mutators::grow_load(e, v, l),
         (BuffExt::TastyBlock(e), v) => crate::taz::tasty::tasty_block_load(e, v, l),
