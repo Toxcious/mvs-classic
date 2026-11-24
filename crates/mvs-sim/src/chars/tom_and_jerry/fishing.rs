@@ -316,7 +316,10 @@ fn sweet_spot_hit(w: &mut World, id: ProjectileId) {
         if !is_match_fighter(w, vic) {
             continue; // the BaseFighter class filter
         }
-        if w.fighter(vic).team.team == w.fighter(f).team.team || w.fighter(vic).life.dead > 0.0 || no_hit_of(w, vic) {
+        if w.fighter(vic).team.team == w.fighter(f).team.team
+            || w.fighter(vic).life.dead > 0.0
+            || crate::combat::phases::no_hit_by(w, f, vic)
+        {
             continue;
         }
         let (fx, fy) = (w.fighter(f).body.x, actor_y(w, f));
@@ -351,10 +354,6 @@ fn sweet_spot_hit(w: &mut World, id: ProjectileId) {
         actor_hit_enemy(w, &dl, vic);
         hit_enemy_part(w, id);
     }
-}
-
-fn no_hit_of(w: &World, f: FighterId) -> bool {
-    crate::combat::phases::no_hit(w, f)
 }
 
 /// @2210-2512: the sweet spot, GrabJerry bound, the hit box off, the movement deactivated, Delay(0.075), and the pull of

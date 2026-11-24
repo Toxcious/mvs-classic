@@ -474,7 +474,7 @@ fn explode(w: &mut World, id: ActorId) {
         let enemy = w.fighter(vic).team.team != team;
         let pkt = HitPacket { force_knockback: Some(enemy), ..packet.clone() }; // @824-906
         if enemy {
-            if no_hit(w, vic) || projectile_blocks(w, &dealer(w, me), vic) {
+            if crate::combat::phases::no_hit_by_team(w, team, vic) || projectile_blocks(w, &dealer(w, me), vic) {
                 continue;
             }
             if invulnerable(w, vic) {

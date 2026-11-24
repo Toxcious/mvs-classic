@@ -50,7 +50,7 @@ use crate::fighter::match_side::{SpawnRequest, reset_aim};
 use crate::fighter::moves::V2;
 use crate::fighter::traces::{OBJ_WORLD_DYNAMIC, box_overlap_actors};
 use crate::fighter::{
-    FighterId, actor_y, cap_radius, capsule_half, facing, in_hitstun, mesh_wx, mesh_wy, no_collision, no_hit,
+    FighterId, actor_y, cap_radius, capsule_half, facing, in_hitstun, mesh_wx, mesh_wy, no_collision,
 };
 use crate::math::ue::{SMALL_NUMBER, deg_atan2, rotate_angle_axis, round_to_int, safe_normal};
 use crate::math::{max, min};
@@ -816,7 +816,7 @@ fn burst_hits(w: &mut World, id: ActorId) {
     // a minion too (the begin overlaps meet any pawn)
     for vic in all_fighters(w) {
         let vid = w.fighter(vic).id;
-        let (dead, hidden) = (w.fighter(vic).life.dead != 0.0, no_hit(w, vic));
+        let (dead, hidden) = (w.fighter(vic).life.dead != 0.0, crate::combat::phases::no_hit_by(w, f, vic));
         if w.fighter(vic).team.team == team {
             if vic == f {
                 continue;

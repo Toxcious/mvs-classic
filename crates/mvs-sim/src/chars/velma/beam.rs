@@ -449,7 +449,7 @@ fn do_damage(w: &mut World, id: ActorId, a: ActorRef, packet: &HitPacket, rows: 
     match a {
         ActorRef::Fighter(vic) => {
             if w.fighter(vic).team.team != w.fighter(inst).team.team {
-                if no_hit(w, vic) || projectile_blocks(w, &dealer(w, me), vic) {
+                if crate::combat::phases::no_hit_by(w, inst, vic) || projectile_blocks(w, &dealer(w, me), vic) {
                     return false;
                 }
                 if invulnerable(w, vic) {

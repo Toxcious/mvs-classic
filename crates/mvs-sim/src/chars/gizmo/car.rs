@@ -81,7 +81,7 @@ use crate::fighter::traces::{
 };
 use crate::fighter::{
     FighterId, actor_y, cap_radius, capsule_half, facing, grounded, in_hitstun, invulnerable, mesh_wx, mesh_wy,
-    no_collision, no_hit,
+    no_collision,
 };
 use crate::math::ue::{KINDA_SMALL_NUMBER, finterp_constant_to, fmod, normal, rotate_angle_axis, size2d};
 use crate::math::{max, min};
@@ -981,7 +981,7 @@ fn car_hit_overlap(w: &mut World, id: ProjectileId, vic: FighterId) {
     if let Some(d) = d {
         // The driver's Comp_Pawn_HitBoxHandler.pfgDoDamage(HitCollision, ...): his hit (his dealt mods, his hit pause,
         // his attack decay), with its gates ahead of DamageAndLaunch (World.handlerHit).
-        if in_hitstun(w, d) || no_hit(w, vic) {
+        if in_hitstun(w, d) || crate::combat::phases::no_hit_by_team(w, team, vic) {
             return;
         }
         if invulnerable(w, vic) {
@@ -996,7 +996,7 @@ fn car_hit_overlap(w: &mut World, id: ProjectileId, vic: FighterId) {
     } else {
         // the car's own handler (a spawned actor's hit)
         let dl = dealer(w, ActorRef::Projectile(id));
-        if no_hit(w, vic) || projectile_blocks(w, &dl, vic) {
+        if crate::combat::phases::no_hit_by_team(w, team, vic) || projectile_blocks(w, &dl, vic) {
             return;
         }
         if invulnerable(w, vic) {
@@ -1095,7 +1095,10 @@ fn explode(w: &mut World, id: ProjectileId) {
                     continue;
                 }
                 let dl = dealer(w, me);
-                if w.fighter(vic).life.dead > 0.0 || no_hit(w, vic) || projectile_blocks(w, &dl, vic) {
+                if w.fighter(vic).life.dead > 0.0
+                    || crate::combat::phases::no_hit_by_team(w, team, vic)
+                    || projectile_blocks(w, &dl, vic)
+                {
                     continue;
                 }
                 if invulnerable(w, vic) {

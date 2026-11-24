@@ -24,7 +24,7 @@ use crate::fighter::control::attack_dodged;
 use crate::fighter::moves::V2;
 use crate::fighter::traces::solids::QUERY_UNKNOWN;
 use crate::fighter::traces::{OBJ_HURT_BOX, OBJ_PAWN, OBJ_PHYSICS_BODY, TraceBody, body_info, sphere_overlap_actors};
-use crate::fighter::{FighterId, invulnerable, no_hit, unequip_object};
+use crate::fighter::{FighterId, invulnerable, unequip_object};
 use crate::math::{max, min};
 use crate::name;
 use crate::registry::entries::{ActorEntry, ActorHooks, ProjectileHooks};
@@ -437,7 +437,8 @@ fn burst(w: &mut World, id: ProjectileId, packet: &HitPacket, ally_sound: bool) 
             ally(w);
             continue;
         }
-        if done.contains(&vic) || w.fighter(vic).life.dead > 0.0 || no_hit(w, vic) {
+        if done.contains(&vic) || w.fighter(vic).life.dead > 0.0 || crate::combat::phases::no_hit_by_team(w, team, vic)
+        {
             continue;
         }
         if projectile_blocks(w, &dealer(w, me), vic) {

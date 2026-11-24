@@ -31,7 +31,7 @@ use crate::combat::boxes::{BoxSampler, WorldSphere, actor_boxes, push_actor_shap
 use crate::combat::elem::charge_pct;
 use crate::combat::hit::hurt_hit;
 use crate::combat::hits::{actor_hit_enemy, apply_projectile_hit, dealer, projectile_blocks};
-use crate::combat::phases::{alive, give_vbuf, los_blocked, no_hit, victim_pose};
+use crate::combat::phases::{alive, give_vbuf, los_blocked, victim_pose};
 use crate::combat::spawned_hits::class_rows;
 use crate::consts::DELTA_SECONDS;
 use crate::events::Event;
@@ -237,7 +237,11 @@ fn flap_hits(w: &mut World, id: ActorId) {
     for vic in match_fighters(w) {
         let vid = w.fighter(vic).id;
         let Some(s) = flap_of(w, id) else { return };
-        if w.fighter(vic).team.team == team || !alive(w, vic) || no_hit(w, vic) || s.hit_set.contains(&vid) {
+        if w.fighter(vic).team.team == team
+            || !alive(w, vic)
+            || crate::combat::phases::no_hit_by_team(w, team, vic)
+            || s.hit_set.contains(&vid)
+        {
             continue;
         }
         let Some(vp) = victim_pose(w, vic) else { continue };

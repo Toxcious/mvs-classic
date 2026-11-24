@@ -69,7 +69,7 @@ use crate::fighter::control::{DodgeState, attack_dodged, dodge_over};
 use crate::fighter::match_side::{Foreign, SpawnRequest};
 use crate::fighter::moves::V2;
 use crate::fighter::traces::sphere_overlap_actors;
-use crate::fighter::{FighterId, actor_y, invulnerable, is_evading, no_hit};
+use crate::fighter::{FighterId, actor_y, invulnerable, is_evading};
 use crate::input::{Dir, get8_way};
 use crate::name;
 use crate::names::Name;
@@ -719,7 +719,7 @@ fn initial_explosion(w: &mut World, f: FighterId, b: BuffRef, cls: Name) {
         if !is_match_fighter(w, vic) || w.fighter(vic).team.team == w.fighter(f).team.team {
             continue;
         }
-        if no_hit(w, vic) {
+        if crate::combat::phases::no_hit_by(w, f, vic) {
             continue;
         }
         let attack_id = packet.attack_id.unwrap_or(0);

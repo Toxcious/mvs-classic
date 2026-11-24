@@ -72,7 +72,7 @@ use crate::combat::{BuffClass, BuffRef, phases};
 use crate::events::{Event, SoundKey, UiStateOp, UiStateParams};
 use crate::fighter::common::{latent_frames, peers};
 use crate::fighter::match_side::post_vo;
-use crate::fighter::{FighterId, actor_y, has_equipped, no_hit};
+use crate::fighter::{FighterId, actor_y, has_equipped};
 use crate::math::to_int32;
 use crate::math::ue::size2d;
 use crate::name;
@@ -695,7 +695,9 @@ fn aim_step(w: &mut World, id: ProjectileId) -> bool {
 
 /// HandleFighterOverlap @6045, at the begin of the hit box's overlap.
 fn aim_overlap(w: &mut World, id: ProjectileId, vic: FighterId) {
-    let mut on = hit_collision(pr(w, id)) && w.fighter(vic).life.dead <= 0.0 && !no_hit(w, vic);
+    let mut on = hit_collision(pr(w, id))
+        && w.fighter(vic).life.dead <= 0.0
+        && !crate::combat::phases::no_hit_from(w, ActorRef::Projectile(id), vic);
     if on {
         on = match phases::victim_pose(w, vic) {
             Some(vp) => {

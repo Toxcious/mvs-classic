@@ -496,6 +496,35 @@ pub(crate) fn no_hit_by_team(w: &World, team: i32, vic: FighterId) -> bool {
     no_hit(w, vic) || crate::world::dodgeball::spares_team(w, team, vic)
 }
 
+/// The fighter whose move deals through `a`, for the port's own Dodgeball rule: a fighter itself, the owner of what
+/// it spawned (a projectile, a world actor, a mortar aim, a buff actor that deals), the holder or thrower of an item a
+/// fighter's move made. None for what no fighter's move made: an item the stage dropped (`Item::spawner` none, whoever
+/// threw it), an ownerless projectile, a dealer of another family.
+pub(crate) fn dealing_fighter(w: &World, a: ActorRef) -> Option<FighterId> {
+    match a {
+        ActorRef::Fighter(f) => Some(f),
+        ActorRef::Item(id) => {
+            w.actors.items.get(id).filter(|i| i.spawner.is_some()).and_then(|i| i.owner.or(i.spawner))
+        }
+        ActorRef::Projectile(id) => w.actors.projectiles.get(id).and_then(|p| p.owner),
+        ActorRef::Actor(id) => w.actors.actors.get(id).map(|x| x.owner),
+        ActorRef::Mortar(id) => w.actors.mortars.get(id).map(|m| m.owner),
+        ActorRef::Buff(b) => buff::buff(w, b).and_then(|x| x.ext.actor_owner()),
+        _ => None,
+    }
+}
+
+/// The port's own Dodgeball rule spares `vic` what `a` deals ([`dealing_fighter`]).
+pub(crate) fn spared_from(w: &World, a: ActorRef, vic: FighterId) -> bool {
+    w.setup.dodgeball.is_some() && dealing_fighter(w, a).is_some_and(|f| crate::world::dodgeball::spares(w, f, vic))
+}
+
+/// [`no_hit`] for what the actor `a` deals: [`no_hit_by`] its dealing fighter, plain `no_hit` for what no fighter's
+/// move made (a stage item).
+pub(crate) fn no_hit_from(w: &World, a: ActorRef, vic: FighterId) -> bool {
+    no_hit(w, vic) || spared_from(w, a, vic)
+}
+
 /// `actorCollisionOff`: the pull's move, or a live buff that switched the collision off.
 pub(crate) fn actor_collision_off(w: &World, f: FighterId) -> bool {
     w.fighter(f).moves.pull.is_some() || buff::buff_collision_off(w, f)

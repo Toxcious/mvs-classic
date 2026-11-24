@@ -45,7 +45,6 @@ use crate::actors::{ActorClass, ActorId, ActorRef, Projectile, ProjectileClass, 
 use crate::combat::elem::charge_pct;
 use crate::combat::hit::knockback::timer_ticks;
 use crate::combat::hits::{actor_hit_enemy, apply_projectile_hit, dealer, projectile_blocks, truthy};
-use crate::combat::phases::no_hit;
 use crate::combat::spawned_hits::{comp, damage_actor, damage_spawned_actor, world_hooks};
 use crate::combat::{DataVec, HitPacket};
 use crate::consts::DELTA_SECONDS;
@@ -269,7 +268,7 @@ fn explode(w: &mut World, id: ProjectileId, found: &[Option<ActorRef>], packet: 
                 if invulnerable(w, vic) || w.fighter(vic).invuln.damage_disabled || w.fighter(vic).team.team == team {
                     continue;
                 }
-                if w.fighter(vic).life.dead > 0.0 || no_hit(w, vic) {
+                if w.fighter(vic).life.dead > 0.0 || crate::combat::phases::no_hit_by_team(w, team, vic) {
                     continue;
                 }
                 let d = dealer(w, me);

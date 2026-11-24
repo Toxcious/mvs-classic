@@ -92,9 +92,7 @@ use crate::fighter::control::{actor_spawn_ability, attack_dodged, dodge_over, tr
 use crate::fighter::match_side::{Foreign, SpawnRequest};
 use crate::fighter::moves::V2;
 use crate::fighter::traces::{OBJ_PAWN, OBJ_PHYSICS_BODY, sphere_overlap_actors};
-use crate::fighter::{
-    FighterId, active_montage_name, actor_y, facing, in_hitstun, invulnerable, mesh_wx, mesh_wy, no_hit,
-};
+use crate::fighter::{FighterId, active_montage_name, actor_y, facing, in_hitstun, invulnerable, mesh_wx, mesh_wy};
 use crate::math::max;
 use crate::math::ue::{SMALL_NUMBER, deg_atan2, safe_normal, size};
 use crate::name;
@@ -371,7 +369,7 @@ fn swing_hit(w: &mut World, j: ActorId, x: Real, y: Real) {
         if w.fighter(vic).team.team == w.fighter(owner).team.team {
             continue;
         }
-        if w.fighter(vic).life.dead > 0.0 || no_hit(w, vic) {
+        if w.fighter(vic).life.dead > 0.0 || crate::combat::phases::no_hit_by(w, owner, vic) {
             continue;
         }
         let jx = jerry_of(w, j).map_or(0.0, |s| s.x);

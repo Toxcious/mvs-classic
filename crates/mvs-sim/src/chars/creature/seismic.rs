@@ -536,7 +536,7 @@ fn seismic_boom(w: &mut World, id: ProjectileId) {
         let rows = boom_buffs();
         let attack_id = pr(w, id).attack_id;
         if w.fighter(vic).team.team != w.fighter(inst).team.team {
-            if !crate::combat::phases::no_hit(w, vic) && !projectile_blocks(w, &dealer(w, me), vic) {
+            if !crate::combat::phases::no_hit_by(w, inst, vic) && !projectile_blocks(w, &dealer(w, me), vic) {
                 if invulnerable(w, vic) {
                     let tick = w.flow.tick;
                     attack_dodged(w, me, vic, attack_id, 1000.0, tick, None, false);

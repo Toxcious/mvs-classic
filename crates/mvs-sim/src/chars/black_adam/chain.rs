@@ -385,6 +385,9 @@ fn throw_actor(w: &mut World, id: ProjectileId) {
     let dir = V2 { x: h * yaw_x(pr(w, id)), y: v }; // the vector's X is UE Y, mirrored by the chain's yaw
     match a {
         ActorRef::Fighter(vic) => {
+            if crate::fighter::spared_by(w, o, vic) {
+                return; // the port's own Dodgeball rule: no hit and no Buff_Damage_Electric_C on an opponent
+            }
             if w.fighter(vic).life.dead <= 0.0 && !no_hit(w, vic) {
                 if invulnerable(w, vic) {
                     let tick = w.flow.tick;
@@ -620,7 +623,7 @@ fn victim_timer(w: &mut World, f: FighterId, b: BuffRef) -> bool {
         *at += timer_ticks(iv);
     }
     let Some(by) = by else { return false };
-    if w.fighter(f).life.dead > 0.0 || no_hit(w, f) {
+    if w.fighter(f).life.dead > 0.0 || crate::combat::phases::no_hit_by(w, by, f) {
         return false;
     }
     let mut dpt = dpt.unwrap_or_default();

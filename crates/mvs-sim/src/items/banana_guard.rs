@@ -45,7 +45,7 @@ use crate::combat::elem::charge_pct;
 use crate::combat::hit::hurt::hurt_rank;
 use crate::combat::hits::{actor_hit_enemy, ally_hit, apply_projectile_hit, dealer, projectile_blocks};
 use crate::combat::packet::DataVec;
-use crate::combat::phases::{alive, give_vbuf, no_hit, victim_pose};
+use crate::combat::phases::{alive, give_vbuf, victim_pose};
 use crate::combat::spawned_hits::{class_rows, damage_actor, damage_spawned_actor};
 use crate::consts::{DELTA_SECONDS, FLOOR_REST_GAP, GRAVITY_Z, SOLID_FLOOR};
 use crate::events::Event;
@@ -1189,7 +1189,7 @@ fn hits(w: &mut World, id: ActorId) {
     for &vic in &all {
         let vid = w.fighter(vic).id;
         let g = st(w, id);
-        if !alive(w, vic) || no_hit(w, vic) || g.hit_set.contains(&vid) {
+        if !alive(w, vic) || crate::combat::phases::no_hit_by(w, o, vic) || g.hit_set.contains(&vid) {
             continue;
         }
         let ally = w.fighter(vic).team.team == g.team;

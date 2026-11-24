@@ -18,10 +18,10 @@ use crate::combat::packet::DataVec;
 use crate::combat::{BuffClass, BuffRef, HitPacket};
 use crate::events::{Event, PopKind};
 use crate::fighter::FighterId;
+use crate::fighter::actor_y;
 use crate::fighter::common::{actor_is_projectile, latent_frames, lit, lookup_owner, timer_frames};
 use crate::fighter::control::dealer_dodged;
 use crate::fighter::moves::{V2, reset_air_options};
-use crate::fighter::{actor_y, no_hit};
 use crate::math::{max, ue};
 use crate::name;
 use crate::names::Name;
@@ -438,7 +438,7 @@ pub fn check_for_blast_box_bounce(w: &mut World, loser: FighterId) {
             dealer_dodged(w, &dealer, vic, hit.attack_id.unwrap_or(0), bkb, tick);
             continue;
         }
-        if w.fighter(vic).life.dead > 0.0 || no_hit(w, vic) {
+        if w.fighter(vic).life.dead > 0.0 || crate::combat::phases::no_hit_by(w, dealer.owner, vic) {
             continue;
         }
         // IgnoreFacing: the vector's X is UE +Y, the sim's -x.

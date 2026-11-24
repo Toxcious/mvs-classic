@@ -464,6 +464,10 @@ fn cylinder_tick(w: &mut World, id: ProjectileId, dt: Real) {
         if invulnerable(w, v) || w.fighter(v).invuln.damage_disabled || team(w, v) == team(w, f) {
             continue;
         }
+        // Deviation: the port's Dodgeball rule spares an opponent the cylinder's damage.
+        if crate::fighter::spared_by(w, f, v) {
+            continue;
+        }
         // ApplyDamage -> Comp_Actor_Damage OnTakeAnyDamage @546-910: the temp health's share first, CurrentDamage +=
         // (float), RecordDamage to the causer's instigator.
         apply_direct_damage(w, v, dmg, Some(f));

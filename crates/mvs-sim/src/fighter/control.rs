@@ -2821,6 +2821,17 @@ pub fn attack_dodged(
     if w.fighter(vic).invuln.damage_disabled {
         return;
     }
+    // The port's own Dodgeball rule: an opponent spared the hit has nothing to dodge (an item the stage dropped is
+    // not spared: the host's own dealing fighter, before the attacker the caller names).
+    let spared = if matches!(host, ActorRef::Item(_)) {
+        crate::combat::phases::spared_from(w, host, vic)
+    } else {
+        attacker.is_some_and(|a| crate::world::dodgeball::spares(w, a, vic))
+            || crate::combat::phases::spared_from(w, host, vic)
+    };
+    if spared {
+        return;
+    }
     let vid = w.fighter(vic).id;
     let Some(d) = dodge_slot(w, host) else { return };
     if !dodge_entry(d, vid, attack_id, tick, can_mark || base_knock_back > 0.0) {
@@ -2849,8 +2860,8 @@ pub fn dealer_dodged(
     base_knock_back: Real,
     tick: i32,
 ) {
-    if w.fighter(vic).invuln.damage_disabled {
-        return;
+    if w.fighter(vic).invuln.damage_disabled || crate::world::dodgeball::spares(w, d.owner, vic) {
+        return; // (and the port's own Dodgeball rule: an opponent spared the hit has nothing to dodge)
     }
     let vid = w.fighter(vic).id;
     if !dodge_entry(&mut d.dodge.borrow_mut(), vid, attack_id, tick, base_knock_back > 0.0) {

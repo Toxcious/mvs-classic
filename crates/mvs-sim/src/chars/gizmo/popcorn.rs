@@ -43,7 +43,7 @@ use crate::fighter::traces::{
     OBJ_PAWN, OBJ_PHYSICS_BODY, OBJ_PROJECTILE_DESTRUCTIBLE, OBJ_WORLD_DYNAMIC, OBJ_WORLD_STATIC, TraceBody, body_info,
     sphere_overlap_actors,
 };
-use crate::fighter::{FighterId, cap_radius, capsule_half, facing, invulnerable, no_collision, no_hit};
+use crate::fighter::{FighterId, cap_radius, capsule_half, facing, invulnerable, no_collision};
 use crate::math::ue::{KINDA_SMALL_NUMBER, clamped_to_size, normal, rot_from_x, rotate_angle_axis, size2d};
 use crate::math::{max, min};
 use crate::name;
@@ -496,7 +496,7 @@ fn pop_damage(w: &mut World, id: ProjectileId) {
                 }
                 let packet = if last { last_pop_packet(&base, w.fighter(vic).body.x, px) } else { base.clone() };
                 let dl = dealer(w, me);
-                if no_hit(w, vic) || projectile_blocks(w, &dl, vic) {
+                if crate::combat::phases::no_hit_by_team(w, team, vic) || projectile_blocks(w, &dl, vic) {
                     continue;
                 }
                 if invulnerable(w, vic) {

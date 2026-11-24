@@ -380,7 +380,7 @@ fn bolt_activate(w: &mut World, id: ActorId) {
         let rows = bolt_buffs();
         let (vx, vy) = (w.fighter(vic).body.x, actor_y(w, vic));
         if !same_team {
-            if !no_hit(w, vic) && !projectile_blocks(w, &dealer(w, me), vic) {
+            if !crate::combat::phases::no_hit_by(w, inst, vic) && !projectile_blocks(w, &dealer(w, me), vic) {
                 if invulnerable(w, vic) {
                     let tick = w.flow.tick;
                     attack_dodged(w, me, vic, b_attack_id(w, id), 1700.0, tick, None, false);
@@ -665,7 +665,7 @@ fn pillar_damage(w: &mut World, b: BuffRef) {
                 }
             }
             ActorRef::Fighter(vic) if is_match_fighter(w, vic) => {
-                if no_hit(w, vic) {
+                if crate::combat::phases::no_hit_by(w, inst, vic) {
                     continue;
                 }
                 if invulnerable(w, vic) {

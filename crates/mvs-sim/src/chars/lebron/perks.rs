@@ -22,7 +22,7 @@ use crate::fighter::common::{actor_is_a, buff_def, lookup_owner};
 use crate::fighter::control::{dealer_dodge_over, dealer_dodged};
 use crate::fighter::moves::V2;
 use crate::fighter::traces::{OBJ_PAWN, sphere_overlap_actors};
-use crate::fighter::{FighterId, actor_y, no_hit};
+use crate::fighter::{FighterId, actor_y};
 use crate::name;
 use crate::names::Name;
 use crate::registry::entries::{ActorBuffHooks, BuffEntry, BuffHooks};
@@ -124,7 +124,7 @@ fn distance_shot(w: &mut World, a: ActorRef, hit_player: FighterId) {
         let (wx, wy) = if vic == hit_player { (vx, vy) } else { (w.fighter(vic).body.x - bx, actor_y(w, vic) - by) };
         let mut hit = base.clone();
         hit.knock_back_direction_vector = Some(DataVec { x: Some(-wx), y: Some(wy), z: None });
-        if no_hit(w, vic) {
+        if crate::combat::phases::no_hit_by(w, inst, vic) {
             continue;
         }
         if crate::combat::hits::invulnerable(w.fighter(vic)) {

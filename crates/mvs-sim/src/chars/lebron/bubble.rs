@@ -19,7 +19,7 @@ use crate::combat::elem::{charge_buff, charge_pct};
 use crate::combat::hits::{
     DamageCall, actor_ally_hit, actor_hit_enemy, apply_projectile_hit, dealer, do_damage, projectile_blocks,
 };
-use crate::combat::phases::{alive, give_vbuf, los_blocked, no_hit, victim_pose};
+use crate::combat::phases::{alive, give_vbuf, los_blocked, victim_pose};
 use crate::combat::spawned_hits::{actor_body_types, class_rows, comp, projectile_hits_projectile, world_hooks};
 use crate::consts::DELTA_SECONDS;
 use crate::events::Event;
@@ -204,7 +204,7 @@ pub fn box_hits(w: &mut World, pr: ProjectileId, b: Rect) {
     let rows = class_rows(w, me);
     for o in match_fighters(w) {
         let oid = w.fighter(o).id;
-        if o == f || !alive(w, o) || no_hit(w, o) || pr_ref(w, pr).hit_set.contains(&oid) {
+        if o == f || !alive(w, o) || crate::combat::phases::no_hit_by(w, f, o) || pr_ref(w, pr).hit_set.contains(&oid) {
             continue;
         }
         let Some(vp) = victim_pose(w, o) else { continue };

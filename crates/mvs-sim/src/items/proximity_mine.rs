@@ -48,7 +48,7 @@ use crate::fighter::common::warn_text;
 use crate::fighter::control::dodge_over;
 use crate::fighter::moves::V2;
 use crate::fighter::traces::{OBJ_HURT_BOX, OBJ_PAWN, OBJ_PHYSICS_BODY, OBJ_WORLD_DYNAMIC, sphere_overlap_actors};
-use crate::fighter::{FighterId, actor_y, cap_radius, capsule_half, no_collision, no_hit};
+use crate::fighter::{FighterId, actor_y, cap_radius, capsule_half, no_collision};
 use crate::name;
 use crate::registry::entries::ItemHooks;
 use crate::registry::props::obj;
@@ -256,7 +256,7 @@ fn detonate(w: &mut World, it: ItemId) -> bool {
                 }
             }
             ActorRef::Fighter(vic) => {
-                if w.fighter(vic).life.dead > 0.0 || no_hit(w, vic) {
+                if w.fighter(vic).life.dead > 0.0 || crate::combat::phases::no_hit_from(w, me, vic) {
                     continue;
                 }
                 let d = dealer(w, me);
@@ -340,7 +340,9 @@ fn overlaps(w: &mut World, it: ItemId, only: Option<FighterId>) -> bool {
             continue;
         }
         state(w, it).inside.push(fid);
-        if state(w, it).armed && w.fighter(f).team.team != item_destructible_team(w, it) && detonate(w, it) {
+        // Deviation: under the port's Dodgeball rule a fighter's mine does not go off for the opponent it spares.
+        let spared = crate::combat::phases::spared_from(w, ActorRef::Item(it), f);
+        if state(w, it).armed && w.fighter(f).team.team != item_destructible_team(w, it) && !spared && detonate(w, it) {
             return true;
         }
     }

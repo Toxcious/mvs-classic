@@ -143,7 +143,6 @@ use crate::combat::elem::charge_pct;
 use crate::combat::hit::knockback::timer_ticks;
 use crate::combat::hits::{self, Dealer};
 use crate::combat::packet::HitPacket;
-use crate::combat::phases::no_hit;
 use crate::combat::pop_text::{GraphPopText, pop_text_on};
 use crate::events::{Event, SoundKey, UiStateOp, UiStateParams};
 use crate::fighter::common::{buff_def, latent_frames, peers};
@@ -495,7 +494,10 @@ fn knock(w: &mut World, id: ProjectileId, vic: FighterId, force: bool) {
 fn deal(w: &mut World, id: ProjectileId, f: FighterId, vic: FighterId, p: &mvs_data::value::Props) {
     let once = flag(p, "HitEachActorOnlyOnce");
     let vid = w.fighter(vic).id;
-    if w.fighter(vic).life.dead > 0.0 || no_hit(w, vic) || (once && t(w, id).knocked.contains(&vid)) {
+    if w.fighter(vic).life.dead > 0.0
+        || crate::combat::phases::no_hit_by(w, f, vic)
+        || (once && t(w, id).knocked.contains(&vid))
+    {
         return;
     }
     let d: Dealer = hits::dealer(w, ActorRef::Projectile(id));

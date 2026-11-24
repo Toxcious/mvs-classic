@@ -25,7 +25,7 @@ use crate::combat::boxes::WorldSphere;
 use crate::combat::buffs::{BuffExt, buff_of, inst_view};
 use crate::combat::elem::instigator_charge;
 use crate::combat::hits::{HitShape, apply_projectile_hit, dealer, hit_box_actor_hits};
-use crate::combat::phases::{alive, give_vbuf, los_blocked, no_hit, victim_pose};
+use crate::combat::phases::{alive, give_vbuf, los_blocked, victim_pose};
 use crate::combat::{BuffClass, BuffRef, HitPacket};
 use crate::events::{Event, NotifyRef};
 use crate::fighter::common::{actor_def, latent_frames, timer_frames, warn_once};
@@ -207,7 +207,12 @@ fn slam_hits(w: &mut World, f: FighterId, b: BuffRef) {
     for o in match_fighters(w) {
         let oid = w.fighter(o).id;
         let listed = slam(w, b).is_some_and(|e| e.hits.contains(&oid));
-        if o == f || w.fighter(o).team.team == team || !alive(w, o) || no_hit(w, o) || listed {
+        if o == f
+            || w.fighter(o).team.team == team
+            || !alive(w, o)
+            || crate::combat::phases::no_hit_by(w, f, o)
+            || listed
+        {
             continue;
         }
         let Some(vp) = victim_pose(w, o) else { continue };

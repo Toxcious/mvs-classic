@@ -64,7 +64,7 @@ use crate::combat::elem::{charge_pct, instigator_charge};
 use crate::combat::hit::hurt_hit;
 use crate::combat::hits::{actor_hit_enemy, apply_projectile_hit, dealer, projectile_blocks, refused_ally_hit};
 use crate::combat::packet::{DataEnum, DataVec, VacuumInfo};
-use crate::combat::phases::{alive, give_vbuf, no_hit, victim_pose};
+use crate::combat::phases::{alive, give_vbuf, victim_pose};
 use crate::consts as C;
 use crate::fighter::anim::montages::start_montage;
 use crate::fighter::common::{actor_data, latent_frames, warn_text};
@@ -744,7 +744,11 @@ fn hit_box_hits(w: &mut World, id: ActorId) {
     for vic in match_fighters(w) {
         let vid = w.fighter(vic).id;
         let Some(s) = hit_box_of(w, id) else { return };
-        if vic == o || w.fighter(vic).team.team == team || !alive(w, vic) || no_hit(w, vic) || s.hit_set.contains(&vid)
+        if vic == o
+            || w.fighter(vic).team.team == team
+            || !alive(w, vic)
+            || crate::combat::phases::no_hit_by_team(w, team, vic)
+            || s.hit_set.contains(&vid)
         {
             continue;
         }
