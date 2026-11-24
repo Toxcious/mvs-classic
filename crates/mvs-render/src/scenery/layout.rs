@@ -277,6 +277,68 @@ pub fn has_movable_base_pass(m: &mvs_material::Material) -> bool {
     m.shaders.pass(Some(vf), Some(&pipeline), &[(&vs, 0), (&ps, 0)]).is_some()
 }
 
+/// An instance of a stage's scenery a piece can come from, as the stage editor's palette lists it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct PaletteItem {
+    /// Its name in its stage's scenery (a piece's `instance`).
+    pub name: String,
+    /// Its mesh's object path.
+    pub mesh: String,
+    /// Its place in its own stage.
+    pub loc: [f64; 3],
+    pub rot: [f64; 3],
+    pub scale: [f64; 3],
+    /// Every material of it draws on a movable piece (a piece of another stage is movable only).
+    pub movable: bool,
+}
+
+/// The keys of every stage the store draws, sorted.
+pub fn stage_keys(store: &mvs_store::Store) -> Result<Vec<String>> {
+    let pack = store.kind(crate::stagedraw::KIND)?;
+    let mut keys: Vec<String> = pack
+        .paths()
+        .filter_map(|p| {
+            let (dir, name) = p.rsplit_once('/')?;
+            let (a, b) = name.split_once('.')?;
+            (dir == "/StageDraw" && a == b).then(|| a.to_owned())
+        })
+        .collect();
+    keys.sort();
+    keys.dedup();
+    Ok(keys)
+}
+
+/// The instances of the stage `key` a piece can come from (not attached to a skeletal mesh), in the entry's order,
+/// each with whether it draws as a movable piece.
+pub fn palette(store: &mvs_store::Store, key: &str) -> Result<Vec<PaletteItem>> {
+    let sc = read_scenery(store, key)?;
+    let pack = store.kind("material")?;
+    let mut seen: std::collections::BTreeMap<String, bool> = std::collections::BTreeMap::new();
+    let mut draws = |path: &str| -> bool {
+        if let Some(&d) = seen.get(path) {
+            return d;
+        }
+        let d =
+            matches!(mvs_material::read_entry(&pack, path), Ok(mvs_material::Entry::Material(m)) if movable_draws(&m));
+        seen.insert(path.to_owned(), d);
+        d
+    };
+    let mut out = Vec::new();
+    for i in sc.instances.iter().filter(|i| i.attach.is_none()) {
+        let Some(mesh) = sc.meshes.get(&i.mesh) else { continue };
+        let movable = i.materials.iter().flatten().all(|m| draws(m.split_once('?').map_or(m.as_str(), |x| x.0)));
+        out.push(PaletteItem {
+            name: i.name.clone(),
+            mesh: mesh.path.clone(),
+            loc: i.loc,
+            rot: i.rot,
+            scale: i.scale,
+            movable,
+        });
+    }
+    Ok(out)
+}
+
 /// The base's stage data with the layout composed over it (`mvs_stage::compose_stage`), its spawn areas dropped:
 /// what the renderer and the particle surfaces read.
 pub fn composed_stage_data(
