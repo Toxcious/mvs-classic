@@ -2,9 +2,12 @@
 //! out the release folder (the launcher and the game side by side), zips it, zips the relay, and runs the guard over both zips. What
 //! the guard refuses is deleted (the folders stay for a look). With `--game-linux`, a Linux game built elsewhere
 //! (`tools/linux-build.sh release`) is laid out and zipped beside the Windows one, and guarded with it.
+//!
+//! On a Linux host the Windows programs are cross-built (`tools/windows-cross.sh`) and run under Wine in a prefix
+//! made for the run, and the Linux game and relay are built here too (`tools/linux-build.sh`) unless given.
 
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 use mvs_release::{
     BUILT_GAME_EXE, BUILT_LAUNCHER_EXE, EOS_CREDENTIALS, EOS_DLL, EOS_SO, GAME_EXE, LAUNCHER_EXE, LICENSE,
@@ -114,29 +117,13 @@ pub fn find_repo(from: &Path) -> Option<PathBuf> {
 /// The C runtime is linked statically (`+crt-static`): Windows 10 and 11 hold the Universal CRT, but not
 /// VCRUNTIME140.dll, which only the Visual C++ Redistributable installs. The guard refuses an exe that still needs
 /// it. A `RUSTFLAGS` set in the environment overrides this, and the guard then catches it.
-fn cargo_build(o: &Options, package: &str, bins: &[&str]) -> Result<(), String> {
-    let slot = o.repo.join("tools/cargo-slot.ps1");
-    let mut args = vec!["build", "--release", "-p", package];
-    for b in bins {
-        args.extend(["--bin", b]);
-    }
+///
+/// On a Linux host the build goes through tools/windows-cross.sh, which adds the xwin splat's library paths after
+/// `+crt-static` in the same variable.
+fn cargo_build(o: &Options, host: Host, package: &str, bins: &[&str]) -> Result<(), String> {
+    let slot = o.repo.join(CARGO_SLOT).is_file();
+    let mut cmd = build_command(o, host, slot, package, bins);
     let bin = bins.join(", ");
-    let mut cmd = if slot.is_file() {
-        let mut c = Command::new("powershell");
-        c.args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"]).arg(&slot).args(args);
-        c
-    } else {
-        let mut c = Command::new("cargo");
-        c.args(args);
-        c
-    };
-    cmd.current_dir(&o.repo)
-        .env("MVS_VERSION", &o.version)
-        .env("CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS", "-C target-feature=+crt-static");
-    match &o.feed {
-        Some(f) => cmd.env("MVS_UPDATE_FEED", f),
-        None => cmd.env_remove("MVS_UPDATE_FEED"),
-    };
     println!(
         "dist: building {bin} {}{}",
         o.version,
@@ -147,6 +134,264 @@ fn cargo_build(o: &Options, package: &str, bins: &[&str]) -> Result<(), String> 
         return Err(format!("dist: the build of {bin} failed ({status})"));
     }
     Ok(())
+}
+
+/// The host a release is packed on: Windows builds and runs its programs itself; Linux (any host but Windows)
+/// cross-builds them, runs them under Wine, and builds the Linux game and relay in the container.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Host {
+    Windows,
+    Linux,
+}
+
+impl Host {
+    fn here() -> Host {
+        if cfg!(windows) { Host::Windows } else { Host::Linux }
+    }
+}
+
+/// The repo's build slots (Windows only).
+const CARGO_SLOT: &str = "tools/cargo-slot.ps1";
+/// The cross-build of the Windows programs on Linux, and its target dir and target.
+const CROSS_SCRIPT: &str = "tools/windows-cross.sh";
+const CROSS_TARGET_DIR: &str = "target/xwin";
+const CROSS_TARGET: &str = "x86_64-pc-windows-msvc";
+/// The Linux builds in the container, and what they leave: the game's folder and the relay.
+const LINUX_SCRIPT: &str = "tools/linux-build.sh";
+const LINUX_RELEASE: &str = "target/linux-release";
+const LINUX_RELAY: &str = "target/linux-sniper/release/mvs-relay";
+
+/// [`cargo_build`]'s command: on Windows through the build slots when `slot` (the repo has them) or cargo, on Linux
+/// through [`CROSS_SCRIPT`].
+fn build_command(o: &Options, host: Host, slot: bool, package: &str, bins: &[&str]) -> Command {
+    let mut args = vec!["build", "--release", "-p", package];
+    for b in bins {
+        args.extend(["--bin", b]);
+    }
+    let mut cmd = match host {
+        Host::Windows if slot => {
+            let mut c = Command::new("powershell");
+            c.args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"]).arg(o.repo.join(CARGO_SLOT)).args(args);
+            c
+        }
+        Host::Windows => {
+            let mut c = Command::new("cargo");
+            c.args(args);
+            c
+        }
+        Host::Linux => {
+            let mut c = Command::new(o.repo.join(CROSS_SCRIPT));
+            c.args(args);
+            c
+        }
+    };
+    cmd.current_dir(&o.repo)
+        .env("MVS_VERSION", &o.version)
+        .env("CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS", "-C target-feature=+crt-static");
+    match &o.feed {
+        Some(f) => cmd.env("MVS_UPDATE_FEED", f),
+        None => cmd.env_remove("MVS_UPDATE_FEED"),
+    };
+    cmd
+}
+
+/// Where the Windows programs are built: `<target dir>/release` on Windows, `<target
+/// dir>/x86_64-pc-windows-msvc/release` from the cross-build; the target dir is `target_dir` (CARGO_TARGET_DIR) when
+/// set, else the repo's `target`, or `target/xwin` for the cross-build.
+fn built_dir(host: Host, repo: &Path, target_dir: Option<PathBuf>) -> PathBuf {
+    match host {
+        Host::Windows => target_dir.unwrap_or_else(|| repo.join("target")).join("release"),
+        Host::Linux => target_dir.unwrap_or_else(|| repo.join(CROSS_TARGET_DIR)).join(CROSS_TARGET).join("release"),
+    }
+}
+
+/// `tools/linux-build.sh <args>` for the version: the build never checks a feed.
+fn linux_build_command(o: &Options, args: &[&str]) -> Command {
+    let mut c = Command::new(o.repo.join(LINUX_SCRIPT));
+    c.args(args).current_dir(&o.repo).env("MVS_VERSION", &o.version).env_remove("MVS_UPDATE_FEED");
+    c
+}
+
+/// The container's build of the Linux game's folder ([`LINUX_RELEASE`]).
+const LINUX_GAME_BUILD: &[&str] = &["release"];
+/// The container's build of the Linux relay ([`LINUX_RELAY`]).
+const LINUX_RELAY_BUILD: &[&str] = &["cargo", "build", "--release", "-p", "mvs-relay", "--bin", "mvs-relay"];
+
+fn linux_build(o: &Options, args: &[&str], what: &str) -> Result<(), String> {
+    println!("dist: building {what} {} in the container", o.version);
+    let status = linux_build_command(o, args)
+        .status()
+        .map_err(|e| format!("dist: {LINUX_SCRIPT} for {what} did not start: {e}"))?;
+    if !status.success() {
+        return Err(format!("dist: the build of {what} failed ({status})"));
+    }
+    Ok(())
+}
+
+/// On a Linux host, the line that says where each part of the release comes from.
+fn sources_line(o: &Options) -> String {
+    let linux = |given: Option<&PathBuf>, here: &str| match given {
+        Some(p) => format!("given ({})", p.display()),
+        None if o.no_build => format!("from the last build ({here})"),
+        None => format!("built here ({here})"),
+    };
+    format!(
+        "dist: the Windows programs {}; the Linux game {}; the Linux relay {}",
+        if o.no_build {
+            format!("from the last build ({CROSS_SCRIPT})")
+        } else {
+            format!("built here ({CROSS_SCRIPT})")
+        },
+        linux(o.game_linux.as_ref(), LINUX_RELEASE),
+        linux(o.relay_linux.as_ref(), LINUX_RELAY)
+    )
+}
+
+/// A word or a path on a built Windows program's command line.
+enum Arg<'a> {
+    Word(&'a str),
+    Path(&'a Path),
+}
+
+/// How the built Windows programs are started: directly on Windows, elsewhere under Wine in the run's own prefix.
+enum Runner {
+    Direct,
+    Wine(WinePrefix),
+}
+
+impl Runner {
+    /// The runner for `host`; on Linux it makes the prefix beside `out`.
+    fn for_host(host: Host, out: &Path) -> Result<Runner, String> {
+        match host {
+            Host::Windows => Ok(Runner::Direct),
+            Host::Linux => Ok(Runner::Wine(WinePrefix::make(out)?)),
+        }
+    }
+
+    fn command(&self, exe: &Path, args: &[Arg]) -> Result<Command, String> {
+        match self {
+            Runner::Direct => {
+                let mut c = Command::new(exe);
+                for a in args {
+                    match a {
+                        Arg::Word(w) => c.arg(w),
+                        Arg::Path(p) => c.arg(p),
+                    };
+                }
+                Ok(c)
+            }
+            Runner::Wine(p) => wine_command(&p.dir, exe, args, |path| winepath(&p.dir, path)),
+        }
+    }
+}
+
+/// The file that marks a Wine prefix as one this tool made, which its next run may remove.
+const WINE_MARK: &str = ".mvs-dist-wine";
+
+/// The Wine prefix of a run with output folder `out`: `<out>.wine` beside it (not in it: `out` is emptied and zipped
+/// from). Never the user's own prefix.
+fn wine_prefix(out: &Path) -> Result<PathBuf, String> {
+    let (Some(parent), Some(name)) = (out.parent(), out.file_name()) else {
+        return Err(format!("dist: {} has no folder beside it for a Wine prefix", out.display()));
+    };
+    let mut name = name.to_owned();
+    name.push(".wine");
+    let dir = parent.join(name);
+    let home = std::env::var_os("HOME").map(PathBuf::from);
+    if home.is_some_and(|h| dir == h.join(".wine")) {
+        return Err(format!("dist: {} is the default Wine prefix, which this tool never uses", dir.display()));
+    }
+    Ok(dir)
+}
+
+/// What every Wine program of a run is given: its own prefix, no debug output, and no Mono, Gecko or menu entries.
+fn wine_env(c: &mut Command, prefix: &Path) {
+    c.env("WINEPREFIX", prefix)
+        .env("WINEDEBUG", "-all")
+        .env("WINEDLLOVERRIDES", "mscoree,mshtml=;winemenubuilder.exe=d");
+}
+
+/// `wine <exe> <args>` in `prefix`, each path argument given as `to_windows` writes it.
+fn wine_command(
+    prefix: &Path,
+    exe: &Path,
+    args: &[Arg],
+    to_windows: impl Fn(&Path) -> Result<String, String>,
+) -> Result<Command, String> {
+    let mut c = Command::new("wine");
+    wine_env(&mut c, prefix);
+    c.arg(exe);
+    for a in args {
+        match a {
+            Arg::Word(w) => c.arg(w),
+            Arg::Path(p) => c.arg(to_windows(p)?),
+        };
+    }
+    Ok(c)
+}
+
+/// `winepath -w <path>` in `prefix`.
+fn winepath_command(prefix: &Path, path: &Path) -> Command {
+    let mut c = Command::new("winepath");
+    wine_env(&mut c, prefix);
+    c.arg("-w").arg(path);
+    c
+}
+
+/// `path` as a Windows program in `prefix` names it.
+fn winepath(prefix: &Path, path: &Path) -> Result<String, String> {
+    let out = winepath_command(prefix, path)
+        .output()
+        .map_err(|e| format!("dist: winepath for {} did not start: {e}", path.display()))?;
+    let text = String::from_utf8_lossy(&out.stdout);
+    let line = text.lines().next().unwrap_or("").trim_end();
+    if !out.status.success() || line.is_empty() {
+        return Err(format!("dist: winepath gave no Windows path for {}", path.display()));
+    }
+    Ok(line.to_owned())
+}
+
+/// `wineserver -k`, then `wineserver -w`, in `prefix`: ends what runs there, and nothing in any other prefix, and
+/// waits for its wineserver to be gone.
+fn wineserver_stop(prefix: &Path) -> [Command; 2] {
+    ["-k", "-w"].map(|flag| {
+        let mut c = Command::new("wineserver");
+        c.arg(flag).env("WINEPREFIX", prefix);
+        c
+    })
+}
+
+/// The Wine prefix made for one run ([`wine_prefix`], [`WINE_MARK`] in it). Dropped, at the end of the run or on its
+/// error, its wineserver is ended and the folder removed.
+struct WinePrefix {
+    dir: PathBuf,
+}
+
+impl WinePrefix {
+    fn make(out: &Path) -> Result<WinePrefix, String> {
+        let dir = wine_prefix(out)?;
+        let io = |e: std::io::Error| format!("dist: {}: {e}", dir.display());
+        if dir.exists() {
+            if !dir.join(WINE_MARK).is_file() {
+                return Err(format!("dist: {} is not a Wine prefix of mvs-dist's; move it away", dir.display()));
+            }
+            std::fs::remove_dir_all(&dir).map_err(io)?;
+        }
+        std::fs::create_dir_all(&dir).map_err(io)?;
+        std::fs::write(dir.join(WINE_MARK), "A Wine prefix of mvs-dist: removed at the end of its run.\n")
+            .map_err(io)?;
+        println!("dist: running the Windows programs under Wine in {}", dir.display());
+        Ok(WinePrefix { dir })
+    }
+}
+
+impl Drop for WinePrefix {
+    fn drop(&mut self) {
+        for mut c in wineserver_stop(&self.dir) {
+            let _ = c.stdout(Stdio::null()).stderr(Stdio::null()).status();
+        }
+        let _ = std::fs::remove_dir_all(&self.dir);
+    }
 }
 
 fn read(path: &Path) -> Result<Vec<u8>, String> {
@@ -208,9 +453,9 @@ pub(crate) fn sha256_hex(data: &[u8]) -> String {
 
 /// Runs `<exe> --version` and refuses a first line other than `want` (the relay may add its wire version after a
 /// space).
-fn check_version(exe: &Path, want: &str) -> Result<(), String> {
-    let out = Command::new(exe)
-        .arg("--version")
+fn check_version(runner: &Runner, exe: &Path, want: &str) -> Result<(), String> {
+    let out = runner
+        .command(exe, &[Arg::Word("--version")])?
         .output()
         .map_err(|e| format!("dist: {} --version did not start: {e}", exe.display()))?;
     let text = String::from_utf8_lossy(&out.stdout);
@@ -223,13 +468,15 @@ fn check_version(exe: &Path, want: &str) -> Result<(), String> {
 
 /// The self check's reference (SELF_CHECK_JSON): the built exe's run of the check match on `store`
 /// (`mvs --self-test --check-out`, mvs_app::selftest), written to `tmp` and read back.
-fn self_check(exe: &Path, store: Option<&Path>, tmp: &Path) -> Result<Vec<u8>, String> {
-    let mut c = Command::new(exe);
-    c.arg("--self-test").arg("--check-out").arg(tmp);
+fn self_check(runner: &Runner, exe: &Path, store: Option<&Path>, tmp: &Path) -> Result<Vec<u8>, String> {
+    let mut args = vec![Arg::Word("--self-test"), Arg::Word("--check-out"), Arg::Path(tmp)];
     if let Some(s) = store {
-        c.arg("--store").arg(s);
+        args.extend([Arg::Word("--store"), Arg::Path(s)]);
     }
-    let out = c.output().map_err(|e| format!("dist: {} --self-test did not start: {e}", exe.display()))?;
+    let out = runner
+        .command(exe, &args)?
+        .output()
+        .map_err(|e| format!("dist: {} --self-test did not start: {e}", exe.display()))?;
     let text = read(tmp);
     let _ = std::fs::remove_file(tmp);
     if !out.status.success() {
@@ -387,13 +634,23 @@ pub fn run(o: &Options) -> Result<(), String> {
     {
         return Err(format!("dist: the feed {f} is not an http(s) URL"));
     }
-    let eos = if o.eos { Some(eos_files(o.game_linux.is_some())?) } else { None };
-    if let Some(l) = &o.relay_linux
+    let host = Host::here();
+    // on Linux, the Linux game and relay are this repo's builds unless given; those built in this run are checked
+    // once built
+    let linux_host = host == Host::Linux;
+    let game_linux = o.game_linux.clone().or_else(|| linux_host.then(|| o.repo.join(LINUX_RELEASE)));
+    let relay_linux = o.relay_linux.clone().or_else(|| linux_host.then(|| o.repo.join(LINUX_RELAY)));
+    let build_game = linux_host && o.game_linux.is_none() && !o.no_build;
+    let build_relay = linux_host && o.relay_linux.is_none() && !o.no_build;
+    let eos = if o.eos { Some(eos_files(game_linux.is_some())?) } else { None };
+    if let Some(l) = &relay_linux
+        && !build_relay
         && !l.is_file()
     {
         return Err(format!("dist: no Linux relay at {}", l.display()));
     }
-    let linux = o.game_linux.as_deref().map(|d| linux_folder(d, &o.version)).transpose()?;
+    let mut linux =
+        if build_game { None } else { game_linux.as_deref().map(|d| linux_folder(d, &o.version)).transpose()? };
     let key_file = o.repo.join("content/local.json");
     let key = if key_file.is_file() { Some(guard::read_key(&key_file)?) } else { None };
     // the build list the exe embeds (mvs-pak's include_str!): names, sizes and hashes only
@@ -403,9 +660,11 @@ pub fn run(o: &Options) -> Result<(), String> {
         return Err(format!("dist: the guard refused the build list: {}", found.join("; ")));
     }
     fresh_out(&o.out)?;
+    if linux_host {
+        println!("{}", sources_line(o));
+    }
 
-    let target = std::env::var_os("CARGO_TARGET_DIR").map_or_else(|| o.repo.join("target"), PathBuf::from);
-    let built = target.join("release");
+    let built = built_dir(host, &o.repo, std::env::var_os("CARGO_TARGET_DIR").map(PathBuf::from));
     let (exe, launcher_exe, relay_exe) =
         (built.join(BUILT_GAME_EXE), built.join(BUILT_LAUNCHER_EXE), built.join("mvs-relay.exe"));
     let stamp = Stamp {
@@ -440,8 +699,8 @@ pub fn run(o: &Options) -> Result<(), String> {
         }
     } else {
         let _ = std::fs::remove_file(&stamp_file);
-        cargo_build(o, "mvs-app", &["mvs", "mvs-launcher"])?;
-        cargo_build(o, "mvs-relay", &["mvs-relay"])?;
+        cargo_build(o, host, "mvs-app", &["mvs", "mvs-launcher"])?;
+        cargo_build(o, host, "mvs-relay", &["mvs-relay"])?;
         let stamp = Stamp {
             exe: sha256_hex(&read(&exe)?),
             launcher: sha256_hex(&read(&launcher_exe)?),
@@ -451,11 +710,25 @@ pub fn run(o: &Options) -> Result<(), String> {
         let text = serde_json::to_string_pretty(&stamp).expect("a Stamp always serialises");
         std::fs::write(&stamp_file, text).map_err(|e| format!("dist: {}: {e}", stamp_file.display()))?;
     }
-    // what the programs say they are
-    check_version(&exe, &format!("mvs {}", o.version))?;
-    check_version(&launcher_exe, &format!("mvs-launcher {}", o.version))?;
-    check_version(&relay_exe, &format!("mvs-relay {}", o.version))?;
-    let check = self_check(&exe, o.store.as_deref(), &o.out.join(SELF_CHECK_JSON))?;
+    if build_game {
+        linux_build(o, LINUX_GAME_BUILD, "the Linux game")?;
+        linux = Some(linux_folder(&o.repo.join(LINUX_RELEASE), &o.version)?);
+    }
+    if build_relay {
+        linux_build(o, LINUX_RELAY_BUILD, "the Linux relay")?;
+    }
+    // what the programs say they are (the run's Wine prefix, on Linux, is ended and removed with the runner)
+    let check = {
+        let runner = Runner::for_host(host, &o.out)?;
+        check_version(&runner, &exe, &format!("mvs {}", o.version))?;
+        check_version(&runner, &launcher_exe, &format!("mvs-launcher {}", o.version))?;
+        check_version(&runner, &relay_exe, &format!("mvs-relay {}", o.version))?;
+        self_check(&runner, &exe, o.store.as_deref(), &o.out.join(SELF_CHECK_JSON))?
+    };
+    // the Linux relay built in the container (here or by the last run), run on this host
+    if linux_host && o.relay_linux.is_none() {
+        check_version(&Runner::Direct, &o.repo.join(LINUX_RELAY), &format!("mvs-relay {}", o.version))?;
+    }
 
     // the game's folders and zips
     let uasset = o.repo.join("crates/mvs-uasset");
@@ -506,7 +779,7 @@ pub fn run(o: &Options) -> Result<(), String> {
         ("README.md".to_owned(), read(&o.repo.join("docs/relay.md"))?, false),
         (LICENSE.to_owned(), shared.license, false),
     ];
-    match &o.relay_linux {
+    match &relay_linux {
         Some(l) => files.push(("mvs-relay".to_owned(), read(l)?, true)),
         None => println!("dist: no --relay-linux: the relay zip holds the Windows program only"),
     }
@@ -771,6 +1044,236 @@ mod tests {
             want.push("game/release-files.txt");
             assert_eq!(names(&alone), want);
         }
+    }
+
+    fn options(feed: Option<&str>) -> Options {
+        Options {
+            version: "0.1.0".to_owned(),
+            feed: feed.map(str::to_owned),
+            eos: false,
+            out: PathBuf::from("/r/target/dist"),
+            repo: PathBuf::from("/r"),
+            relay_linux: None,
+            game_linux: None,
+            no_build: false,
+            store: None,
+        }
+    }
+
+    fn args(c: &Command) -> Vec<String> {
+        c.get_args().map(|a| a.to_string_lossy().into_owned()).collect()
+    }
+
+    /// The variable `k` as `c` gives it: None when `c` leaves it alone, Some(None) when it removes it.
+    fn env(c: &Command, k: &str) -> Option<Option<String>> {
+        c.get_envs().find(|(n, _)| *n == k).map(|(_, v)| v.map(|v| v.to_string_lossy().into_owned()))
+    }
+
+    const CRT_STATIC: &str = "-C target-feature=+crt-static";
+    const RUSTFLAGS: &str = "CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS";
+
+    #[test]
+    fn the_windows_build_command_is_unchanged() {
+        let bins = ["build", "--release", "-p", "mvs-app", "--bin", "mvs", "--bin", "mvs-launcher"];
+        for (slot, feed) in [(true, Some("https://feed")), (false, None)] {
+            let c = build_command(&options(feed), Host::Windows, slot, "mvs-app", &["mvs", "mvs-launcher"]);
+            if slot {
+                assert_eq!(c.get_program(), "powershell");
+                let mut want = vec!["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "/r/tools/cargo-slot.ps1"];
+                want.extend(bins);
+                assert_eq!(args(&c), want);
+            } else {
+                assert_eq!(c.get_program(), "cargo");
+                assert_eq!(args(&c), bins);
+            }
+            assert_eq!(c.get_current_dir(), Some(Path::new("/r")));
+            assert_eq!(env(&c, "MVS_VERSION"), Some(Some("0.1.0".to_owned())));
+            assert_eq!(env(&c, RUSTFLAGS), Some(Some(CRT_STATIC.to_owned())));
+            assert_eq!(env(&c, "MVS_UPDATE_FEED"), Some(feed.map(str::to_owned)));
+            assert_eq!(c.get_envs().count(), 3);
+        }
+    }
+
+    #[test]
+    fn the_linux_build_goes_through_the_cross_script() {
+        let c = build_command(&options(Some("https://feed")), Host::Linux, true, "mvs-relay", &["mvs-relay"]);
+        assert_eq!(c.get_program(), "/r/tools/windows-cross.sh");
+        assert_eq!(args(&c), ["build", "--release", "-p", "mvs-relay", "--bin", "mvs-relay"]);
+        assert_eq!(c.get_current_dir(), Some(Path::new("/r")));
+        assert_eq!(env(&c, "MVS_VERSION"), Some(Some("0.1.0".to_owned())));
+        // the script adds the splat's paths after this
+        assert_eq!(env(&c, RUSTFLAGS), Some(Some(CRT_STATIC.to_owned())));
+        assert_eq!(env(&c, "MVS_UPDATE_FEED"), Some(Some("https://feed".to_owned())));
+        let c = build_command(&options(None), Host::Linux, false, "mvs-relay", &["mvs-relay"]);
+        assert_eq!(env(&c, "MVS_UPDATE_FEED"), Some(None));
+    }
+
+    /// The cross-build script with a cargo that prints what it was given, and its own clang-cl, llvm-lib and
+    /// lld-link: `flags` in the RUSTFLAGS variable, `target_dir` in CARGO_TARGET_DIR, the splat at `splat`.
+    #[cfg(unix)]
+    fn cross(
+        name: &str,
+        flags: Option<&str>,
+        target_dir: Option<&Path>,
+        splat: Option<&Path>,
+    ) -> (bool, String, String) {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = temp(name);
+        let bin = dir.join("bin");
+        let cargo = "#!/bin/sh\nprintf 'arg %s\\n' \"$@\"\nprintf 'flags %s\\n' \"$CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS\"\nprintf 'dir %s\\n' \"$CARGO_TARGET_DIR\"\n";
+        for (tool, body) in
+            [("cargo", cargo), ("clang-cl", "#!/bin/sh\n"), ("llvm-lib", "#!/bin/sh\n"), ("lld-link", "#!/bin/sh\n")]
+        {
+            let f = bin.join(tool);
+            put(&f, body.as_bytes());
+            std::fs::set_permissions(&f, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let mut c = Command::new("bash");
+        c.arg(repo.join(CROSS_SCRIPT))
+            .args(["build", "--release", "-p", "mvs-relay"])
+            .env("PATH", format!("{}:/usr/bin:/bin", bin.display()))
+            .env("XWIN_SPLAT", splat.unwrap_or(&dir.join("no-splat")))
+            .env_remove(RUSTFLAGS)
+            .env_remove("CARGO_TARGET_DIR");
+        if let Some(f) = flags {
+            c.env(RUSTFLAGS, f);
+        }
+        if let Some(d) = target_dir {
+            c.env("CARGO_TARGET_DIR", d);
+        }
+        let out = c.output().expect("bash runs");
+        std::fs::remove_dir_all(&dir).unwrap();
+        let text = |b: &[u8]| String::from_utf8_lossy(b).into_owned();
+        (out.status.success(), text(&out.stdout), text(&out.stderr))
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_cross_script_adds_the_splat_after_the_flags_given() {
+        let splat = temp("cross-splat");
+        std::fs::create_dir_all(splat.join("crt/include")).unwrap();
+        let s = splat.display();
+        let lib = format!("-Lnative={s}/crt/lib/x64 -Lnative={s}/sdk/lib/um/x64 -Lnative={s}/sdk/lib/ucrt/x64");
+        let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").canonicalize().unwrap();
+        let (ok, out, err) = cross("cross-flags", Some(CRT_STATIC), None, Some(&splat));
+        assert!(ok, "{err}");
+        let args: Vec<&str> = out.lines().filter_map(|l| l.strip_prefix("arg ")).collect();
+        assert_eq!(args, ["build", "--target", "x86_64-pc-windows-msvc", "--release", "-p", "mvs-relay"]);
+        assert!(out.contains(&format!("flags {CRT_STATIC} {lib}\n")), "{out}");
+        assert!(out.contains(&format!("dir {}\n", repo.join(CROSS_TARGET_DIR).display())), "{out}");
+        // with no flags set, the splat's alone; a target dir set is kept
+        let (ok, out, err) = cross("cross-alone", None, Some(Path::new("/elsewhere")), Some(&splat));
+        assert!(ok, "{err}");
+        assert!(out.contains(&format!("flags {lib}\n")) && out.contains("dir /elsewhere\n"), "{out}");
+        std::fs::remove_dir_all(&splat).unwrap();
+        // without a splat it stops, says how the user makes one, and runs nothing
+        let (ok, out, err) = cross("cross-none", Some(CRT_STATIC), None, None);
+        assert!(!ok && out.is_empty() && err.contains("xwin --accept-license splat"), "{out}{err}");
+    }
+
+    #[test]
+    fn the_built_dir_follows_the_host() {
+        let repo = Path::new("/r");
+        assert_eq!(built_dir(Host::Windows, repo, None), Path::new("/r/target/release"));
+        assert_eq!(built_dir(Host::Windows, repo, Some("/t".into())), Path::new("/t/release"));
+        assert_eq!(built_dir(Host::Linux, repo, None), Path::new("/r/target/xwin/x86_64-pc-windows-msvc/release"));
+        assert_eq!(built_dir(Host::Linux, repo, Some("/t".into())), Path::new("/t/x86_64-pc-windows-msvc/release"));
+    }
+
+    #[test]
+    fn the_linux_builds_take_the_version_and_no_feed() {
+        for (build, want) in [
+            (LINUX_GAME_BUILD, vec!["release"]),
+            (LINUX_RELAY_BUILD, vec!["cargo", "build", "--release", "-p", "mvs-relay", "--bin", "mvs-relay"]),
+        ] {
+            let c = linux_build_command(&options(Some("https://feed")), build);
+            assert_eq!(c.get_program(), "/r/tools/linux-build.sh");
+            assert_eq!(args(&c), want);
+            assert_eq!(c.get_current_dir(), Some(Path::new("/r")));
+            assert_eq!(env(&c, "MVS_VERSION"), Some(Some("0.1.0".to_owned())));
+            assert_eq!(env(&c, "MVS_UPDATE_FEED"), Some(None));
+        }
+    }
+
+    #[test]
+    fn the_wine_prefix_is_the_runs_own_beside_the_output() {
+        let p = wine_prefix(Path::new("/r/target/dist")).unwrap();
+        assert_eq!(p, Path::new("/r/target/dist.wine"));
+        assert!(!p.starts_with("/r/target/dist/"));
+        assert_eq!(wine_prefix(Path::new("/r/target/dist/")).unwrap(), Path::new("/r/target/dist.wine"));
+        assert!(wine_prefix(Path::new("/")).is_err());
+        if let Some(home) = std::env::var_os("HOME").map(PathBuf::from) {
+            assert_ne!(wine_prefix(&home.join("dist")).unwrap(), home.join(".wine"));
+        }
+    }
+
+    #[test]
+    fn the_wine_command_gives_windows_paths_in_the_runs_prefix() {
+        let prefix = Path::new("/r/target/dist.wine");
+        let (tmp, store) = (Path::new("/r/target/dist/self-check.json"), Path::new("/s/store é"));
+        let argv = [
+            Arg::Word("--self-test"),
+            Arg::Word("--check-out"),
+            Arg::Path(tmp),
+            Arg::Word("--store"),
+            Arg::Path(store),
+        ];
+        let converted = std::cell::RefCell::new(Vec::new());
+        let c = wine_command(prefix, Path::new("/b/mvs.exe"), &argv, |p| {
+            converted.borrow_mut().push(p.to_path_buf());
+            Ok(format!("W:{}", p.display()))
+        })
+        .unwrap();
+        assert_eq!(c.get_program(), "wine");
+        assert_eq!(
+            args(&c),
+            ["/b/mvs.exe", "--self-test", "--check-out", "W:/r/target/dist/self-check.json", "--store", "W:/s/store é"]
+        );
+        assert_eq!(converted.into_inner(), [tmp, store]);
+        assert_eq!(env(&c, "WINEPREFIX"), Some(Some("/r/target/dist.wine".to_owned())));
+        assert_eq!(env(&c, "WINEDEBUG"), Some(Some("-all".to_owned())));
+        // a path that does not convert stops the run
+        assert!(wine_command(prefix, Path::new("/b/mvs.exe"), &argv, |_| Err("no".to_owned())).is_err());
+        // winepath converts in the same prefix
+        let c = winepath_command(prefix, tmp);
+        assert_eq!(c.get_program(), "winepath");
+        assert_eq!(args(&c), ["-w", "/r/target/dist/self-check.json"]);
+        assert_eq!(env(&c, "WINEPREFIX"), Some(Some("/r/target/dist.wine".to_owned())));
+        // and the wineserver stopped is that prefix's
+        let [kill, wait] = wineserver_stop(prefix);
+        for (c, flag) in [(&kill, "-k"), (&wait, "-w")] {
+            assert_eq!(c.get_program(), "wineserver");
+            assert_eq!(args(c), [flag]);
+            assert_eq!(env(c, "WINEPREFIX"), Some(Some("/r/target/dist.wine".to_owned())));
+        }
+    }
+
+    #[test]
+    fn the_windows_host_runs_the_programs_directly() {
+        let c = Runner::Direct
+            .command(Path::new("/b/mvs.exe"), &[Arg::Word("--check-out"), Arg::Path(Path::new("/o/c.json"))])
+            .unwrap();
+        assert_eq!(c.get_program(), "/b/mvs.exe");
+        assert_eq!(args(&c), ["--check-out", "/o/c.json"]);
+        assert_eq!(c.get_envs().count(), 0);
+    }
+
+    #[test]
+    fn the_linux_host_says_where_each_part_comes_from() {
+        let mut o = options(None);
+        assert_eq!(
+            sources_line(&o),
+            "dist: the Windows programs built here (tools/windows-cross.sh); the Linux game built here \
+             (target/linux-release); the Linux relay built here (target/linux-sniper/release/mvs-relay)"
+        );
+        o.no_build = true;
+        o.game_linux = Some("/g".into());
+        assert_eq!(
+            sources_line(&o),
+            "dist: the Windows programs from the last build (tools/windows-cross.sh); the Linux game given (/g); the \
+             Linux relay from the last build (target/linux-sniper/release/mvs-relay)"
+        );
     }
 
     #[test]

@@ -10,6 +10,10 @@
 //!       with the self check of the Windows run; with --eos, its EOS library is MVS_EOS_SO's. --no-build packs the
 //!       last build again (built for the same version and feed). The built mvs.exe runs the self check's match on
 //!       --store (default: the store it finds itself) for the release's self-check.json.
+//!       On a Linux host the Windows programs are cross-built (tools/windows-cross.sh, target/xwin) and run under Wine
+//!       in a prefix made for the run beside <dir> (<dir>.wine, removed at the end), and the Linux game and relay are
+//!       built in the container (tools/linux-build.sh) unless --game-linux and --relay-linux name them; --no-build
+//!       packs their last builds too.
 //!   mvs-dist guard <game zip> [<relay zip>] [--key <local.json>]
 //!       the guard alone (the key from <repo>/content/local.json unless --key names one)
 //!   mvs-dist serve <dir> [--port <n>]
@@ -17,7 +21,8 @@
 //!   mvs-dist release-check [--store <dir>] [--keep]
 //!       builds 0.1.0 and 0.1.1 test releases against a local feed and walks them through the guard, the
 //!       self-test and an update (mvs_dist::check), in <repo>/.scratch/release-check (deleted at the end unless
-//!       --keep); --store names the developer's store the self-test reads (default content/.store)
+//!       --keep); --store names the developer's store the self-test reads (default content/.store). Windows only: it
+//!       tests the Windows updater.
 
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -32,7 +37,11 @@ const USAGE: &str =
            [--game-linux <dir>] [--no-build] [--store <dir>]
        mvs-dist guard <game zip> [<relay zip>] [--key <local.json>]
        mvs-dist serve <dir> [--port <n>]
-       mvs-dist release-check [--store <dir>] [--keep]";
+       mvs-dist release-check [--store <dir>] [--keep]
+
+On Linux, build cross-builds the Windows programs (tools/windows-cross.sh), runs them under Wine in a prefix of
+its own, and builds the Linux game and relay unless --game-linux and --relay-linux name them. release-check needs
+Windows.";
 
 /// The arguments: flags with their values, and the rest in order.
 struct Args {
@@ -156,6 +165,9 @@ fn serve_dir(args: &[String]) -> Result<(), String> {
 }
 
 fn release_check(args: &[String]) -> Result<(), String> {
+    if !cfg!(windows) {
+        return Err("release-check: it tests the Windows updater and needs Windows".to_owned());
+    }
     let a = parse(args, &["--store"], &["--keep"])?;
     if !a.rest.is_empty() {
         return Err(USAGE.to_owned());
