@@ -604,7 +604,7 @@ fn ours(kind: ShortcutKind, exe: &Path) -> bool {
 
 /// The program a shortcut starts: the launcher in the app's folder (None in a dev run).
 fn launcher_exe() -> Option<PathBuf> {
-    app_dir().map(|d| d.join(mvs_release::LAUNCHER_EXE))
+    app_dir().map(|d| d.join(mvs_release::PLATFORM_LAUNCHER_EXE))
 }
 
 /// The shortcuts (bridge.ts ShortcutState): made only in a release (a dev run's exe moves with each build).
@@ -642,7 +642,7 @@ pub fn create_shortcut(kind: ShortcutKind) -> Result<(), String> {
 pub fn create_shortcut(kind: ShortcutKind) -> Result<(), String> {
     use std::os::unix::fs::PermissionsExt;
     let dir = app_dir().ok_or(w::NO_SHORTCUTS_DEV)?;
-    let exe = dir.join(mvs_release::LAUNCHER_EXE);
+    let exe = dir.join(mvs_release::PLATFORM_LAUNCHER_EXE);
     if exe.to_str().is_none() {
         return Err(format!("{}: not UTF-8, which a desktop entry cannot name", exe.display()));
     }

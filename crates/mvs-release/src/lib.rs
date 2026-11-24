@@ -39,12 +39,45 @@ pub const RELEASE_FILES: &str = "release-files.txt";
 pub const BUILT_GAME_EXE: &str = "mvs.exe";
 /// The launcher's program as Cargo builds it, renamed to [`LAUNCHER_EXE`] in a release.
 pub const BUILT_LAUNCHER_EXE: &str = "mvs-launcher.exe";
+/// The game's program in a Linux release, in [`GAME_DIR`]: [`GAME_EXE`] without `.exe`.
+pub const LINUX_GAME_EXE: &str = "MVS Classic";
+/// The launcher's program in a Linux release, at the top of the release folder: [`LAUNCHER_EXE`] without `.exe`.
+pub const LINUX_LAUNCHER_EXE: &str = "MVSC Launcher";
+/// The game's program as Cargo builds it for Linux, renamed to [`LINUX_GAME_EXE`] in a release.
+pub const BUILT_LINUX_GAME_EXE: &str = "mvs";
+/// The launcher's program as Cargo builds it for Linux, renamed to [`LINUX_LAUNCHER_EXE`] in a release.
+pub const BUILT_LINUX_LAUNCHER_EXE: &str = "mvs-launcher";
+
+/// This platform's [`GAME_EXE`]: the Windows name on Windows, else [`LINUX_GAME_EXE`].
+#[cfg(windows)]
+pub const PLATFORM_GAME_EXE: &str = GAME_EXE;
+/// This platform's [`GAME_EXE`]: the Windows name on Windows, else [`LINUX_GAME_EXE`].
+#[cfg(not(windows))]
+pub const PLATFORM_GAME_EXE: &str = LINUX_GAME_EXE;
+/// This platform's [`LAUNCHER_EXE`]: the Windows name on Windows, else [`LINUX_LAUNCHER_EXE`].
+#[cfg(windows)]
+pub const PLATFORM_LAUNCHER_EXE: &str = LAUNCHER_EXE;
+/// This platform's [`LAUNCHER_EXE`]: the Windows name on Windows, else [`LINUX_LAUNCHER_EXE`].
+#[cfg(not(windows))]
+pub const PLATFORM_LAUNCHER_EXE: &str = LINUX_LAUNCHER_EXE;
+/// This platform's [`BUILT_GAME_EXE`]: the Windows name on Windows, else [`BUILT_LINUX_GAME_EXE`].
+#[cfg(windows)]
+pub const PLATFORM_BUILT_GAME_EXE: &str = BUILT_GAME_EXE;
+/// This platform's [`BUILT_GAME_EXE`]: the Windows name on Windows, else [`BUILT_LINUX_GAME_EXE`].
+#[cfg(not(windows))]
+pub const PLATFORM_BUILT_GAME_EXE: &str = BUILT_LINUX_GAME_EXE;
+/// This platform's [`BUILT_LAUNCHER_EXE`]: the Windows name on Windows, else [`BUILT_LINUX_LAUNCHER_EXE`].
+#[cfg(windows)]
+pub const PLATFORM_BUILT_LAUNCHER_EXE: &str = BUILT_LAUNCHER_EXE;
+/// This platform's [`BUILT_LAUNCHER_EXE`]: the Windows name on Windows, else [`BUILT_LINUX_LAUNCHER_EXE`].
+#[cfg(not(windows))]
+pub const PLATFORM_BUILT_LAUNCHER_EXE: &str = BUILT_LINUX_LAUNCHER_EXE;
 
 /// The game's program for the launcher in folder `dir`: a release's, in [`GAME_DIR`], else (a build in `target\`)
 /// Cargo's beside it.
 pub fn game_exe(dir: &std::path::Path) -> std::path::PathBuf {
-    let r = dir.join(GAME_DIR).join(GAME_EXE);
-    if r.is_file() { r } else { dir.join(BUILT_GAME_EXE) }
+    let r = dir.join(GAME_DIR).join(PLATFORM_GAME_EXE);
+    if r.is_file() { r } else { dir.join(PLATFORM_BUILT_GAME_EXE) }
 }
 
 /// A file's name in a release zip under [`GAME_DIR`] (`game/MVS Classic.exe`), `/` between the parts.
@@ -56,7 +89,7 @@ pub fn in_game(name: &str) -> String {
 /// beside that folder), else `dir` itself (the launcher's, a build in `target\`).
 pub fn app_root(dir: &std::path::Path) -> std::path::PathBuf {
     match dir.parent() {
-        Some(up) if dir.file_name().is_some_and(|n| n == GAME_DIR) && up.join(LAUNCHER_EXE).is_file() => {
+        Some(up) if dir.file_name().is_some_and(|n| n == GAME_DIR) && up.join(PLATFORM_LAUNCHER_EXE).is_file() => {
             up.to_path_buf()
         }
         _ => dir.to_path_buf(),
@@ -71,7 +104,7 @@ pub fn online_json(root: &std::path::Path) -> std::path::PathBuf {
 
 /// The launcher's program in folder `dir`: a release's name, else (a build in `target\`) Cargo's.
 pub fn launcher_exe(dir: &std::path::Path) -> std::path::PathBuf {
-    beside(dir, LAUNCHER_EXE, BUILT_LAUNCHER_EXE)
+    beside(dir, PLATFORM_LAUNCHER_EXE, PLATFORM_BUILT_LAUNCHER_EXE)
 }
 
 fn beside(dir: &std::path::Path, release: &str, built: &str) -> std::path::PathBuf {
@@ -319,6 +352,7 @@ mod tests {
         assert!(notes_from_github(r#"{"message":"Not Found"}"#).is_err());
     }
 
+    #[cfg(windows)]
     #[test]
     fn the_game_folder_is_found_under_the_release_folder() {
         let root = std::env::temp_dir().join(format!("mvs-release-root-{}", std::process::id()));
@@ -336,6 +370,69 @@ mod tests {
         assert_eq!(online_json(&root), game.join(ONLINE_JSON));
         assert_eq!(in_game(GAME_EXE), "game/MVS Classic.exe");
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn the_linux_game_folder_is_found_under_the_release_folder() {
+        let root = std::env::temp_dir().join(format!("mvs-release-linux-root-{}", std::process::id()));
+        let game = root.join(GAME_DIR);
+        std::fs::create_dir_all(&game).unwrap();
+        // no launcher above: the game folder is its own
+        assert_eq!(app_root(&game), game);
+        // the Windows launcher's name does not make a Linux release
+        std::fs::write(root.join(LAUNCHER_EXE), b"MZ").unwrap();
+        assert_eq!(app_root(&game), game);
+        std::fs::write(root.join(LINUX_LAUNCHER_EXE), b"\x7fELF").unwrap();
+        assert_eq!(app_root(&game), root);
+        assert_eq!(app_root(&root), root);
+        assert_eq!(game_exe(&root), root.join(BUILT_LINUX_GAME_EXE));
+        std::fs::write(game.join(GAME_EXE), b"MZ").unwrap();
+        assert_eq!(game_exe(&root), root.join(BUILT_LINUX_GAME_EXE));
+        std::fs::write(game.join(LINUX_GAME_EXE), b"\x7fELF").unwrap();
+        assert_eq!(game_exe(&root), game.join(LINUX_GAME_EXE));
+        std::fs::write(game.join(ONLINE_JSON), b"{}").unwrap();
+        assert_eq!(online_json(&root), game.join(ONLINE_JSON));
+        assert_eq!(in_game(LINUX_GAME_EXE), "game/MVS Classic");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn the_linux_launcher_is_found_in_its_folder() {
+        let dir = std::env::temp_dir().join(format!("mvs-release-linux-launcher-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        // a dev build: Cargo's
+        assert_eq!(launcher_exe(&dir), dir.join(BUILT_LINUX_LAUNCHER_EXE));
+        std::fs::write(dir.join(LAUNCHER_EXE), b"MZ").unwrap();
+        assert_eq!(launcher_exe(&dir), dir.join(BUILT_LINUX_LAUNCHER_EXE));
+        std::fs::write(dir.join(LINUX_LAUNCHER_EXE), b"\x7fELF").unwrap();
+        assert_eq!(launcher_exe(&dir), dir.join(LINUX_LAUNCHER_EXE));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn the_linux_programs_are_the_windows_names_without_exe() {
+        assert_eq!(LINUX_GAME_EXE, "MVS Classic");
+        assert_eq!(LINUX_LAUNCHER_EXE, "MVSC Launcher");
+        assert_eq!(BUILT_LINUX_GAME_EXE, "mvs");
+        assert_eq!(BUILT_LINUX_LAUNCHER_EXE, "mvs-launcher");
+        assert_eq!(PLATFORM_GAME_EXE, LINUX_GAME_EXE);
+        assert_eq!(PLATFORM_LAUNCHER_EXE, LINUX_LAUNCHER_EXE);
+        assert_eq!(PLATFORM_BUILT_GAME_EXE, BUILT_LINUX_GAME_EXE);
+        assert_eq!(PLATFORM_BUILT_LAUNCHER_EXE, BUILT_LINUX_LAUNCHER_EXE);
+        assert_eq!(GAME_EXE.strip_suffix(".exe"), Some(LINUX_GAME_EXE));
+        assert_eq!(LAUNCHER_EXE.strip_suffix(".exe"), Some(LINUX_LAUNCHER_EXE));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn the_windows_programs_are_this_platforms() {
+        assert_eq!(PLATFORM_GAME_EXE, GAME_EXE);
+        assert_eq!(PLATFORM_LAUNCHER_EXE, LAUNCHER_EXE);
+        assert_eq!(PLATFORM_BUILT_GAME_EXE, BUILT_GAME_EXE);
+        assert_eq!(PLATFORM_BUILT_LAUNCHER_EXE, BUILT_LAUNCHER_EXE);
     }
 
     #[test]

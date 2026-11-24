@@ -37,7 +37,7 @@ impl GameArgs {
     /// The game's program for this launcher: in the release's game folder, else (a dev build) beside it.
     pub fn beside_this_exe() -> PathBuf {
         let exe = std::env::current_exe().unwrap_or_default();
-        exe.parent().map_or_else(|| PathBuf::from(mvs_release::GAME_EXE), mvs_release::game_exe)
+        exe.parent().map_or_else(|| PathBuf::from(mvs_release::PLATFORM_GAME_EXE), mvs_release::game_exe)
     }
 
     /// The command line for a run on `store`: the menus from the title (`--play`), the store opened at once.

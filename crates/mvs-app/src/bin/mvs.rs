@@ -626,7 +626,7 @@ fn to_launcher(a: &Args) -> ExitCode {
         .ok()
         .and_then(|e| e.parent().map(|d| mvs_release::launcher_exe(&mvs_release::app_root(d))));
     let Some(exe) = exe.filter(|e| e.is_file()) else {
-        eprintln!("mvs: --play needs --store <dir>: start the game from {}", mvs_release::LAUNCHER_EXE);
+        eprintln!("mvs: --play needs --store <dir>: start the game from {}", mvs_release::PLATFORM_LAUNCHER_EXE);
         return ExitCode::from(2);
     };
     let mut cmd = std::process::Command::new(&exe);
