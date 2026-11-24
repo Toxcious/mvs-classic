@@ -36,6 +36,7 @@ that compare against them skip and say so.
 | `mvs-view` | what the renderer draws a tick with, GPU-free: the posing, the camera, the frame input |
 | `mvs-vfx` | the Cascade particle player on the CPU |
 | `mvs-material` | the material kind (cooked shaders, uniform expressions, parameters, textures) for the renderer |
+| `mvs-d3d` | the Direct3D 11 and DXGI items the renderer and UI name: the `windows` crate's on Windows, bindings for DXVK-native on Linux |
 | `mvs-render` | the renderer on Direct3D 11 with the build's cooked shaders |
 | `mvs-ui` | the UI: a Slate subset over the build's widget trees, its text, the HUD, the menus and the launcher's screens |
 | `mvs-freetype` | FreeType 2.10.0 (the build's version), vendored and built from source, with the calls the UI's text makes |

@@ -6,6 +6,8 @@ crates are listed in `crates/README.md`; the rules for a change are in `AGENTS.m
 ## What you need
 - Windows 10 or 11, 64-bit, with a Direct3D 11 graphics card.
 - Rust (stable) and the Visual Studio C++ build tools.
+- On Linux instead: podman or docker; the build runs in a container (below). Packing a release on Linux needs more,
+  listed under "Pack a release on Linux".
 - The 2023 open beta, downloaded through the Steam console as the README's "Install" shows. The tools read its paks
   where Steam put them and never change them.
 
@@ -48,6 +50,41 @@ not minutes. `--release` is for timings and what ships.
 
 `tools/cargo-slot.ps1` runs cargo when one of a few build slots is free, at low priority, so several builds at
 once (worktrees, agents) queue instead of taking the whole machine. Plain `cargo` works too.
+
+## Build on Linux
+`tools/linux-build.sh` builds in the Steam Runtime "sniper" SDK container, with podman or docker, so what it builds
+needs glibc 2.31 at most and runs on a Steam Deck and on ordinary desktop distributions. The renderer runs on
+DXVK-native, which turns Direct3D 11 into Vulkan.
+
+- `tools/linux-build.sh deps` builds DXVK-native at the version the script pins into `target/linux-deps/dxvk`. Run
+  it once, and again when the pin changes.
+- `tools/linux-build.sh cargo <args>` runs `cargo <args>` in the container, with the target dir
+  `target/linux-sniper`; for example `tools/linux-build.sh cargo test --profile trace -p mvs-sim`. The first run
+  installs the compiler `rust-toolchain.toml` names into a container volume that later runs reuse. Tests that need
+  a GPU or a window skip in the container, which has neither.
+- `tools/linux-build.sh release` builds the launcher and the game for release and lays out the release folder in
+  `target/linux-release`: `MVSC Launcher` at the top, and in `game/` the game (`MVS Classic`), DXVK's and SDL3's
+  libraries, `online.json`, their licenses and `linux-build.json` (the version and both programs' SHA-256). It
+  fails if anything in the folder needs a glibc newer than 2.31. `MVS_VERSION` sets the programs' version.
+
+### Pack a release on Linux
+On Linux, `cargo run --release -p mvs-dist -- build --version <x.y.z>` makes the whole release: the Windows and
+Linux game zips and the relay's zip. It builds the Linux game and relay in the container (`--game-linux` and
+`--relay-linux` take ones built elsewhere) and the Windows programs on the host through `tools/windows-cross.sh`,
+which needs:
+
+- Rust through rustup on the host (`mvs-dist` runs there too), with the Windows target for the pinned compiler:
+  `rustup target add x86_64-pc-windows-msvc --toolchain <the rust-toolchain.toml channel>`;
+- LLVM's `clang-cl`, `llvm-lib` and `lld-link`;
+- a splat of Microsoft's CRT and Windows SDK at `~/.cache/xwin/splat` (or `XWIN_SPLAT`), made with
+  `xwin --accept-license splat`. Running that accepts Microsoft's license terms for those files, which is yours to
+  do: the script never runs it.
+
+The self check runs the Windows game under Wine, so Wine is needed too, in a prefix of its own beside the output
+folder that is removed at the end; your own Wine prefix is not touched. `--eos` takes the EOS SDK's files from
+`MVS_EOS_DLL` (the Windows DLL), `MVS_EOS_SO` (the Linux library) and `MVS_EOS_CREDENTIALS`. The guard reads the
+paks' key as shown under "Point the tools at your beta". `release-check` tests the Windows updater and needs
+Windows.
 
 ## Check a change
 - `cargo fmt --check` and `cargo clippy --release --all-targets`: no new warning.
