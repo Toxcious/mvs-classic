@@ -144,11 +144,59 @@ pub fn register() -> Result<(), String> {
     Ok(())
 }
 
-/// Writes the scheme's handler for this launcher: nothing yet on Linux.
-// Unverified: stub, replaced in Task 6
+/// The join links' desktop entry, in the user's applications folder.
+#[cfg(not(windows))]
+const LINK_DESKTOP: &str = "mvsclassic-link.desktop";
+
+/// Writes the scheme's handler for this launcher when it is not there or names another program: the desktop entry
+/// [`link_desktop_entry`] in the user's applications folder, then `xdg-mime` makes it the scheme's default.
 #[cfg(not(windows))]
 pub fn register() -> Result<(), String> {
+    use std::process::{Command, Stdio};
+    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    if exe.to_str().is_none() {
+        return Err(format!("{}: not UTF-8, which a desktop entry cannot name", exe.display()));
+    }
+    let dir = super::setup_os::applications_dir().ok_or("no home folder (HOME)")?;
+    let file = dir.join(LINK_DESKTOP);
+    let text = link_desktop_entry(&exe);
+    let mime = format!("x-scheme-handler/{}", mvs_release::URL_SCHEME);
+    let written = std::fs::read_to_string(&file).is_ok_and(|t| t == text);
+    let default = Command::new("xdg-mime")
+        .args(["query", "default", &mime])
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .output()
+        .is_ok_and(|o| o.status.success() && String::from_utf8_lossy(&o.stdout).trim() == LINK_DESKTOP);
+    if written && default {
+        return Ok(());
+    }
+    if !written {
+        std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+        std::fs::write(&file, &text).map_err(|e| format!("{}: {e}", file.display()))?;
+    }
+    let o = Command::new("xdg-mime")
+        .args(["default", LINK_DESKTOP, &mime])
+        .stdin(Stdio::null())
+        .output()
+        .map_err(|e| format!("xdg-mime: {e}"))?;
+    if !o.status.success() {
+        return Err(format!("xdg-mime: {} {}", o.status, String::from_utf8_lossy(&o.stderr).trim()));
+    }
+    eprintln!("mvs-launcher: join links ({}://) open {}", mvs_release::URL_SCHEME, exe.display());
     Ok(())
+}
+
+/// The join links' desktop entry for the launcher at `launcher`: the scheme's handler, `--link <url>` (the
+/// registry's command on Windows), kept out of the menu.
+#[cfg(not(windows))]
+pub fn link_desktop_entry(launcher: &Path) -> String {
+    format!(
+        "[Desktop Entry]\nType=Application\nName=MVS Classic\nExec={} --link %u\nMimeType=x-scheme-handler/{};\n\
+         NoDisplay=true\nTerminal=false\n",
+        super::setup_os::desktop_exec_arg(launcher),
+        mvs_release::URL_SCHEME
+    )
 }
 
 /// The lobby code of a join link `<scheme>://join/<code>` (the scheme and `join` in any case, one `/` after the code
@@ -292,7 +340,8 @@ pub fn forward(url: &str, o: &Options) -> u8 {
 
 /// `mvs-launcher --link <url>` with the launcher's other options: the link's code to the game; the exit code. A
 /// link that cannot be followed says why on stderr only.
-// Unverified: stub, replaced in Task 6
+// Deviation: Windows shows why in a message box, as a click on a link from the desktop has no terminal; here it goes
+// to stderr only until SDL's message box is there (Task 7).
 #[cfg(not(windows))]
 pub fn forward(url: &str, o: &Options) -> u8 {
     match route(url, o, &mut RealOs) {
@@ -359,6 +408,21 @@ mod tests {
         assert_eq!(again, Ok(false));
         assert_eq!(command.as_deref(), Some(r#""C:\MVS\mvs-launcher.exe" --link "%1""#));
         assert_eq!(gone, ERROR_SUCCESS);
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn the_desktop_entry_names_the_launcher_quoted() {
+        let exec = |p: &str| {
+            let text = link_desktop_entry(Path::new(p));
+            assert!(text.starts_with("[Desktop Entry]\n"), "{text}");
+            assert!(text.lines().any(|l| l == "MimeType=x-scheme-handler/mvsclassic;"), "{text}");
+            text.lines().find(|l| l.starts_with("Exec=")).map(str::to_owned)
+        };
+        // (`--link` first: the launcher reads a link only there)
+        assert_eq!(exec("/a b/MVSC Launcher").as_deref(), Some(r#"Exec="/a b/MVSC Launcher" --link %u"#));
+        assert_eq!(exec("/a$b/MVSC Launcher").as_deref(), Some(r#"Exec="/a\\$b/MVSC Launcher" --link %u"#));
+        assert_eq!(exec("/a\"b/MVSC Launcher").as_deref(), Some(r#"Exec="/a\\"b/MVSC Launcher" --link %u"#));
     }
 
     /// A relay code of the release's relay, as a host writes it.

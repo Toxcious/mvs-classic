@@ -89,12 +89,24 @@ fn writable(dir: &Path) -> bool {
 }
 
 /// Whether `dir` is `root` or under it (case-blind: Windows' paths).
+#[cfg(windows)]
 fn under(dir: &Path, root: Option<PathBuf>) -> bool {
     let Some(root) = root else { return false };
     let norm = |p: &Path| std::path::absolute(p).unwrap_or_else(|_| p.to_path_buf()).to_string_lossy().to_lowercase();
     let (d, r) = (norm(dir), norm(&root));
     let r = r.trim_end_matches('\\');
     d == r || d.starts_with(&format!("{r}\\"))
+}
+
+/// Whether `dir` is `root` or under it (case-blind, as on Windows; `/` or `\\` between the folders: the warnings
+/// it gives are a guess either way).
+#[cfg(not(windows))]
+fn under(dir: &Path, root: Option<PathBuf>) -> bool {
+    let Some(root) = root else { return false };
+    let norm = |p: &Path| std::path::absolute(p).unwrap_or_else(|_| p.to_path_buf()).to_string_lossy().to_lowercase();
+    let (d, r) = (norm(dir), norm(&root));
+    let r = r.trim_end_matches(['/', '\\']);
+    d == r || d.strip_prefix(r).is_some_and(|rest| rest.starts_with(['/', '\\']))
 }
 
 /// The folders OneDrive syncs (its environment variables).
@@ -117,11 +129,21 @@ fn free_space(dir: &Path) -> Result<u64, String> {
     Ok(free)
 }
 
-/// Free bytes on the drive of `dir`: not read yet on Linux.
-// Unverified: stub, replaced in Task 6
+/// Free bytes on the file system of `dir` for an unprivileged user (statvfs: f_bavail blocks of f_frsize).
 #[cfg(not(windows))]
-fn free_space(_dir: &Path) -> Result<u64, String> {
-    Err("not built yet".to_owned())
+fn free_space(dir: &Path) -> Result<u64, String> {
+    use std::os::unix::ffi::OsStrExt;
+    let at = nearest_dir(dir);
+    let c = std::ffi::CString::new(at.as_os_str().as_bytes()).map_err(|e| format!("{}: {e}", at.display()))?;
+    let mut st = std::mem::MaybeUninit::<libc::statvfs>::uninit();
+    // SAFETY: a null-terminated path and a struct the call fills, read only after it says it did.
+    let r = unsafe { libc::statvfs(c.as_ptr(), st.as_mut_ptr()) };
+    if r != 0 {
+        return Err(format!("{}: {}", at.display(), std::io::Error::last_os_error()));
+    }
+    // SAFETY: statvfs returned 0, so it filled the struct.
+    let st = unsafe { st.assume_init() };
+    Ok(st.f_bavail.saturating_mul(st.f_frsize))
 }
 
 /// What a rebuild of the stale kinds needs: the size of their packs in the store (a rebuilt kind writes its new pack
@@ -223,7 +245,7 @@ pub fn pick_folder(hwnd: HWND, title: &str) -> Option<PathBuf> {
 }
 
 /// The folder picker over `hwnd`, titled `title`: none yet on Linux.
-// Unverified: stub, replaced in Task 6
+// Unverified: stub, replaced in Task 7
 #[cfg(not(windows))]
 pub fn pick_folder(_hwnd: HWND, _title: &str) -> Option<PathBuf> {
     None
@@ -239,11 +261,22 @@ fn shell_open(target: &std::ffi::OsStr) -> Result<(), String> {
     if r.0 as usize > 32 { Ok(()) } else { Err(w::windows_answered(r.0 as usize)) }
 }
 
-/// Opens `target` (a folder in the file manager, a URL in its handler): not yet on Linux.
-// Unverified: stub, replaced in Task 6
+/// Opens `target` (a folder in the file manager, a URL in its handler) through `xdg-open`, which is not waited for:
+/// a thread of its own reaps it.
 #[cfg(not(windows))]
-fn shell_open(_target: &std::ffi::OsStr) -> Result<(), String> {
-    Err("not built yet".to_owned())
+fn shell_open(target: &std::ffi::OsStr) -> Result<(), String> {
+    use std::process::{Command, Stdio};
+    let mut child = Command::new("xdg-open")
+        .arg(target)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|e| format!("xdg-open: {e}"))?;
+    std::thread::spawn(move || {
+        let _ = child.wait();
+    });
+    Ok(())
 }
 
 /// Explorer on the data root, or on its nearest folder before it is made (setup.ts setupOpenDataRoot).
@@ -265,7 +298,7 @@ pub fn copy_text_foreground(text: &str) -> Result<(), String> {
 }
 
 /// `text` on the clipboard for the window that has the keyboard: not yet on Linux.
-// Unverified: stub, replaced in Task 6
+// Unverified: stub, replaced in Task 7
 #[cfg(not(windows))]
 pub fn copy_text_foreground(_text: &str) -> Result<(), String> {
     Err("not built yet".to_owned())
@@ -303,7 +336,7 @@ pub fn copy_text(hwnd: HWND, text: &str) -> Result<(), String> {
 }
 
 /// `text` on the clipboard: not yet on Linux.
-// Unverified: stub, replaced in Task 6
+// Unverified: stub, replaced in Task 7
 #[cfg(not(windows))]
 pub fn copy_text(_hwnd: HWND, _text: &str) -> Result<(), String> {
     Err("not built yet".to_owned())
@@ -337,7 +370,7 @@ pub fn paste_text(hwnd: HWND) -> Option<String> {
 }
 
 /// The clipboard's text: none yet on Linux.
-// Unverified: stub, replaced in Task 6
+// Unverified: stub, replaced in Task 7
 #[cfg(not(windows))]
 pub fn paste_text(_hwnd: HWND) -> Option<String> {
     None
@@ -392,11 +425,98 @@ fn ours(kind: ShortcutKind, exe: &Path) -> bool {
     }
 }
 
-/// Whether the shortcut is there and points at `exe`: none yet on Linux.
-// Unverified: stub, replaced in Task 6
+/// The shortcut's file name, in the desktop folder or the menu's applications folder.
 #[cfg(not(windows))]
-fn ours(_kind: ShortcutKind, _exe: &Path) -> bool {
-    false
+const SHORTCUT_FILE: &str = "mvsclassic.desktop";
+
+/// The shortcut's file: a desktop entry in the desktop folder (`xdg-user-dir DESKTOP`, else `~/Desktop`) or in the
+/// menu's applications folder ([`applications_dir`]).
+#[cfg(not(windows))]
+fn link(kind: ShortcutKind) -> Option<PathBuf> {
+    let dir = match kind {
+        ShortcutKind::Desktop => desktop_dir()?,
+        ShortcutKind::StartMenu => applications_dir()?,
+    };
+    Some(dir.join(SHORTCUT_FILE))
+}
+
+/// The desktop folder: `xdg-user-dir DESKTOP`'s answer, else `~/Desktop`.
+#[cfg(not(windows))]
+fn desktop_dir() -> Option<PathBuf> {
+    let asked = std::process::Command::new("xdg-user-dir")
+        .arg("DESKTOP")
+        .stdin(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .and_then(|o| String::from_utf8(o.stdout).ok())
+        .map(|t| PathBuf::from(t.trim_end_matches('\n')))
+        .filter(|p| p.is_absolute());
+    asked.or_else(|| std::env::var_os("HOME").filter(|h| !h.is_empty()).map(|h| PathBuf::from(h).join("Desktop")))
+}
+
+/// `$XDG_DATA_HOME` when it is an absolute path, else `$HOME/.local/share` (the XDG Base Directory spec).
+#[cfg(not(windows))]
+fn data_home(xdg: Option<std::ffi::OsString>, home: Option<std::ffi::OsString>) -> Option<PathBuf> {
+    if let Some(x) = xdg.map(PathBuf::from).filter(|x| x.is_absolute()) {
+        return Some(x);
+    }
+    home.filter(|h| !h.is_empty()).map(|h| PathBuf::from(h).join(".local").join("share"))
+}
+
+/// The user's applications folder, where the menu reads desktop entries: `<data home>/applications`.
+#[cfg(not(windows))]
+pub(crate) fn applications_dir() -> Option<PathBuf> {
+    data_home(std::env::var_os("XDG_DATA_HOME"), std::env::var_os("HOME")).map(|d| d.join("applications"))
+}
+
+/// A desktop entry's string value (the Desktop Entry spec's string type): `\\`, `\n`, `\t`, `\r` escaped.
+#[cfg(not(windows))]
+fn desktop_string(s: &str) -> String {
+    s.replace('\\', "\\\\").replace('\n', "\\n").replace('\t', "\\t").replace('\r', "\\r")
+}
+
+/// One argument of a desktop entry's `Exec=` (the Desktop Entry spec, "The Exec key"), as the file holds it: quoted
+/// whole, with `"`, `` ` ``, `$` and `\\` escaped inside the quotes and `%` doubled, then escaped as a string.
+#[cfg(not(windows))]
+pub(crate) fn desktop_exec_arg(p: &Path) -> String {
+    let mut q = String::from('"');
+    for c in p.to_string_lossy().chars() {
+        match c {
+            '"' | '`' | '$' | '\\' => {
+                q.push('\\');
+                q.push(c);
+            }
+            '%' => q.push_str("%%"),
+            c => q.push(c),
+        }
+    }
+    q.push('"');
+    desktop_string(&q)
+}
+
+/// The shortcut's desktop entry: the launcher `exe`, started in its folder `dir`.
+#[cfg(not(windows))]
+fn shortcut_desktop_entry(exe: &Path, dir: &Path) -> String {
+    format!(
+        "[Desktop Entry]\nType=Application\nName=MVS Classic\nExec={}\nPath={}\nTerminal=false\nCategories=Game;\n",
+        desktop_exec_arg(exe),
+        desktop_string(&dir.to_string_lossy())
+    )
+}
+
+/// Whether the desktop entry `entry` starts `exe` (its `Exec=` line is the one [`shortcut_desktop_entry`] writes).
+#[cfg(not(windows))]
+fn names_exe(entry: &str, exe: &Path) -> bool {
+    let want = format!("Exec={}", desktop_exec_arg(exe));
+    entry.lines().any(|l| l.trim_end() == want)
+}
+
+/// Whether the shortcut is there and starts `exe` (shortcuts.ts state's ours).
+#[cfg(not(windows))]
+fn ours(kind: ShortcutKind, exe: &Path) -> bool {
+    link(kind).and_then(|f| std::fs::read_to_string(f).ok()).is_some_and(|t| names_exe(&t, exe))
 }
 
 /// The program a shortcut starts: the launcher in the app's folder (None in a dev run).
@@ -433,11 +553,23 @@ pub fn create_shortcut(kind: ShortcutKind) -> Result<(), String> {
     }
 }
 
-/// The shortcut made: not yet on Linux.
-// Unverified: stub, replaced in Task 6
+/// The shortcut made, a desktop entry starting the launcher in the app's folder (shortcuts.ts create), mode 0755
+/// (a desktop launches only an executable entry); one already there is written again.
 #[cfg(not(windows))]
-pub fn create_shortcut(_kind: ShortcutKind) -> Result<(), String> {
-    Err("not built yet".to_owned())
+pub fn create_shortcut(kind: ShortcutKind) -> Result<(), String> {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = app_dir().ok_or(w::NO_SHORTCUTS_DEV)?;
+    let exe = dir.join(mvs_release::LAUNCHER_EXE);
+    if exe.to_str().is_none() {
+        return Err(format!("{}: not UTF-8, which a desktop entry cannot name", exe.display()));
+    }
+    let file = link(kind).ok_or(w::NO_SHORTCUT_FOLDER)?;
+    let at = |e: std::io::Error| format!("{}: {e}", file.display());
+    if let Some(folder) = file.parent() {
+        std::fs::create_dir_all(folder).map_err(|e| format!("{}: {e}", folder.display()))?;
+    }
+    std::fs::write(&file, shortcut_desktop_entry(&exe, &dir)).map_err(at)?;
+    std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o755)).map_err(at)
 }
 
 #[cfg(test)]
@@ -499,5 +631,42 @@ mod tests {
         std::fs::remove_file(store.join("a.bin")).unwrap();
         std::fs::remove_dir(&store).unwrap();
         std::fs::remove_dir(&d).unwrap();
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn an_exec_argument_is_quoted_and_escaped() {
+        assert_eq!(desktop_exec_arg(Path::new("/a b/MVSC Launcher")), r#""/a b/MVSC Launcher""#);
+        // (`$`, `"`, `` ` `` and `\` escaped inside the quotes, then the backslashes again for the string)
+        assert_eq!(desktop_exec_arg(Path::new("/a$b/L")), r#""/a\\$b/L""#);
+        assert_eq!(desktop_exec_arg(Path::new("/a\"b/L")), r#""/a\\"b/L""#);
+        assert_eq!(desktop_exec_arg(Path::new("/a`b\\c/L")), r#""/a\\`b\\\\c/L""#);
+        assert_eq!(desktop_exec_arg(Path::new("/100%/L")), r#""/100%%/L""#);
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn the_data_home_follows_xdg_data_home() {
+        let os = |s: &str| Some(std::ffi::OsString::from(s));
+        assert_eq!(data_home(os("/x/data"), os("/home/a")), Some(PathBuf::from("/x/data")));
+        // (empty or relative: the spec's default)
+        assert_eq!(data_home(os(""), os("/home/a")), Some(PathBuf::from("/home/a/.local/share")));
+        assert_eq!(data_home(os("rel"), os("/home/a")), Some(PathBuf::from("/home/a/.local/share")));
+        assert_eq!(data_home(None, os("/home/a")), Some(PathBuf::from("/home/a/.local/share")));
+        assert_eq!(data_home(None, None), None);
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn the_shortcut_starts_the_launcher_in_its_folder() {
+        let exe = Path::new("/home/a/MVS Classic tést/MVSC Launcher.exe");
+        let text = shortcut_desktop_entry(exe, exe.parent().unwrap());
+        assert!(text.starts_with("[Desktop Entry]\n"));
+        let lines: Vec<&str> = text.lines().collect();
+        assert!(lines.contains(&r#"Exec="/home/a/MVS Classic tést/MVSC Launcher.exe""#));
+        assert!(lines.contains(&"Path=/home/a/MVS Classic tést"));
+        assert!(lines.contains(&"Type=Application") && lines.contains(&"Name=MVS Classic"));
+        assert!(names_exe(&text, exe));
+        assert!(!names_exe(&text, Path::new("/elsewhere/MVSC Launcher.exe")));
     }
 }
