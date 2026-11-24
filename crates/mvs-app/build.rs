@@ -41,6 +41,13 @@ fn main() {
         println!("cargo:rerun-if-changed={ico}");
     }
     println!("cargo:rerun-if-env-changed=MVS_VERSION");
+    // Linux: each program finds the libraries a release puts beside the game (`game/`, tools/linux-build.sh
+    // release): the game in its own folder, the launcher in `game/` below its own. An RPATH, not a RUNPATH
+    // (--disable-new-dtags), so it also serves the libraries' own loads (DXVK's of SDL3).
+    if std::env::var("CARGO_CFG_TARGET_OS").is_ok_and(|os| os == "linux") {
+        println!("cargo:rustc-link-arg-bin=mvs=-Wl,--disable-new-dtags,-rpath,$ORIGIN");
+        println!("cargo:rustc-link-arg-bin=mvs-launcher=-Wl,--disable-new-dtags,-rpath,$ORIGIN/game");
+    }
     let target = std::env::var("TARGET").unwrap_or_default();
     if !target.ends_with("windows-msvc") {
         println!("cargo:warning=mvs: no icon or version resource for the target {target} (MSVC only)");
