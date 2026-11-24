@@ -194,11 +194,24 @@ pub fn main(mut args: impl Iterator<Item = String>) -> u8 {
     if let Some(out) = check_out {
         // (a reference made on a store this version would import again is one no player's store matches)
         let stale = stale_kinds(&store);
-        let made = if stale.is_empty() {
-            made
-        } else {
+        // (and one for another id than a fresh import's: the id a player's store gets is the code's)
+        let code = crate::online::glue::code_compat_id();
+        let made = if !stale.is_empty() {
             say("check out", &format!("FAILED the store's kinds {} are not this version's import", stale.join(", ")));
             None
+        } else {
+            match (made, code) {
+                (Some(m), Ok(c)) if m.compat == c => Some(m),
+                (Some(m), Ok(c)) => {
+                    say("check out", &format!("FAILED the store's id {} is not a fresh import's {c}", m.compat));
+                    None
+                }
+                (_, Err(e)) => {
+                    say("check out", &format!("FAILED the code's id: {e}"));
+                    None
+                }
+                (None, _) => None,
+            }
         };
         let written = made.ok_or_else(|| "no hash".to_owned()).and_then(|m| {
             let text = serde_json::to_string_pretty(&m).expect("a SelfCheckRef always serialises") + "\n";

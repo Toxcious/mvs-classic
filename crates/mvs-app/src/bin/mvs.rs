@@ -56,7 +56,7 @@ use mvs_net::link::relay::NetFaults;
 /// `--net-cut` starts this long after the online match's go unless `--net-cut-at` says (s).
 const NET_CUT_AT_S: f64 = 10.0;
 
-const USAGE: &str = "mvs --version\nmvs --self-test [--data <dir>] [--store <dir>] [--check-out <file>]\nmvs --net-test [--data <dir>] [--online-defaults <file>] [--relay-only] [--direct-loopback]\nmvs --load-bench [--store <dir>] [--adapter <text>]\n\
+const USAGE: &str = "mvs --version\nmvs --compat-id\nmvs --self-test [--data <dir>] [--store <dir>] [--check-out <file>]\nmvs --net-test [--data <dir>] [--online-defaults <file>] [--relay-only] [--direct-loopback]\nmvs --load-bench [--store <dir>] [--adapter <text>]\n\
 mvs --play --store <dir> [--data <dir>] [--size 1920x1080] [--full-screen] [--adapter <text>] [--no-audio] [--mute | --sound] [--background | --foreground] [--online-defaults <file>]\n\
 mvs [--data <dir>] [--store <dir>] [--size 1920x1080] [--full-screen] [--adapter <text>] [--seed <n>] [--no-ui] \
 [--replay <trace match> [--trace-out <file>]] [--real-pace] [--shot <tick>[,..]] [--out <dir>] [--throttle <rate>] \
@@ -716,6 +716,19 @@ fn main() -> ExitCode {
     if args.peek().is_some_and(|a| a == "--version") {
         println!("{}", mvs_release::version_line());
         return ExitCode::SUCCESS;
+    }
+    // (the compatibility id a fresh import gets: the release's reference file must be for it)
+    if args.peek().is_some_and(|a| a == "--compat-id") {
+        return match mvs_app::online::glue::code_compat_id() {
+            Ok(id) => {
+                println!("{id}");
+                ExitCode::SUCCESS
+            }
+            Err(e) => {
+                eprintln!("mvs: {e}");
+                ExitCode::FAILURE
+            }
+        };
     }
     if args.peek().is_some_and(|a| a == "--self-test") {
         return ExitCode::from(mvs_app::selftest::main(args.skip(1)));
