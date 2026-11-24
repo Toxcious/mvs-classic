@@ -1717,7 +1717,8 @@ fn place_view(r: &mut Rec, clips: &mut Clips, w: &World) {
         fi.vis.always_visible.as_ref()
     };
     let parts_only = kept.is_some_and(|k| !k.is_empty());
-    r.visible = !dead && (shown || parts_only);
+    // (the port's own Ghosts hides a fighter between its attacks, hits and flashes: `own_rules::ghost_hidden`)
+    r.visible = !dead && (shown || parts_only) && !mvs_sim::world::own_rules::ghost_hidden(w, f);
     r.view.parts_only = parts_only;
     r.view.size_scale = f64::from(fi.body.size_scale);
     // (a skin's own intro over the sim's default one: skin_intro.rs; once a tick, its clock)

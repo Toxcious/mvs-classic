@@ -198,8 +198,12 @@ const ITEM_MUTATORS: [&str; 2] = ["Mutator_RandomItemSpawns", "Mutator_RandomMut
 pub fn items_on(setup: &MatchSetup) -> bool {
     crate::world::flow::ffa_items_on(setup)
         || setup.mutators.iter().any(|m| ITEM_MUTATORS.contains(&m.as_str()))
-        || setup.wheel.as_ref().is_some_and(|w| w.pool.iter().any(|m| m == "Mutator_RandomItemSpawns"))
+        || setup.wheel.as_ref().is_some_and(|w| w.pool.iter().any(|m| WHEEL_ITEM_KEYS.contains(&m.as_str())))
 }
+
+/// The wheel's pool entries that run the item area's spawner: Random Items, and the port's own Bomb Rain and
+/// Projectile Party (`world::own_rules`).
+const WHEEL_ITEM_KEYS: [&str; 3] = ["Mutator_RandomItemSpawns", "Chaos_BombRain", "Chaos_ProjectileParty"];
 
 /// The match reads the mutators' data (`world::flow::mutator_data`): the set-up lists a mutator, or the port's own
 /// Chaos Wheel may roll one.

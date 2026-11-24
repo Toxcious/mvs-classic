@@ -41,8 +41,10 @@ team style and with Stock Mode.
   Grow for every fighter, random items, the final point shrink); then the fighter mutators one by one (Big Head,
   Grow, Giant, Miniature, Low Gravity, Instant Kill, Shields Up, Unlimited Jumps, Ability Frenzy, Heavy Hitters,
   Air Show, Double Damage, Ice Charge, Freeze Touch) and two world ones (Random Items, Final Point Shrink). Seven of
-  them are the port's reworks of the build's (below), here as on the wheel. Mutators the port does not run yet (Chicken, Heart, Snowball Fight, Exploding Egg, Reindog Buddy,
-  Fast Charge: no asset in the build) are not offered.
+  them are the port's reworks of the build's (below), here as on the wheel. Then the port's own rules (Moon Jump,
+  Featherweight, Heavyweight, Vampire, Dodge Frenzy, Lava Floor, Ghosts: see the Chaos Wheel's pool). Mutators
+  the port does not run yet (Chicken, Heart, Snowball Fight, Exploding Egg, Reindog Buddy, Fast Charge: no asset
+  in the build) are not offered.
 - The row is a checklist: a click ticks or unticks a mutator and the list stays up for the next; Off clears it.
   A ticked row is white with a bullet (the menu's faces have no tick mark). The row reads Off, the one mutator's
   name, or the count.
@@ -76,9 +78,23 @@ out when off). The sim's part is `mvs-sim` `world/wheel.rs`. Works in every team
 beside the Mutators row.
 
 - The pool (`mvs-mutators`, each with its tier): Mild (sky blue): Giant, Miniature, Low Gravity, Air Show,
-  Shields Up; Wild (violet): Big Head, Unlimited Jumps, Ability Frenzy, Heavy Hitters, Double Damage, Ice Charge,
-  Freeze Touch, Random Items. The reel and the card show a mutator in its tier's colour. Not on the wheel: Grow (it grows with damage dealt, which 20 seconds barely shows), Instant Kill
-  (the 200 damage would stay after its window), Silly and Final Point Shrink (whole-match rules).
+  Shields Up, Moon Jump, Heavyweight, Vampire; Wild (violet): Big Head, Unlimited Jumps, Ability Frenzy, Heavy
+  Hitters, Double Damage, Ice Charge, Freeze Touch, Random Items, Grow, Featherweight, Dodge Frenzy, Projectile
+  Party, Lava Floor, Ghosts; Chaos (hot orange): Sudden Death (Instant Kill), Shrinking Arena (Final Point
+  Shrink), Bomb Rain. The reel and the card show a mutator in its tier's colour. Not on the wheel: Silly (a
+  whole-match rule).
+- On the wheel, two of the build's mutators end with their window: Sudden Death's 200 damage is taken back off a
+  fighter alive at the end (a hit taken in the window stays), and Shrinking Arena plays Final Point Shrink's
+  shrink over half the window whenever it comes, then puts the blast box back whole at the end. Shrinking Arena
+  is never drawn in Free For All (its own shrink) or on a stage with no shrunk box.
+- The port's own rules (`mvs-sim` `world/own_rules.rs`, keys `Chaos_*`; no buff of the build's, the sim checks
+  whether one is on where it counts, on the wheel or ticked in the Mutators row): Moon Jump (jumps twice as high),
+  Featherweight and Heavyweight (every fighter takes x1.5 or x0.6 knockback), Vampire (damage a fighter deals heals
+  half of it off its own), Dodge Frenzy (a dodge spends no dodge meter, air dodges never run out), Lava Floor (1
+  damage every half second on the ground), Ghosts (a fighter is not drawn but while it attacks, is in hitstun, or
+  for a flash of 8 ticks each second). Bomb Rain (dynamite and mines) and Projectile Party (thrown items) run the
+  item spawner as Random Items' window does, with that share of its list and one item every 2 seconds; they are
+  the wheel's only, and never on at once with Random Items or each other.
 - The next mutator is drawn 3 seconds before the change from a random stream of the rule's own (made from the
   match seed, so it moves no other draw of the match). The draw never gives the one that is on, one ticked in the
   Mutators row (it is on all match), or one the match cannot run: Random Items on a stage with no item area, or

@@ -30,6 +30,10 @@ const fn m(key: &'static str, tier: Tier) -> Mutator {
     Mutator { key, tier, wheel_only: false }
 }
 
+const fn wheel_only(key: &'static str, tier: Tier) -> Mutator {
+    Mutator { key, tier, wheel_only: true }
+}
+
 /// Every mutator the wheel may roll, in the wheel's order.
 pub const ALL: &[Mutator] = &[
     m("Mutator_Giant", Tier::Mild),
@@ -45,6 +49,19 @@ pub const ALL: &[Mutator] = &[
     m("Mutator_Boost_AdditionalAirSpecial", Tier::Mild),
     m("Mutator_GreyHealth", Tier::Mild),
     m("Mutator_RandomItemSpawns", Tier::Wild),
+    m("Mutator_GrowWithDamage", Tier::Wild),
+    m("Mutator_InstantKill", Tier::Chaos),
+    m("Mutator_ShrinkBlastBoxLastPoint", Tier::Chaos),
+    m("Chaos_MoonJump", Tier::Mild),
+    m("Chaos_Featherweight", Tier::Wild),
+    m("Chaos_Heavyweight", Tier::Mild),
+    m("Chaos_Vampire", Tier::Mild),
+    m("Chaos_DodgeFrenzy", Tier::Wild),
+    // (the item area's spawner with a list of its own: the wheel's, as Random Items on the wheel is)
+    wheel_only("Chaos_BombRain", Tier::Chaos),
+    wheel_only("Chaos_ProjectileParty", Tier::Wild),
+    m("Chaos_LavaFloor", Tier::Wild),
+    m("Chaos_Ghosts", Tier::Wild),
 ];
 
 /// The list's index of `key`.

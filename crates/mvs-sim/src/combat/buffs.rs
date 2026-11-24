@@ -3035,6 +3035,12 @@ pub fn apply_knock_back_multipliers(w: &World, f: FighterId, vx: Real, vy: Real,
             v = apply_mod(v, m.v[DOWN_KB], m.t[DOWN_KB], true);
         }
     }
+    if taken {
+        // the port's own Featherweight and Heavyweight (`own_rules`)
+        let k = crate::world::own_rules::taken_knockback(w);
+        h *= k;
+        v *= k;
+    }
     (if h == 0.0 { 0.0 } else { -h }, v)
 }
 

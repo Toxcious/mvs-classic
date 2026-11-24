@@ -36,7 +36,7 @@ use crate::ai::cx::{Cx, Dec, Res};
 use crate::ai::props;
 use crate::ai::sweep::trace_sweep;
 use crate::ai::util::{actor, corners, facing_left, fighter, loc, loc_y, loc_z, num, player_team, sq, valid, vec, vel};
-use crate::consts::{AIR_EVADE_MAX, DT};
+use crate::consts::DT;
 use crate::fighter::FighterId;
 use crate::fighter::body::{ch_cap_half, ch_cap_radius, def};
 use crate::fighter::common::warn_once;
@@ -448,7 +448,8 @@ impl Dec for BotHasEvade {
         if !input_enabled(cx.w, f) || crate::fighter::is_evading(cx.w, f) {
             return false;
         }
-        crate::fighter::grounded(cx.w, f) || crate::real(cx.w.fighter(f).air.air_evades) < AIR_EVADE_MAX
+        crate::fighter::grounded(cx.w, f)
+            || crate::real(cx.w.fighter(f).air.air_evades) < crate::world::own_rules::air_evade_max(cx.w)
     }
 }
 

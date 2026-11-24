@@ -18,7 +18,14 @@
 //! - it takes back what two of them leave on the pawn past their buff's end: Low Gravity's OverrideGravity and Air
 //!   Show's AirSpecialMax;
 //! - it runs Random Items' spawner for a window alone, at a quicker rate of its own and with no centre item, then
-//!   stops it (the items already out stay).
+//!   stops it (the items already out stay); Bomb Rain and Projectile Party (`own_rules`) run it the same way with
+//!   a share of its list;
+//! - it plays Final Point Shrink's shrink (Shrinking Arena) over half a window whenever it comes, and puts the blast
+//!   box back at the window's end;
+//! - it takes back Instant Kill's (Sudden Death's) 200 damage at the window's end.
+//!
+//! The port's own rules (`own_rules`, the `Chaos_*` keys) are no buffs: the sim reads whether one is on where it
+//! counts (`window_has`).
 //!
 //! Left as the build leaves them at a ring-out: Shields Up's pack (its grey health stays until it is hit off), an
 //! Ice that Ice Charge or Freeze Touch gave (it runs out by itself), and the Giant buff a fighter's spawned actor
@@ -33,7 +40,8 @@ use crate::math;
 use crate::names::Name;
 use crate::rng::Rng;
 use crate::setup::{MatchSetup, Wheel};
-use crate::world::{World, flow, items, mutators};
+use crate::world::own_rules::{self, Rule};
+use crate::world::{World, blast, flow, items, mutators};
 
 /// A Random Items window's first item, in seconds into the window. The build's spawner gives its first 12.5 s after
 /// it starts, one item a 20 s window; the rule's own rate is quicker.
@@ -45,6 +53,12 @@ pub const ITEM_EVERY: Real = 3.0;
 const LOW_GRAVITY: &str = "Mutator_LowGravity_C";
 const AIR_SPECIAL: &str = "Mutator_Boost_AdditionalAirSpecial_C";
 const RANDOM_ITEMS: &str = "Mutator_RandomItemSpawns_C";
+const SHRINK: &str = "Mutator_ShrinkBlastBoxLastPoint_C";
+const INSTANT_KILL: &str = "Mutator_InstantKill_C";
+/// Mutator_InstantKill's StartingDamage (its class default), taken back at the window's end.
+const SUDDEN_DEATH_DAMAGE: Real = 200.0;
+/// Shrinking Arena's shrink, a share of the window: it closes in over half, then holds.
+const SHRINK_SHARE: Real = 0.5;
 
 /// What a fighter held before the window's mutator came on, of what the rule puts back at its end.
 #[derive(State, Debug, Default)]
@@ -177,10 +191,13 @@ fn class_of(w: &World, i: usize) -> Option<&str> {
 /// an item area and no spawner of the mode's own (FreeForAll with rules: FFAGameMode's runs all match; the Lab's
 /// FreeForAll has none, so it may roll there).
 fn runnable(w: &World, i: usize) -> bool {
-    let Some(cls) = class_of(w, i) else { return false };
     if w.setup.mutators.iter().any(|m| m == &wheel(w).pool[i]) {
         return false;
     }
+    if let Some(r) = Rule::of_key(&wheel(w).pool[i]) {
+        return r.items().is_none() || items_runnable(w);
+    }
+    let Some(cls) = class_of(w, i) else { return false };
     if mutators::match_fighter_classes(w).iter().any(|c| c == cls) {
         return false;
     }
@@ -191,7 +208,31 @@ fn runnable(w: &World, i: usize) -> bool {
     if !world {
         return true;
     }
-    cls == RANDOM_ITEMS && !flow::ffa_items_on(&w.setup) && !w.data.spawn_areas.is_empty() && w.item_area.is_some()
+    match cls {
+        RANDOM_ITEMS => items_runnable(w),
+        // (Free For All shrinks the box itself; a stage with no shrunk box has nothing to shrink to)
+        SHRINK => w.setup.team_style != crate::setup::TeamStyle::FreeForAll && w.stage.shrunk.is_some(),
+        _ => false,
+    }
+}
+
+/// Whether a window may run the item area's spawner: a stage with an item area and no spawner of the mode's own.
+fn items_runnable(w: &World) -> bool {
+    !flow::ffa_items_on(&w.setup) && !w.data.spawn_areas.is_empty() && w.item_area.is_some()
+}
+
+/// Whether pool entry `i` runs the item spawner (Random Items, Bomb Rain, Projectile Party): two of them are never
+/// on at once.
+fn runs_items(w: &World, i: usize) -> bool {
+    class_of(w, i) == Some(RANDOM_ITEMS) || Rule::of_key(&wheel(w).pool[i]).is_some_and(|r| r.items().is_some())
+}
+
+/// Whether the window on has `key` (the mutator on or, two at once, the second): the port's own rules' test
+/// (`own_rules::on`).
+pub fn window_has(w: &World, key: &str) -> bool {
+    let Some(st) = w.wheel.as_ref() else { return false };
+    let Some(pool) = w.setup.wheel.as_ref().map(|x| &x.pool) else { return false };
+    [st.current, st.also].into_iter().filter_map(index).any(|i| pool.get(i).is_some_and(|k| k == key))
 }
 
 /// The most draws held back from the next ones: a third of the pool, at most 3.
@@ -245,6 +286,11 @@ fn draw(w: &mut World, other: i32) -> i32 {
         .filter(|&i| runnable(w, i) && !(off && is_chaos(w, i)))
         .map(as_index)
         .filter(|&i| i != current && i != also && i != other)
+        .filter(|&i| {
+            other < 0
+                || !(runs_items(w, usize::try_from(i).expect("an index"))
+                    && runs_items(w, usize::try_from(other).expect("an index")))
+        })
         .collect();
     let fresh = |st: &WheelState, from: &[i32]| -> Vec<i32> {
         let recent = &st.recent[st.recent.len().saturating_sub(held)..];
@@ -391,11 +437,36 @@ fn give(w: &mut World, f: FighterId, cls: Name) {
     buffs::spawn_buff(w, f, cls, 0.0, Some(0), Some(f), true, None);
 }
 
-/// A window's start: each of its mutators on every live fighter, or Random Items' spawner started.
+/// The window's pool entries on: the mutator and, two at once, the second.
+fn on_indexes(w: &World) -> Vec<usize> {
+    let Some(st) = w.wheel.as_ref() else { return Vec::new() };
+    [st.current, st.also].into_iter().filter_map(index).collect()
+}
+
+/// The spawner's list of a pool entry that runs it: Random Items' own, or the share of it an own rule keeps.
+fn items_list(w: &World, i: usize) -> Option<Vec<Name>> {
+    let all = mutators::random_items_list(w);
+    if class_of(w, i) == Some(RANDOM_ITEMS) {
+        return Some(all);
+    }
+    let keep = Rule::of_key(&wheel(w).pool[i])?.items()?;
+    Some(all.into_iter().filter(|&n| keep.contains(&w.names.str(n))).collect())
+}
+
+/// A window's start: each of its fighter mutators on every live fighter, the item spawner started for one that runs
+/// it, Shrinking Arena's shrink started. An own rule with no spawner needs nothing: the sim reads it.
 fn begin_window(w: &mut World) {
-    for cls in on_classes(w) {
+    for i in on_indexes(w) {
+        if let Some(list) = items_list(w, i) {
+            start_items(w, &list);
+            continue;
+        }
+        if class_of(w, i) == Some(SHRINK) {
+            start_shrink(w);
+            continue;
+        }
+        let Some(cls) = class_of(w, i).map(|c| w.lit(c)) else { continue };
         if is_world_class(w, cls) {
-            start_items(w);
             continue;
         }
         for f in live_players(w) {
@@ -407,15 +478,14 @@ fn begin_window(w: &mut World) {
 /// A window's end: each of its mutators off every fighter (`buffs::remove_buff`: K2_DestroyActor, its EndPlay and
 /// the state manager's end pass), then the rule's own tail; or Random Items' spawner stopped.
 fn end_window(w: &mut World) {
-    let classes = on_classes(w);
-    let mut fighter = Vec::new();
-    for cls in classes {
-        if is_world_class(w, cls) {
+    for i in on_indexes(w) {
+        if runs_items(w, i) {
             stop_items(w);
-        } else {
-            fighter.push(cls);
+        } else if class_of(w, i) == Some(SHRINK) {
+            stop_shrink(w);
         }
     }
+    let fighter: Vec<Name> = on_classes(w).into_iter().filter(|&c| !is_world_class(w, c)).collect();
     if fighter.is_empty() {
         return;
     }
@@ -439,19 +509,40 @@ fn tail(w: &mut World, f: FighterId, cls: Name, saved: &WheelSaved) {
         // Air Show's AirSpecialMax at its BeginPlay is never taken back in the build (the build's mutator adds one
         // more each life); the rule puts the value back.
         AIR_SPECIAL if saved.held => w.fighter_mut(f).air.air_special_max_set = saved.air,
+        // Sudden Death's 200 is the window's alone: a fighter alive at its end gets it back off (a hit taken in the
+        // window stays)
+        INSTANT_KILL if w.fighter(f).life.dead <= 0.0 => buffs::apply_healing(w, f, SUDDEN_DEATH_DAMAGE),
         _ => {}
     }
 }
 
-/// Random Items' window: the item area's StartTimeSpawnerServer with the mutator's own list
-/// (`mutators::items_begin`), its first item `ITEM_FIRST` in; no centre item.
-fn start_items(w: &mut World) {
-    if w.item_area.is_none() {
+/// Shrinking Arena: Final Point Shrink's BPI_ShrinkBlastBox (`blast::start_blast_shrink`, by its class, so the
+/// camera follows) over `SHRINK_SHARE` of the window.
+fn start_shrink(w: &mut World) {
+    let time = wheel(w).seconds * SHRINK_SHARE;
+    blast::start_blast_shrink(w, time, crate::name!("Mutator_ShrinkBlastBoxLastPoint_C"));
+}
+
+/// Shrinking Arena's end: the blast box whole again at once (the camera's reset path: the shrink's tick back at
+/// -1), where the rule's shrink is the one on.
+fn stop_shrink(w: &mut World) {
+    if w.flow.blast_shrink_by != Some(crate::name!("Mutator_ShrinkBlastBoxLastPoint_C")) {
         return;
     }
-    let list = mutators::random_items_list(w);
+    w.flow.blast_shrink_tick = -1;
+    w.flow.blast_shrink_time = None;
+    w.flow.blast_shrink_by = None;
+    blast::set_blast_shrink(w, 0.0);
+}
+
+/// A spawner window (Random Items, Bomb Rain, Projectile Party): the item area's StartTimeSpawnerServer with
+/// `list` (`mutators::items_begin`), its first item `ITEM_FIRST` in; no centre item.
+fn start_items(w: &mut World, list: &[Name]) {
+    if w.item_area.is_none() || list.is_empty() {
+        return;
+    }
     let tick = w.flow.tick;
-    items::start_time_spawner_server(w, &list, crate::real(tick));
+    items::start_time_spawner_server(w, list, crate::real(tick));
     let first = tick + ticks(ITEM_FIRST);
     if let Some(ar) = w.item_area.as_mut() {
         ar.timer_at = first;
@@ -471,7 +562,9 @@ fn stop_items(w: &mut World) {
 /// The next item's time while the rule's Random Items window runs the spawner (`items::spawn_pending`'s re-arm),
 /// None otherwise (the build's own rate).
 pub fn item_rate(w: &World) -> Option<Real> {
-    w.wheel.as_ref().filter(|s| s.items).map(|_| ITEM_EVERY)
+    w.wheel.as_ref().filter(|s| s.items)?;
+    let own = on_indexes(w).into_iter().any(|i| Rule::of_key(&wheel(w).pool[i]).is_some());
+    Some(if own { own_rules::ITEMS_EVERY } else { ITEM_EVERY })
 }
 
 /// The change to pool entry `index` now (None: back to plain), outside the clock and with no event: the one on ends
@@ -502,7 +595,10 @@ pub fn wheel_fighter_spawned(w: &mut World, f: FighterId) {
 /// `wheelReset`: the World's reset made a new item area (a Lab reset: a new level); a Random Items window on gets
 /// the rule's spawner again from there.
 pub fn wheel_reset(w: &mut World) {
-    if w.wheel.as_ref().is_some_and(|s| s.items) {
-        start_items(w);
+    if !w.wheel.as_ref().is_some_and(|s| s.items) {
+        return;
+    }
+    if let Some(list) = on_indexes(w).into_iter().find_map(|i| items_list(w, i)) {
+        start_items(w, &list);
     }
 }

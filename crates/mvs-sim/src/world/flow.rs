@@ -457,6 +457,7 @@ pub fn latent(w: &mut World) {
     if w.wheel.is_some() {
         crate::world::wheel::wheel_latent(w); // the port's own Chaos Wheel rule
     }
+    crate::world::own_rules::own_rules_latent(w); // the port's own rules (Lava Floor)
     if w.item_area.is_some() {
         crate::world::items::item_area_latent(w);
     }

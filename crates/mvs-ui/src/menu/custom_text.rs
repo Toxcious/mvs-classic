@@ -50,7 +50,7 @@ pub fn mutator_count(n: usize) -> String {
     format!("{n} Mutators")
 }
 /// The mutators row's values, in the order of mvs_protocol::lobby_rules::LOBBY_MUTATORS: Off clears the list.
-pub const MUTATORS: [&str; 18] = [
+pub const MUTATORS: [&str; 25] = [
     "Off",
     "Silly (Random)",
     "Big Head",
@@ -69,6 +69,13 @@ pub const MUTATORS: [&str; 18] = [
     "Freeze Touch",
     "Random Items",
     "Final Point Shrink",
+    "Moon Jump",
+    "Featherweight",
+    "Heavyweight",
+    "Vampire",
+    "Dodge Frenzy",
+    "Lava Floor",
+    "Ghosts",
 ];
 /// The name of a Chaos Wheel mutator (`mvs_mutators::ALL`'s keys); "" for a key not on the list.
 pub fn wheel_name(key: &str) -> &'static str {
@@ -86,6 +93,18 @@ pub fn wheel_name(key: &str) -> &'static str {
         "Mutator_Boost_AdditionalAirSpecial" => "Air Show",
         "Mutator_GreyHealth" => "Shields Up",
         "Mutator_RandomItemSpawns" => "Random Items",
+        "Mutator_GrowWithDamage" => "Grow",
+        "Mutator_InstantKill" => "Sudden Death",
+        "Mutator_ShrinkBlastBoxLastPoint" => "Shrinking Arena",
+        "Chaos_MoonJump" => "Moon Jump",
+        "Chaos_Featherweight" => "Featherweight",
+        "Chaos_Heavyweight" => "Heavyweight",
+        "Chaos_Vampire" => "Vampire",
+        "Chaos_DodgeFrenzy" => "Dodge Frenzy",
+        "Chaos_BombRain" => "Bomb Rain",
+        "Chaos_ProjectileParty" => "Projectile Party",
+        "Chaos_LavaFloor" => "Lava Floor",
+        "Chaos_Ghosts" => "Ghosts",
         _ => "",
     }
 }

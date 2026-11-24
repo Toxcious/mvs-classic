@@ -15,6 +15,7 @@ pub mod catch_up;
 pub mod flow;
 pub mod items;
 pub mod mutators;
+pub mod own_rules;
 pub mod pawns;
 pub mod profiles;
 pub mod reset;

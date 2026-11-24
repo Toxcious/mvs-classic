@@ -189,7 +189,7 @@ impl WheelOptions {
 }
 
 /// The count of `LOBBY_MUTATORS`' entries, the empty one at 0 with them.
-pub const MUTATOR_CHOICES: usize = 18;
+pub const MUTATOR_CHOICES: usize = 25;
 
 /// A set of `LOBBY_MUTATORS`, by index: bit n is entry n (bit 0, the empty entry, never set). On the wire, the
 /// number.
@@ -298,6 +298,14 @@ pub const LOBBY_MUTATORS: [&str; MUTATOR_CHOICES] = [
     "Mutator_Boost_IceGauntlets",
     "Mutator_RandomItemSpawns",
     "Mutator_ShrinkBlastBoxLastPoint",
+    // the port's own (`mvs_sim::world::own_rules`)
+    "Chaos_MoonJump",
+    "Chaos_Featherweight",
+    "Chaos_Heavyweight",
+    "Chaos_Vampire",
+    "Chaos_DodgeFrenzy",
+    "Chaos_LavaFloor",
+    "Chaos_Ghosts",
 ];
 
 /// The Chaos Wheel's window by default, seconds: the match plays one plain, then each has one mutator.
