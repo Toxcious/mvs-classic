@@ -537,6 +537,19 @@ impl Window {
         std::mem::take(&mut self.blurred)
     }
 
+    /// The window's scale: its monitor's DPI over 96 (1 when unknown).
+    // (SDL's display scale, not its pixel density: the scale a window's pixels are drawn at, as Windows' per-monitor
+    // DPI is. The pixel density is only the pixels over the points, 1 on X11 whatever the desktop's scale.)
+    // Deviation: X11 has one scale for every display (the desktop's setting, or SDL_VIDEO_X11_SCALING_FACTOR), where
+    // Windows has one for each monitor; Wayland gives each output its own, fractional ones included, as Windows does.
+    // Unverified: SDL's source is not read here: the X11 scale taken as SDL 3.4's global one (Xft.dpi, GDK_SCALE or
+    // the XSETTINGS window scale); only an unscaled headless output is run.
+    pub fn scale(&self) -> f32 {
+        // SAFETY: the window's own pointer.
+        let s = unsafe { SDL_GetWindowDisplayScale(self.win) };
+        if s > 0.0 { s } else { 1.0 }
+    }
+
     /// The window's title (the perf line when the UI is off).
     pub fn set_title(&self, title: &str) {
         let title = CString::new(title.replace('\0', "")).unwrap_or_default();
@@ -985,5 +998,14 @@ mod tests {
         assert_eq!(content_size([1600, 900], display, work, [16, 39]), [1600, 900]);
         assert_eq!(content_size([1920, 1080], display, work, [16, 39]), [1904, 1001]);
         assert_eq!(launcher_size([1200, 720], 1.5, [1920, 1040], 0.6), [1733, 1040]);
+    }
+
+    #[test]
+    #[ignore = "opens a window: run in a headless gamescope"]
+    fn a_window_has_a_scale() {
+        let window = Window::new("scale", [640, 360], false).unwrap();
+        let scale = window.scale();
+        println!("scale {scale}, pixel density {}", density(window.win));
+        assert!(scale.is_finite() && scale > 0.0, "{scale}");
     }
 }
