@@ -16,6 +16,7 @@ use mvs_ui::menu::input::Pointer;
 use mvs_ui::menu::online::{
     LocalReason, OfflineWhy, OnlineCmd, OnlineEvent, OnlineLine, OnlineView, SessionLink, SessionView,
 };
+use mvs_ui::menu::widgets::controls::drop_menu::DropMenu;
 use mvs_ui::menu::{Manager, MenuInput, MenuScreen, MenuView, NoSound};
 use mvs_ui::slate::{Vis, WidgetId};
 use mvs_ui::text::{Fonts, GameText};
@@ -789,4 +790,29 @@ fn a_lobby_with_no_net_service_says_why_it_is_local() {
     assert_eq!(l.text("LobbyConnectionDetail"), mvs_ui::menu::custom_text::WHY_TURNED_OFF);
     let code = l.find("customGame", "LobbyCodeButton");
     assert!(l.shown("LobbyCodeButton") && !l.takes_clicks(code));
+}
+
+/// The Versus lobby shows its four places, and still does after Versus is picked again from the Game Mode drop (a
+/// pick the lobby does not answer: the empty slots keep the last count of free places).
+#[test]
+fn a_versus_lobby_keeps_its_four_places() {
+    let Some(mut l) = Lobby::new(env()) else { return };
+    let open = |l: &Lobby, team: &str| {
+        let t = l.find("customGame", team);
+        (1..=4)
+            .filter(|n| {
+                let s = l.screen.view.tree().find_in(t, &format!("EmptySlot{n}"));
+                l.screen.view.tree().widget(s).vis != Vis::Collapsed
+            })
+            .count()
+    };
+    let places = |l: &Lobby| (open(l, "WBP_CustomGameTeam"), open(l, "WBP_CustomGameTeam_1"));
+    assert_eq!(places(&l), (1, 2));
+    // (the drop's click event as its list's Versus row fires it)
+    let drop = l.find("customGame", "UI_DropGameMode");
+    l.screen.with_cx(&mut l.env.run(), |cx| {
+        cx.visit::<DropMenu, _>(drop, |m, cx| cx.emit(m, |c| &c.on_click, &(0, "versus".to_string())));
+    });
+    l.frames(10, &[]);
+    assert_eq!(places(&l), (1, 2));
 }

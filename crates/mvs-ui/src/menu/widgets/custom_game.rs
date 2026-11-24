@@ -652,6 +652,9 @@ pub struct CustomGameTeam {
     pub on_bot_settings_change_requested: Event<(String, String, i32, String)>,
     pub on_promote_new_leader_clicked: Event<String>,
     pub cached_num_players: usize,
+    /// AvailableSlots: the lobby's free places, set by Populate (@5783) and read by every UpdateEmptySlotVisibility,
+    /// the calls without a count included (a team switch, a style picked).
+    cached_available: usize,
     /// (account id, row).
     players: Vec<(String, WidgetId)>,
     context: String,
@@ -741,8 +744,11 @@ impl CustomGameTeam {
         });
     }
 
+    /// UpdateEmptySlotVisibility: the column's free places, at most the lobby's (`available`, kept as AvailableSlots;
+    /// None: the last one kept).
     pub fn update_empty_slot_visibility(&mut self, cx: &mut Cx<'_>, can_add_bots: bool, available: Option<usize>) {
-        let available = available.unwrap_or(0);
+        let available = available.unwrap_or(self.cached_available);
+        self.cached_available = available;
         let max = super::controls::prop_f64(cx, "MaxPlayers", 2.0) as i64;
         let open = (max - self.cached_num_players as i64).min(available as i64);
         for (i, s) in Self::empty_slots(cx).into_iter().enumerate() {
