@@ -10,7 +10,7 @@
 # It builds no release and publishes nothing.
 name: Linux
 
-on: [push, pull_request]
+on: [push, pull_request, workflow_dispatch]
 
 permissions:
   contents: read
