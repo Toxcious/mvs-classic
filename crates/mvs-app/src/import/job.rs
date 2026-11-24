@@ -251,6 +251,33 @@ impl Drop for Job {
     fn drop(&mut self) {
         // (as the job's close does: a process still there ends; its pidfd closes after)
         self.kill();
+        // Deviation: a Linux process ended stays a zombie until its parent waits on it, where the job's close is the
+        // whole cleanup. The wait runs on a thread of its own (the launcher's frame drops workers and must not
+        // block); through the pidfd it can only reap this process. ECHILD (the poll's try_wait reaped it) is fine.
+        if let Some(p) = self.process.take() {
+            let _ = std::thread::Builder::new().name("import reap".into()).spawn(move || reap(&p));
+        }
+    }
+}
+
+/// The job's process waited on until it ends and reaped (the pidfd closes after, with `p`).
+#[cfg(not(windows))]
+fn reap(p: &Process) {
+    loop {
+        let r = match p {
+            Process::Fd(fd, _) => {
+                // SAFETY: zeroed siginfo is a valid value of the plain struct, written by the call.
+                let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
+                // SAFETY: the job's live pidfd and a siginfo the call writes.
+                unsafe { libc::waitid(libc::P_PIDFD, fd.as_raw_fd() as libc::id_t, &mut info, libc::WEXITED) }
+            }
+            // (a kernel without pidfd: the pid, as std's own wait does)
+            // SAFETY: a wait on the job's pid, no status asked.
+            Process::Pid(pid) => unsafe { libc::waitpid(*pid as libc::pid_t, std::ptr::null_mut(), 0) },
+        };
+        if r != -1 || std::io::Error::last_os_error().raw_os_error() != Some(libc::EINTR) {
+            return;
+        }
     }
 }
 
