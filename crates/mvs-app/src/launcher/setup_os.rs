@@ -742,15 +742,15 @@ mod tests {
     #[cfg(not(windows))]
     #[test]
     fn the_shortcut_starts_the_launcher_in_its_folder() {
-        let exe = Path::new("/home/a/MVS Classic tést/MVSC Launcher.exe");
+        let exe = Path::new("/home/a/MVS Classic tést/MVSC Launcher");
         let text = shortcut_desktop_entry(exe, exe.parent().unwrap());
         assert!(text.starts_with("[Desktop Entry]\n"));
         let lines: Vec<&str> = text.lines().collect();
-        assert!(lines.contains(&r#"Exec="/home/a/MVS Classic tést/MVSC Launcher.exe""#));
+        assert!(lines.contains(&r#"Exec="/home/a/MVS Classic tést/MVSC Launcher""#));
         assert!(lines.contains(&"Path=/home/a/MVS Classic tést"));
         assert!(lines.contains(&"Type=Application") && lines.contains(&"Name=MVS Classic"));
         assert!(names_exe(&text, exe));
-        assert!(!names_exe(&text, Path::new("/elsewhere/MVSC Launcher.exe")));
+        assert!(!names_exe(&text, Path::new("/elsewhere/MVSC Launcher")));
     }
 
     /// SDL's clipboard keeps a non-ASCII text through a copy and a paste. It needs a display (run it in a headless
