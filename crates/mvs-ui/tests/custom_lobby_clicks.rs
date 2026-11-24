@@ -751,7 +751,7 @@ fn the_connection_line_says_the_link_and_greys_a_local_lobby() {
     l.link(SessionLink::Local(LocalReason::Offline(OfflineWhy::NotReached)));
     assert_eq!(l.text("LobbyConnectionHead"), "OFFLINE");
     assert_ne!(l.color("LobbyConnectionHead"), GREEN);
-    assert_eq!(l.text("LobbyConnectionDetail"), t::LOBBY_LOCAL_NOT_REACHED);
+    assert_eq!(l.text("LobbyConnectionDetail"), t::WHY_NOT_REACHED);
     assert!(l.shown("LobbyConnectionTip"), "what to do is the line's tip");
     assert!(l.shown("LobbyCodeButton") && l.shown("LobbySettingsButton"), "greyed, not hidden");
     assert!(!l.takes_clicks(code) && !l.takes_clicks(settings));
@@ -784,7 +784,7 @@ fn a_lobby_with_no_net_service_says_why_it_is_local() {
     let mut l = Lobby { env, screen, out: ElementList::default(), n: 0, online_ms: 0.0 };
     l.frames(30, &[]);
     assert_eq!(l.text("LobbyConnectionHead"), "OFFLINE");
-    assert_eq!(l.text("LobbyConnectionDetail"), mvs_ui::menu::custom_text::LOBBY_LOCAL_TURNED_OFF);
+    assert_eq!(l.text("LobbyConnectionDetail"), mvs_ui::menu::custom_text::WHY_TURNED_OFF);
     let code = l.find("customGame", "LobbyCodeButton");
     assert!(l.shown("LobbyCodeButton") && !l.takes_clicks(code));
 }

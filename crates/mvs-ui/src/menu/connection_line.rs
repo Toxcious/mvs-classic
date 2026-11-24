@@ -5,6 +5,7 @@
 
 use super::custom_text as t;
 use super::online::{LocalReason, OfflineWhy, SessionLink};
+use super::online_line::reason;
 
 /// The line's state: its first word and that word's colour.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -54,18 +55,22 @@ fn local_reason(why: &LocalReason) -> (&'static str, String) {
         LocalReason::RelayVersion => (t::LOBBY_LOCAL_RELAY_VERSION, t::LOBBY_LOCAL_RELAY_VERSION_DO),
         LocalReason::CannotHost => (t::LOBBY_LOCAL_CANNOT_HOST, t::LOBBY_LOCAL_CANNOT_HOST_DO),
         LocalReason::MadeOffline => (t::LOBBY_LOCAL_MADE_OFFLINE, t::LOBBY_LOCAL_MADE_OFFLINE_DO),
-        LocalReason::Offline(off) => match off {
-            OfflineWhy::TurnedOff => (t::LOBBY_LOCAL_TURNED_OFF, t::LOBBY_LOCAL_TURNED_OFF_DO),
-            OfflineWhy::SigningIn => (t::LOBBY_LOCAL_SIGNING_IN, t::LOBBY_LOCAL_SIGNING_IN_DO),
-            OfflineWhy::NotReached => (t::LOBBY_LOCAL_NOT_REACHED, t::LOBBY_LOCAL_NOT_REACHED_DO),
-            OfflineWhy::Checking => (t::LOBBY_LOCAL_CHECKING, t::LOBBY_LOCAL_CHECKING_DO),
-            OfflineWhy::Update { version } => {
-                return (t::LOBBY_LOCAL_UPDATE, t::LOBBY_LOCAL_UPDATE_DO.replace("{version}", version));
-            }
-            OfflineWhy::Import => (t::LOBBY_LOCAL_IMPORT, t::LOBBY_LOCAL_IMPORT_DO),
-            OfflineWhy::SelfCheck => (t::LOBBY_LOCAL_SELF_CHECK, t::LOBBY_LOCAL_SELF_CHECK_DO),
-            OfflineWhy::Other => (t::LOBBY_LOCAL_OTHER, t::LOBBY_LOCAL_OTHER_DO),
-        },
+        // (online play's own reasons: the menus' line's words)
+        LocalReason::Offline(off) => {
+            let how = match off {
+                OfflineWhy::TurnedOff => t::LOBBY_LOCAL_TURNED_OFF_DO,
+                OfflineWhy::SigningIn => t::LOBBY_LOCAL_SIGNING_IN_DO,
+                OfflineWhy::NotReached => t::LOBBY_LOCAL_NOT_REACHED_DO,
+                OfflineWhy::Checking => t::LOBBY_LOCAL_CHECKING_DO,
+                OfflineWhy::Update { version } => {
+                    return (reason(off), t::LOBBY_LOCAL_UPDATE_DO.replace("{version}", version));
+                }
+                OfflineWhy::Import => t::LOBBY_LOCAL_IMPORT_DO,
+                OfflineWhy::SelfCheck => t::LOBBY_LOCAL_SELF_CHECK_DO,
+                OfflineWhy::Other => t::LOBBY_LOCAL_OTHER_DO,
+            };
+            (reason(off), how)
+        }
     };
     (reason, how.to_owned())
 }
@@ -88,7 +93,7 @@ mod tests {
     #[test]
     fn a_local_lobby_says_why() {
         let l = line(&SessionLink::Local(LocalReason::RelayVersion));
-        assert_eq!((l.state, l.head, l.detail.as_str()), (LineState::Offline, "OFFLINE", "Version mismatch"));
+        assert_eq!((l.state, l.head, l.detail.as_str()), (LineState::Offline, "OFFLINE", "Server version differs"));
         assert_eq!(l.how.as_deref(), Some(t::LOBBY_LOCAL_RELAY_VERSION_DO));
     }
 
@@ -113,9 +118,9 @@ mod tests {
         };
         assert_eq!(r(LocalReason::CannotHost).0, t::LOBBY_LOCAL_CANNOT_HOST);
         assert_eq!(r(LocalReason::MadeOffline).0, t::LOBBY_LOCAL_MADE_OFFLINE);
-        assert_eq!(r(LocalReason::Offline(OfflineWhy::TurnedOff)).0, t::LOBBY_LOCAL_TURNED_OFF);
-        assert_eq!(r(LocalReason::Offline(OfflineWhy::SigningIn)).0, t::LOBBY_LOCAL_SIGNING_IN);
-        assert_eq!(r(LocalReason::Offline(OfflineWhy::NotReached)).0, t::LOBBY_LOCAL_NOT_REACHED);
+        assert_eq!(r(LocalReason::Offline(OfflineWhy::TurnedOff)).0, t::WHY_TURNED_OFF);
+        assert_eq!(r(LocalReason::Offline(OfflineWhy::SigningIn)).0, t::WHY_SIGNING_IN);
+        assert_eq!(r(LocalReason::Offline(OfflineWhy::NotReached)).0, t::WHY_NOT_REACHED);
         let update = r(LocalReason::Offline(OfflineWhy::Update { version: "0.2.0".into() }));
         assert_eq!(update, ("Update needed".into(), "Update to 0.2.0 in the launcher".into()));
         for why in [OfflineWhy::Checking, OfflineWhy::Import, OfflineWhy::SelfCheck, OfflineWhy::Other] {
