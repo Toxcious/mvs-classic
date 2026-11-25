@@ -92,6 +92,37 @@ others; with `--eos` (the default) that machine needs `MVS_EOS_SO` as well. Ever
 Linux test build (no EOS files, not a release): open the run on the repo's Actions tab and download
 `mvs-classic-linux` under "Artifacts".
 
+### When you change Direct3D code or HLSL
+The Linux build needs two things that Windows makes for itself. Both are files in the repo, made again by a command
+when the code changes, and the Linux check on GitHub fails until they are.
+
+- **A D3D11, DXGI or Direct3D item the port has not used before** (an interface, a struct, a constant, a function):
+  add its Win32 metadata name to `crates/mvs-d3d/names.txt`, in the form the file already uses (for example
+  `Windows.Win32.Foundation.RECT`), then run
+
+  ```
+  cargo run --manifest-path tools/d3d-bindings/Cargo.toml
+  ```
+
+  It rewrites `crates/mvs-d3d/src/linux/bindings.rs`, on Windows or Linux alike. Commit both files. Until then the
+  Linux build cannot find the item and names it. `-- --check` after the same command only compares, which is what
+  the Linux check runs.
+- **A change to the port's own HLSL** (the shaders `mvs-render` and `mvs-ui` compile): Linux has no `D3DCompile`, so
+  it loads the DXBC that Windows made of each shader, committed in `crates/mvs-render/shaders/` and
+  `crates/mvs-ui/shaders/` with a `keys.txt` that ties each blob to its source. After the edit, on Windows, for each
+  of the two crates whose shaders changed (here `mvs-render`), in PowerShell:
+
+  ```
+  $env:MVS_WRITE_DXBC = 'C:\temp\dxbc-render'
+  cargo test -p mvs-render the_committed_dxbc_is_what_d3dcompile_makes
+  Remove-Item Env:MVS_WRITE_DXBC
+  ```
+
+  That run writes every blob and `keys.txt` into the folder and then fails on purpose ("written, run again without
+  MVS_WRITE_DXBC"). Replace the `.dxbc` files and `keys.txt` in `crates/mvs-render/shaders/` with the ones written,
+  and run the same `cargo test` again: it passes when the committed blobs are what `D3DCompile` makes. Until then
+  that test fails on Windows, and `every_listed_shader_has_its_blob` fails on Linux and in the Linux check.
+
 ## Check a change
 - `cargo fmt --check` and `cargo clippy --release --all-targets`: no new warning.
 - `cargo test --profile trace --no-fail-fast -p <crate>` for each crate you touched. Tests that read the store use
