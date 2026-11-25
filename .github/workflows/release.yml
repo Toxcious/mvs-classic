@@ -146,18 +146,24 @@ jobs:
       - name: Build
         run: MVS_VERSION="${GITHUB_REF_NAME#v}" tools/linux-build.sh release
       # Each program must report the tag's version, as in the other jobs: a mismatch stops the release here.
+      # The programs run in the container the build used, not on the runner: the SDL3 library in game/ comes from
+      # the Steam Runtime and loads the sound and window-system libraries (PulseAudio, ALSA, X11, Wayland) that a
+      # desktop has and this runner does not. The image is already here from the build, under the same engine.
       - name: Check the versions
         run: |
-          version="${GITHUB_REF_NAME#v}"
-          check() {
-            line=$("$1" --version | head -n 1)
-            case "$line" in
-              "$2 $version" | "$2 $version "*) echo "$line" ;;
-              *) echo "$1 says \"$line\", not \"$2 $version\"" >&2; exit 1 ;;
-            esac
-          }
-          check "target/linux-release/MVSC Launcher" mvs-launcher
-          check "target/linux-release/game/MVS Classic" mvs
+          engine=$(command -v podman || command -v docker)
+          image=$(sed -n 's/^IMAGE=//p' tools/linux-build.sh)
+          "$engine" run --rm --security-opt label=disable -v "$PWD/target/linux-release:/r:ro" \
+            -e version="${GITHUB_REF_NAME#v}" "$image" bash -euc '
+              check() {
+                line=$("$1" --version | head -n 1)
+                case "$line" in
+                  "$2 $version" | "$2 $version "*) echo "$line" ;;
+                  *) echo "$1 says \"$line\", not \"$2 $version\"" >&2; exit 1 ;;
+                esac
+              }
+              check "/r/MVSC Launcher" mvs-launcher
+              check "/r/game/MVS Classic" mvs'
           sha256sum "target/linux-release/MVSC Launcher" "target/linux-release/game/MVS Classic"
       # Both programs, one path per line, as the action's documentation lists several files. The spaces in the
       # names need no quotes here: each line is read whole as one path.
