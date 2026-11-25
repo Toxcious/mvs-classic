@@ -1,7 +1,11 @@
-# Packs a release from the programs the release workflow (.github/workflows/release.yml) built for its tag: finds the
-# tag's run, downloads its programs, checks each one's attestation (built by that workflow, from that tag, in that
-# repo) and runs `mvs-dist build --programs`, which adds the self check's reference (played on this machine's store),
-# Epic's SDK and credentials (MVS_EOS_DLL, MVS_EOS_CREDENTIALS) and the notices, zips and guards. Out: target/dist.
+# Packs a release from the programs the release workflow (.github/workflows/release.yml) built for its tag. Runs on
+# the maintainer's machine, not on GitHub: finds the tag's run, downloads its programs (the Windows game, the Linux
+# game and the relay), checks each one's attestation (built by that workflow, from that tag, in that repo) and runs
+# `mvs-dist build --programs`, which adds the self check's reference (played on this machine's store), Epic's SDK and
+# credentials and the notices, zips and guards. Out: target/dist, the Linux game's zip among the others.
+# With --eos (the default; -NoEos leaves it out), Epic's files come from three variables naming files on this
+# machine: MVS_EOS_DLL (the Windows library), MVS_EOS_SO (the Linux library, needed now that the Linux zip is packed
+# too) and MVS_EOS_CREDENTIALS.
 #   powershell -NoProfile -File tools/release-fetch.ps1 -Version 0.2.0 [-Wait] [-NoEos] [-Repo <owner>/<repo>]
 # -Wait waits for a run still going. Arguments after the named ones go to mvs-dist build (`--store <dir>`).
 # (no positional binding: an argument for mvs-dist such as `--store` must not land in -Repo)
@@ -46,7 +50,10 @@ gh run download $run.databaseId -R $Repo -D $dir
 Invoke-Native 'gh run download'
 $windows = Join-Path $dir 'programs-windows'
 $linuxRelay = Join-Path $dir 'programs-relay-linux/mvs-relay'
-$files = @('mvs.exe', 'mvs-launcher.exe', 'mvs-relay.exe' | ForEach-Object { Join-Path $windows $_ }) + $linuxRelay
+# the Linux game's folder as tools/linux-build.sh lays it out: the launcher at the top, the game in game/
+$gameLinux = Join-Path $dir 'programs-game-linux'
+$files = @('mvs.exe', 'mvs-launcher.exe', 'mvs-relay.exe' | ForEach-Object { Join-Path $windows $_ }) + $linuxRelay +
+    @('MVSC Launcher', 'game/MVS Classic' | ForEach-Object { Join-Path $gameLinux $_ })
 
 # each one built by the release workflow, from the tag, in the repo
 foreach ($f in $files) {
@@ -58,7 +65,7 @@ foreach ($f in $files) {
 
 # the zips
 $dist = @('build', '--version', $Version, '--feed', "https://api.github.com/repos/$Repo/releases/latest",
-    '--programs', $windows, '--relay-linux', $linuxRelay)
+    '--programs', $windows, '--relay-linux', $linuxRelay, '--game-linux', $gameLinux)
 if (-not $NoEos) { $dist += '--eos' }
 if ($Rest) { $dist += $Rest }
 Push-Location $root
