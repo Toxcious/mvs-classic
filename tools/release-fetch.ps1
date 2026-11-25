@@ -1,7 +1,8 @@
 # Packs a release from the programs the release workflow (.github/workflows/release.yml) built for its tag: finds the
 # tag's run, downloads its programs, checks each one's attestation (built by that workflow, from that tag, in that
 # repo) and runs `mvs-dist build --programs`, which adds the self check's reference (played on this machine's store),
-# Epic's SDK and credentials (MVS_EOS_DLL, MVS_EOS_CREDENTIALS) and the notices, zips and guards. Out: target/dist.
+# Epic's SDK (the repo's third_party/eos, or MVS_EOS_DLL), the credentials (MVS_EOS_CREDENTIALS) and the notices,
+# zips and guards. Out: target/dist.
 #   powershell -NoProfile -File tools/release-fetch.ps1 -Version 0.2.0 [-Wait] [-NoEos] [-Repo <owner>/<repo>]
 # -Wait waits for a run still going. Arguments after the named ones go to mvs-dist build (`--store <dir>`).
 # (no positional binding: an argument for mvs-dist such as `--store` must not land in -Repo)

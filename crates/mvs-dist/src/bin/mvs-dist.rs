@@ -4,7 +4,8 @@
 //!       [--programs <dir>] [--store <dir>]
 //!       builds mvs.exe and mvs-relay.exe for the version (and the feed the exe checks), writes into <dir> (default
 //!       <repo>/target/dist) the release folder, MVS-Classic-<version>.zip and MVS-Classic-Relay-<version>.zip, then
-//!       guards both zips. --eos packs the EOS SDK's DLL and credentials named by MVS_EOS_DLL and MVS_EOS_CREDENTIALS.
+//!       guards both zips. --eos packs the EOS SDK's DLL (the repo's third_party/eos, or MVS_EOS_DLL) and the
+//!       credentials named by MVS_EOS_CREDENTIALS.
 //!       --relay-linux packs a Linux mvs-relay built elsewhere. --no-build packs the last build again (built for the
 //!       same version and feed). --programs packs the programs in <dir> instead of building them (the release
 //!       workflow's, fetched by tools/release-fetch.ps1). The built mvs.exe runs the self check's match on --store

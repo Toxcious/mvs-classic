@@ -16,6 +16,8 @@ use mvs_release::zip::{self, Entry};
 
 /// Epic's notice, after the project's licence in a release with the EOS SDK.
 const EOS_NOTICE: &str = include_str!("../notices/eos-notice.txt");
+/// Epic's SDK runtime as the repo keeps it (`third_party/eos/README.md`).
+const EOS_DLL_IN_REPO: &str = "third_party/eos/EOSSDK-Win64-Shipping.dll";
 /// The file that marks a folder as this tool's output, which its next run may empty.
 const OUT_MARK: &str = ".mvs-dist";
 
@@ -32,7 +34,7 @@ pub struct Options {
     /// The update feed the exe checks (mvs_release::FEED: the GitHub API's latest release); None: a build that never
     /// checks.
     pub feed: Option<String>,
-    /// Pack the EOS SDK's DLL and the credentials (`MVS_EOS_DLL`, `MVS_EOS_CREDENTIALS`).
+    /// Pack the EOS SDK's DLL (the repo's, or `MVS_EOS_DLL`) and the credentials (`MVS_EOS_CREDENTIALS`).
     pub eos: bool,
     /// The output folder (made, or emptied when it is an earlier output).
     pub out: PathBuf,
@@ -56,11 +58,12 @@ struct EosFiles {
     credentials: Vec<u8>,
 }
 
-fn eos_files() -> Result<EosFiles, String> {
+fn eos_files(repo: &Path) -> Result<EosFiles, String> {
     let var = |k: &str| std::env::var_os(k).map(PathBuf::from);
-    let (Some(dll), Some(credentials)) = (var("MVS_EOS_DLL"), var("MVS_EOS_CREDENTIALS")) else {
-        return Err("dist: --eos needs MVS_EOS_DLL and MVS_EOS_CREDENTIALS".to_owned());
+    let Some(credentials) = var("MVS_EOS_CREDENTIALS") else {
+        return Err("dist: --eos needs MVS_EOS_CREDENTIALS".to_owned());
     };
+    let dll = var("MVS_EOS_DLL").unwrap_or_else(|| repo.join(EOS_DLL_IN_REPO));
     let named = dll.file_name().is_some_and(|n| n.to_string_lossy().eq_ignore_ascii_case(EOS_DLL));
     if !named || !dll.is_file() {
         return Err(format!("dist: MVS_EOS_DLL is not an {EOS_DLL}: {}", dll.display()));
@@ -238,7 +241,7 @@ pub fn run(o: &Options) -> Result<(), String> {
     {
         return Err(format!("dist: the feed {f} is not an http(s) URL"));
     }
-    let eos = if o.eos { Some(eos_files()?) } else { None };
+    let eos = if o.eos { Some(eos_files(&o.repo)?) } else { None };
     if let Some(l) = &o.relay_linux
         && !l.is_file()
     {

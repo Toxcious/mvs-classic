@@ -23,10 +23,13 @@ const NAMES = new Set(['LICENSE', 'NOTICE', 'README', 'Jamfile', 'commit-msg', '
 // Pictures only where the app and the README keep theirs.
 const PICTURES = /^(docs\/images\/|crates\/[^/]+\/res\/)/;
 const LIMIT = 1024 * 1024;
+// Epic's EOS SDK runtime, kept with Epic's permission (third_party/eos/README.md): the one file past both rules.
+const EOS_DLL = 'third_party/eos/EOSSDK-Win64-Shipping.dll';
 
 const files = execFileSync('git', ['ls-files', '-z'], { encoding: 'utf8' }).split('\0').filter(Boolean);
 const bad = [];
 for (const f of files) {
+  if (f === EOS_DLL) continue;
   const base = f.split('/').pop();
   const dot = base.lastIndexOf('.');
   const ext = dot > 0 ? base.slice(dot + 1).toLowerCase() : '';
