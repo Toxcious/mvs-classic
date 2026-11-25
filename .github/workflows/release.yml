@@ -130,7 +130,11 @@ jobs:
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         id: dxvk-cache
         with:
-          path: target/linux-deps/dxvk
+          # The library and DXVK's license: `release` copies the license from DXVK's source folder, which is
+          # not kept otherwise.
+          path: |
+            target/linux-deps/dxvk
+            target/linux-deps/src/LICENSE
           key: dxvk-${{ steps.dxvk.outputs.tag }}
       - name: Build DXVK-native
         if: steps.dxvk-cache.outputs.cache-hit != 'true'
