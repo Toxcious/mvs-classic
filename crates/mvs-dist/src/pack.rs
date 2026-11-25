@@ -49,6 +49,11 @@ pub struct Options {
     pub programs: Option<PathBuf>,
     /// The store the self check's match runs on (None: the one the built exe finds, its data root's).
     pub store: Option<PathBuf>,
+    /// The self check's reference made beforehand (the repo's self-check.json, made by `mvs --self-test --check-out`
+    /// on a store of the release's import): packed as it is, no store read. It must be for the id the packed exe's
+    /// `--compat-id` prints, committed, with no change to the code after its commit. The release workflow packs with
+    /// it, where no store is.
+    pub self_check: Option<PathBuf>,
 }
 
 /// The EOS files a release adds, checked before anything is built: a bad credentials file is named by its path and
@@ -231,6 +236,74 @@ fn self_check(exe: &Path, store: Option<&Path>, tmp: &Path) -> Result<Vec<u8>, S
     Ok(text)
 }
 
+/// A self check's reference made beforehand: `file` read, and held to the id `exe --compat-id` prints (the id a
+/// player's fresh import gets; a reference for another one is never used).
+fn made_self_check(exe: &Path, file: &Path, repo: &Path) -> Result<Vec<u8>, String> {
+    let text = read(file)?;
+    let r: SelfCheckRef =
+        serde_json::from_slice(&text).map_err(|e| format!("dist: {} is not a self check: {e}", file.display()))?;
+    let out = Command::new(exe)
+        .arg("--compat-id")
+        .output()
+        .map_err(|e| format!("dist: {} --compat-id did not start: {e}", exe.display()))?;
+    let id = String::from_utf8_lossy(&out.stdout).trim().to_owned();
+    if !out.status.success() || id.is_empty() {
+        return Err(format!("dist: {} --compat-id gave no id", exe.display()));
+    }
+    if r.compat != id {
+        return Err(format!(
+            "dist: {} is for {}, the release's id is {id}: make it again with `mvs --self-test --check-out`",
+            file.display(),
+            r.compat
+        ));
+    }
+    code_unchanged_since(repo, file)?;
+    println!("dist: self check {:08x} for {} (from {})", r.hash, r.compat, file.display());
+    Ok(text)
+}
+
+/// The paths a self check's hash comes from: the code and what it is built with. The id holds the version, so a
+/// reference of another release is caught by it; this catches one of this version made before a later change.
+const CHECKED_CODE: [&str; 4] = ["crates", "Cargo.toml", "Cargo.lock", "rust-toolchain.toml"];
+
+/// Err unless `file` is the repo's, committed as it is, and no commit after the last one that holds it (nor the
+/// working tree) changed the code it was made from. Needs the history back to that commit (no shallow clone).
+fn code_unchanged_since(repo: &Path, file: &Path) -> Result<(), String> {
+    let full = |p: &Path| p.canonicalize().map_err(|e| format!("dist: {}: {e}", p.display()));
+    let (repo_full, file_full) = (full(repo)?, full(file)?);
+    let Ok(rel) = file_full.strip_prefix(&repo_full) else {
+        return Err(format!("dist: {} is not in the repo: --self-check takes the committed one", file.display()));
+    };
+    let rel = rel.to_string_lossy().replace('\\', "/");
+    let git = |args: &[&str]| {
+        Command::new("git").arg("-C").arg(repo).args(args).output().map_err(|e| format!("dist: git did not start: {e}"))
+    };
+    let out = git(&["status", "--porcelain", "--", &rel])?;
+    if !out.status.success() || !out.stdout.is_empty() {
+        return Err(format!("dist: {rel} is not committed as it is: commit it with the release"));
+    }
+    let out = git(&["log", "-1", "--format=%H", "--", &rel])?;
+    let made = String::from_utf8_lossy(&out.stdout).trim().to_owned();
+    if !out.status.success() || made.is_empty() {
+        return Err(format!("dist: no commit holds {rel} (a shallow clone? fetch the history back to it)"));
+    }
+    let since = [&["diff", "--quiet", &made, "HEAD", "--"][..], &CHECKED_CODE[..]].concat();
+    let now = [&["diff", "--quiet", "HEAD", "--"][..], &CHECKED_CODE[..]].concat();
+    for (args, what) in [(since, format!("since {}", &made[..made.len().min(10)])), (now, "in the working tree".into())]
+    {
+        match git(&args)?.status.code() {
+            Some(0) => {}
+            Some(1) => {
+                return Err(format!(
+                    "dist: the code changed {what}, after {rel} was made: make it again (tools/self-check.ps1)"
+                ));
+            }
+            _ => return Err(format!("dist: git diff failed on {}", args.join(" "))),
+        }
+    }
+    Ok(())
+}
+
 /// The whole release; Err names the step that failed.
 pub fn run(o: &Options) -> Result<(), String> {
     if parse_version(&o.version).is_none() {
@@ -257,6 +330,9 @@ pub fn run(o: &Options) -> Result<(), String> {
     }
     if o.programs.is_some() && o.no_build {
         return Err("dist: --programs and --no-build both name what to pack; give one".to_owned());
+    }
+    if o.self_check.is_some() && o.store.is_some() {
+        return Err("dist: --self-check and --store both name the self check's source; give one".to_owned());
     }
     if let Some(dir) = &o.programs
         && !dir.is_dir()
@@ -326,7 +402,10 @@ pub fn run(o: &Options) -> Result<(), String> {
     check_version(&exe, &format!("mvs {}", o.version))?;
     check_version(&launcher_exe, &format!("mvs-launcher {}", o.version))?;
     check_version(&relay_exe, &format!("mvs-relay {}", o.version))?;
-    let check = self_check(&exe, o.store.as_deref(), &o.out.join(SELF_CHECK_JSON))?;
+    let check = match &o.self_check {
+        Some(file) => made_self_check(&exe, file, &o.repo)?,
+        None => self_check(&exe, o.store.as_deref(), &o.out.join(SELF_CHECK_JSON))?,
+    };
 
     // the game's folder and zip
     let licence = read(&o.repo.join("LICENSE"))?;
@@ -411,4 +490,45 @@ pub fn run(o: &Options) -> Result<(), String> {
     println!("guard: PASS");
     println!("dist: done, in {}", o.out.display());
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::code_unchanged_since;
+    use std::path::Path;
+    use std::process::Command;
+
+    fn git(dir: &Path, args: &[&str]) {
+        let ok = Command::new("git").arg("-C").arg(dir).args(args).status().expect("git runs").success();
+        assert!(ok, "git {args:?}");
+    }
+
+    fn commit(dir: &Path, what: &str) {
+        git(dir, &["add", "-A"]);
+        git(dir, &["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", what]);
+    }
+
+    #[test]
+    fn a_reference_is_refused_once_the_code_changes_after_it() {
+        let dir = std::env::temp_dir().join(format!("mvs-dist-selfcheck-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("crates")).unwrap();
+        git(&dir, &["init", "-q"]);
+        let (code, reference) = (dir.join("crates/a.rs"), dir.join("self-check.json"));
+        std::fs::write(&code, "1").unwrap();
+        std::fs::write(&reference, "{}").unwrap();
+        commit(&dir, "code and its reference");
+        assert!(code_unchanged_since(&dir, &reference).is_ok());
+
+        std::fs::write(&code, "2").unwrap();
+        assert!(code_unchanged_since(&dir, &reference).is_err(), "a change in the working tree");
+        commit(&dir, "a later change");
+        assert!(code_unchanged_since(&dir, &reference).is_err(), "a change committed after the reference");
+
+        std::fs::write(&reference, "{ }").unwrap();
+        assert!(code_unchanged_since(&dir, &reference).is_err(), "a reference not committed as it is");
+        commit(&dir, "the reference made again");
+        assert!(code_unchanged_since(&dir, &reference).is_ok());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
