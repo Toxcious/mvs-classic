@@ -1109,9 +1109,11 @@ mod tests {
             let c = build_command(&options(feed), Host::Windows, slot, "mvs-app", &["mvs", "mvs-launcher"]);
             if slot {
                 assert_eq!(c.get_program(), "powershell");
-                let mut want = vec!["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "/r/tools/cargo-slot.ps1"];
-                want.extend(bins);
-                assert_eq!(args(&c), want);
+                // (the script's path compared as a path: on Windows the join writes `/r\tools/...`)
+                let got = args(&c);
+                assert_eq!(got[..4], ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"]);
+                assert_eq!(Path::new(&got[4]), Path::new("/r/tools/cargo-slot.ps1"));
+                assert_eq!(got[5..], bins);
             } else {
                 assert_eq!(c.get_program(), "cargo");
                 assert_eq!(args(&c), bins);
@@ -1127,7 +1129,7 @@ mod tests {
     #[test]
     fn the_linux_build_goes_through_the_cross_script() {
         let c = build_command(&options(Some("https://feed")), Host::Linux, true, "mvs-relay", &["mvs-relay"]);
-        assert_eq!(c.get_program(), "/r/tools/windows-cross.sh");
+        assert_eq!(Path::new(c.get_program()), Path::new("/r/tools/windows-cross.sh"));
         assert_eq!(args(&c), ["build", "--release", "-p", "mvs-relay", "--bin", "mvs-relay"]);
         assert_eq!(c.get_current_dir(), Some(Path::new("/r")));
         assert_eq!(env(&c, "MVS_VERSION"), Some(Some("0.1.0".to_owned())));
@@ -1218,7 +1220,7 @@ mod tests {
             (LINUX_RELAY_BUILD, vec!["cargo", "build", "--release", "-p", "mvs-relay", "--bin", "mvs-relay"]),
         ] {
             let c = linux_build_command(&options(Some("https://feed")), build);
-            assert_eq!(c.get_program(), "/r/tools/linux-build.sh");
+            assert_eq!(Path::new(c.get_program()), Path::new("/r/tools/linux-build.sh"));
             assert_eq!(args(&c), want);
             assert_eq!(c.get_current_dir(), Some(Path::new("/r")));
             assert_eq!(env(&c, "MVS_VERSION"), Some(Some("0.1.0".to_owned())));
