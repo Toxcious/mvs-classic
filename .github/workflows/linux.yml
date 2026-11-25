@@ -7,7 +7,8 @@
 #   - the tests that need no GPU, window or store (those that need one skip without it);
 #   - that crates/mvs-d3d's Linux bindings are what tools/d3d-bindings writes from names.txt;
 #   - that no `// Unverified: stub` is left in crates/.
-# It builds no release and publishes nothing.
+# Then it builds the Linux release folder and offers it as a download to try (see the step "Linux build to try"); it
+# publishes no release.
 name: Linux
 
 on: [push, pull_request, workflow_dispatch]
@@ -75,20 +76,51 @@ jobs:
           tools/linux-build.sh cargo test --profile trace --config profile.trace.incremental=false
           --config profile.trace.debug=false --workspace --no-fail-fast --no-run
       - name: Tests
+        id: tests
         run: >-
           tools/linux-build.sh cargo test --profile trace --config profile.trace.incremental=false
           --config profile.trace.debug=false --workspace --no-fail-fast
-      # Saved when both builds succeeded, failing tests or not: a build that failed or was cancelled can leave a crate
-      # built from an older commit than the one recorded, which tools/ci-mtimes.sh would then take as up to date.
+      # The release build, as tools/linux-build.sh release makes it on a desktop, at the workspace's version. Run when
+      # Clippy's and the tests' builds succeeded, even if a test failed, so the cache below keeps this build too; the
+      # cache is then saved only if this build succeeded as well. The download below, though, is offered only when the
+      # tests passed too: a build whose tests failed is never handed to a player.
+      - name: Build the release folder
+        id: release
+        if: always() && steps.clippy.outcome == 'success' && steps.test-build.outcome == 'success'
+        run: tools/linux-build.sh release
+      # A Linux build to try, from every push and pull request. Find it on the run's page on GitHub (the Actions tab,
+      # then this run), under "Artifacts", as mvs-classic-linux; it downloads as a .zip with the .tar.gz inside.
+      # It is a test build, not a release: it has no EOS files (Epic's online services), so online play goes
+      # through the relay only.
+      # Packed with tar first because GitHub's artifact upload drops Unix file permissions, and a player needs the
+      # two programs ("MVSC Launcher" and game/"MVS Classic") marked executable to start them; a .tar.gz keeps
+      # that mark. Unpack it with: tar -xzf MVS-Classic-<version>-linux-<commit>.tar.gz
+      - name: Linux build to try
+        id: pack
+        if: always() && steps.release.outcome == 'success' && steps.tests.outcome == 'success'
+        run: |
+          version=$(jq -r .version target/linux-release/game/linux-build.json)
+          name="MVS-Classic-$version-linux-$(git rev-parse --short HEAD)"
+          tar -czf "target/$name.tar.gz" -C target/linux-release "MVSC Launcher" game
+          echo "file=target/$name.tar.gz" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always() && steps.pack.outcome == 'success'
+        with:
+          name: mvs-classic-linux
+          path: ${{ steps.pack.outputs.file }}
+          if-no-files-found: error
+      # Saved when all three builds (Clippy's, the tests', the release's) succeeded, failing tests or not: a build
+      # that failed or was cancelled can leave a crate built from an older commit than the one recorded, which
+      # tools/ci-mtimes.sh would then take as up to date.
       - name: Record the cached build's commit
         if: >-
           always() && steps.clippy.outcome == 'success' && steps.test-build.outcome == 'success'
-          && steps.target-cache.outputs.cache-hit != 'true'
+          && steps.release.outcome == 'success' && steps.target-cache.outputs.cache-hit != 'true'
         run: git rev-parse HEAD > target/linux-sniper/.ci-commit
       - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         if: >-
           always() && steps.clippy.outcome == 'success' && steps.test-build.outcome == 'success'
-          && steps.target-cache.outputs.cache-hit != 'true'
+          && steps.release.outcome == 'success' && steps.target-cache.outputs.cache-hit != 'true'
         with:
           path: target/linux-sniper
           key: ${{ steps.target-cache.outputs.cache-primary-key }}
