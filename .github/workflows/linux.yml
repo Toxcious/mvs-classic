@@ -26,7 +26,11 @@ jobs:
           sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
           df -h /
 
+      # With the whole history: tools/ci-mtimes.sh diffs this commit against the one the cached build was made from,
+      # which can be on another branch (main's cache, for a new branch) and need not be an ancestor of this one.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
 
       # DXVK-native, built by `deps` at the tag the script pins, is kept between runs: `deps` always rebuilds it.
       - name: DXVK tag
@@ -41,16 +45,53 @@ jobs:
         if: steps.dxvk-cache.outputs.cache-hit != 'true'
         run: tools/linux-build.sh deps
 
+      # The builds (Clippy's and the tests') are kept between runs, the workspace's own crates and test binaries
+      # included: compiling those is most of the job. The newest entry with the same lock, toolchain and build script
+      # is restored, and tools/ci-mtimes.sh makes Cargo rebuild only what reads a file changed since its commit.
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: target-cache
+        with:
+          path: target/linux-sniper
+          key: >-
+            linux-target-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml',
+            'tools/linux-build.sh') }}-${{ github.sha }}
+          restore-keys: >-
+            linux-target-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml',
+            'tools/linux-build.sh') }}-
+      - name: Cached build's file times
+        run: tools/ci-mtimes.sh
+
       - name: Format
         run: tools/linux-build.sh cargo fmt --check
       - name: Clippy
+        id: clippy
         run: tools/linux-build.sh cargo clippy --release --all-targets -- -D warnings
       # Without incremental data and debug info, which a run that starts cold never uses: the test build is about
-      # 6 GB, not 40.
+      # 6 GB, not 40. Built in a step of its own, so the cache is saved only when every build in it succeeded (below);
+      # the next step's build is then up to date.
+      - name: Build the tests
+        id: test-build
+        run: >-
+          tools/linux-build.sh cargo test --profile trace --config profile.trace.incremental=false
+          --config profile.trace.debug=false --workspace --no-fail-fast --no-run
       - name: Tests
         run: >-
           tools/linux-build.sh cargo test --profile trace --config profile.trace.incremental=false
           --config profile.trace.debug=false --workspace --no-fail-fast
+      # Saved when both builds succeeded, failing tests or not: a build that failed or was cancelled can leave a crate
+      # built from an older commit than the one recorded, which tools/ci-mtimes.sh would then take as up to date.
+      - name: Record the cached build's commit
+        if: >-
+          always() && steps.clippy.outcome == 'success' && steps.test-build.outcome == 'success'
+          && steps.target-cache.outputs.cache-hit != 'true'
+        run: git rev-parse HEAD > target/linux-sniper/.ci-commit
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: >-
+          always() && steps.clippy.outcome == 'success' && steps.test-build.outcome == 'success'
+          && steps.target-cache.outputs.cache-hit != 'true'
+        with:
+          path: target/linux-sniper
+          key: ${{ steps.target-cache.outputs.cache-primary-key }}
       # On the runner itself: the generator is not part of the workspace, and rust-toolchain.toml picks its compiler
       # and the rustfmt it formats with.
       - name: D3D bindings
