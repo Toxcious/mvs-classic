@@ -282,24 +282,28 @@ pub fn as_text(r: &TestResult) -> String {
     s
 }
 
-/// `mvs --net-test [--data <dir>] [--online-defaults <file>] [--relay-only]`: the test, its result as one JSON line
-/// on stdout. `--relay-only`: the relay alone (the launcher's while the game runs, whose net state has Epic's and
-/// LAN's: a second Epic sign-in would take the game's place, its LAN host holds the port).
+/// `mvs --net-test [--data <dir>] [--online-defaults <file>] [--relay-only] [--out <file>]`: the test, its result as
+/// one JSON line on stdout. `--relay-only`: the relay alone (the launcher's while the game runs, whose net state has
+/// Epic's and LAN's: a second Epic sign-in would take the game's place, its LAN host holds the port). `--out`: the
+/// JSON written to that file too (the launcher's: on Linux the EOS SDK prints lines of its own on stdout); a file not
+/// written is one line on stderr, and stdout still carries the JSON.
 pub fn main(mut args: impl Iterator<Item = String>) -> u8 {
     let mut data = None;
     let mut online_defaults = None;
     let mut all = true;
     let mut loopback = false;
+    let mut out = None;
     while let Some(a) = args.next() {
         match a.as_str() {
             "--data" => data = args.next().map(PathBuf::from),
             "--online-defaults" => online_defaults = args.next().map(PathBuf::from),
             "--relay-only" => all = false,
             "--direct-loopback" => loopback = true,
+            "--out" => out = args.next().map(PathBuf::from),
             _ => {
                 eprintln!(
                     "mvs: usage: mvs --net-test [--data <dir>] [--online-defaults <file>] [--relay-only] \
-                     [--direct-loopback]"
+                     [--direct-loopback] [--out <file>]"
                 );
                 return 2;
             }
@@ -318,6 +322,10 @@ pub fn main(mut args: impl Iterator<Item = String>) -> u8 {
     match serde_json::to_string(&test(&o, all)) {
         Ok(j) => {
             println!("{j}");
+            // (not written: stdout still carries the JSON, so the run did not fail)
+            if let Some((f, Err(e))) = out.as_ref().map(|f| (f, std::fs::write(f, &j))) {
+                eprintln!("mvs: --net-test: {}: {e}", f.display());
+            }
             0
         }
         Err(e) => {

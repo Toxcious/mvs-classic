@@ -27,8 +27,8 @@
 //! mvs --version   (prints `mvs <version>` and leaves)
 //! mvs --self-test [--data <dir>] [--store <dir>] [--check-out <file>]   (the release's checks, no window:
 //!   `mvs_app::selftest`; --check-out writes the self check's reference, the release tool's packing run)
-//! mvs --net-test [--data <dir>] [--online-defaults <file>] [--relay-only] [--direct-loopback]   (the launcher's Test connection: its result as JSON,
-//!   `mvs_app::launcher::net_test`)
+//! mvs --net-test [--data <dir>] [--online-defaults <file>] [--relay-only] [--direct-loopback] [--out <file>]
+//!   (the launcher's Test connection: its result as JSON, `mvs_app::launcher::net_test`; --out writes it to a file too)
 //!
 //! mvs --load-bench [--store <dir>] [--adapter <text>]   (the loads timed step by step: `mvs_app::load_bench`)
 //! mvs --match-sweep [--store <dir>] [--sweep-ticks <n>] [--sweep-only <key>[,..]]   (every fighter and skin loaded and
@@ -56,7 +56,7 @@ use mvs_net::link::relay::NetFaults;
 /// `--net-cut` starts this long after the online match's go unless `--net-cut-at` says (s).
 const NET_CUT_AT_S: f64 = 10.0;
 
-const USAGE: &str = "mvs --version\nmvs --compat-id\nmvs --self-test [--data <dir>] [--store <dir>] [--check-out <file>]\nmvs --net-test [--data <dir>] [--online-defaults <file>] [--relay-only] [--direct-loopback]\nmvs --load-bench [--store <dir>] [--adapter <text>]\n\
+const USAGE: &str = "mvs --version\nmvs --compat-id\nmvs --self-test [--data <dir>] [--store <dir>] [--check-out <file>]\nmvs --net-test [--data <dir>] [--online-defaults <file>] [--relay-only] [--direct-loopback] [--out <file>]\nmvs --load-bench [--store <dir>] [--adapter <text>]\n\
 mvs --play --store <dir> [--data <dir>] [--size 1920x1080] [--full-screen] [--adapter <text>] [--no-audio] [--mute | --sound] [--background | --foreground] [--online-defaults <file>]\n\
 mvs [--data <dir>] [--store <dir>] [--size 1920x1080] [--full-screen] [--adapter <text>] [--seed <n>] [--no-ui] \
 [--replay <trace match> [--trace-out <file>]] [--real-pace] [--shot <tick>[,..]] [--out <dir>] [--throttle <rate>] \
