@@ -415,6 +415,35 @@ fn play(
     }
 }
 
+/// `play`'s rounds (one every 100 ms) to the first step after which `cond` holds, at most `within` ms: whether it did.
+/// `cond` is looked at after every step, not every round.
+fn play_until(
+    ps: &mut [P],
+    net: &MemoryNet,
+    epoch: Instant,
+    slots: &[u8],
+    tick: &mut u32,
+    within: f64,
+    cond: impl Fn(&[P]) -> bool,
+) -> bool {
+    let end = ms(epoch) + within;
+    let mut round = ms(epoch);
+    while !cond(ps) {
+        if ms(epoch) >= end {
+            return false;
+        }
+        if ms(epoch) >= round {
+            for (i, p) in ps.iter_mut().enumerate() {
+                p.post(NetRequest::Send(input(slots[i], *tick, 1)), epoch);
+            }
+            *tick += 6;
+            round += 100.0;
+        }
+        step(ps, net, epoch);
+    }
+    true
+}
+
 #[test]
 fn a_far_queue_match_goes_through_a_players_app() {
     let (mut ps, net, epoch) = two(false, false);
@@ -526,15 +555,23 @@ fn a_referee_app_that_sends_nothing_is_lost() {
     let mut tick = 2;
     play(&mut ps, &net, epoch, &slots, &mut tick, 5, None);
     ps[r].muted.store(true, Ordering::SeqCst);
-    let mut rounds = 0;
-    while !ps[o].logged("lost") {
-        assert!(rounds < 300, "no ref.lost in {rounds} rounds");
-        play(&mut ps, &net, epoch, &slots, &mut tick, 5, None);
-        rounds += 5;
-    }
-    assert!(!ps.iter().any(|p| p.has("match.left", |_| true)), "nothing ended the match before the ref.lost");
+    // (looked at after every step: the ref.lost's own match.left is back from the core a round trip after it, which a
+    // look every few rounds, late on a slow machine, took for an end that came first)
+    let lost = play_until(&mut ps, &net, epoch, &slots, &mut tick, RESUME_MS + 10000.0, |ps| {
+        if ps[o].logged("lost") {
+            return true;
+        }
+        assert!(!ps.iter().any(|p| p.has("match.left", |_| true)), "nothing ended the match before the ref.lost");
+        false
+    });
+    assert!(lost, "a ref.lost within RESUME_MS and 10 s");
     play(&mut ps, &net, epoch, &slots, &mut tick, 20, None);
-    assert!(ps.iter().all(|p| p.has("match.left", |_| true)), "the ref.lost ends the match on every page");
+    // (the ref.lost takes the referee's slot out; the referee app, which heard the other human all along, gave no one
+    // gone)
+    let the_referee = |m: &Value| m["slot"] == u64::from(slots[r]);
+    assert!(ps.iter().all(|p| p.has("match.left", the_referee)), "the ref.lost ends the match on every page");
+    let the_other = |m: &Value| m["slot"] == u64::from(slots[o]);
+    assert!(!ps.iter().any(|p| p.has("match.left", the_other)), "the other human is not taken out");
 }
 
 #[test]
