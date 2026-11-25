@@ -1,11 +1,12 @@
 # Packs a release from the programs the release workflow (.github/workflows/release.yml) built for its tag. Runs on
 # the maintainer's machine, not on GitHub: finds the tag's run, downloads its programs (the Windows game, the Linux
 # game and the relay), checks each one's attestation (built by that workflow, from that tag, in that repo) and runs
-# `mvs-dist build --programs`, which adds the self check's reference (played on this machine's store), Epic's SDK and
-# credentials and the notices, zips and guards. Out: target/dist, the Linux game's zip among the others.
-# With --eos (the default; -NoEos leaves it out), Epic's files come from three variables naming files on this
-# machine: MVS_EOS_DLL (the Windows library), MVS_EOS_SO (the Linux library, needed now that the Linux zip is packed
-# too) and MVS_EOS_CREDENTIALS.
+# `mvs-dist build --programs`, which adds the self check's reference (played on this machine's store), Epic's SDK
+# (the repo's third_party/eos, or MVS_EOS_DLL), the credentials (MVS_EOS_CREDENTIALS) and the notices, zips and
+# guards. Out: target/dist, the Linux game's zip among the others.
+# With --eos (the default; -NoEos leaves it out), Epic's libraries are the repo's (third_party/eos: the Windows one,
+# and the Linux one for the Linux zip; MVS_EOS_DLL and MVS_EOS_SO name other copies) and the credentials are the file
+# MVS_EOS_CREDENTIALS names on this machine.
 #   powershell -NoProfile -File tools/release-fetch.ps1 -Version 0.2.0 [-Wait] [-NoEos] [-Repo <owner>/<repo>]
 # -Wait waits for a run still going. Arguments after the named ones go to mvs-dist build (`--store <dir>`).
 # (no positional binding: an argument for mvs-dist such as `--store` must not land in -Repo)

@@ -21,6 +21,10 @@ use mvs_release::zip::{self, Entry};
 
 /// Epic's notice, after the project's licence in a release with the EOS SDK.
 const EOS_NOTICE: &str = include_str!("../notices/eos-notice.txt");
+/// Epic's SDK runtime as the repo keeps it (`third_party/eos/README.md`).
+const EOS_DLL_IN_REPO: &str = "third_party/eos/EOSSDK-Win64-Shipping.dll";
+/// Epic's Linux SDK runtime as the repo keeps it, for the Linux game's zip.
+const EOS_SO_IN_REPO: &str = "third_party/eos/libEOSSDK-Linux-Shipping.so";
 /// The file that marks a folder as this tool's output, which its next run may empty.
 const OUT_MARK: &str = ".mvs-dist";
 
@@ -37,8 +41,8 @@ pub struct Options {
     /// The update feed the exe checks (mvs_release::FEED: the GitHub API's latest release); None: a build that never
     /// checks.
     pub feed: Option<String>,
-    /// Pack the EOS SDK's DLL and the credentials (`MVS_EOS_DLL`, `MVS_EOS_CREDENTIALS`), and with `game_linux` its
-    /// Linux library (`MVS_EOS_SO`).
+    /// Pack the EOS SDK's DLL (the repo's, or `MVS_EOS_DLL`) and the credentials (`MVS_EOS_CREDENTIALS`), and with
+    /// `game_linux` its Linux library (the repo's, or `MVS_EOS_SO`).
     pub eos: bool,
     /// The output folder (made, or emptied when it is an earlier output).
     pub out: PathBuf,
@@ -55,6 +59,11 @@ pub struct Options {
     pub programs: Option<PathBuf>,
     /// The store the self check's match runs on (None: the one the built exe finds, its data root's).
     pub store: Option<PathBuf>,
+    /// The self check's reference made beforehand (the repo's self-check.json, made by `mvs --self-test --check-out`
+    /// on a store of the release's import): packed as it is, no store read. It must be for the id the packed exe's
+    /// `--compat-id` prints, committed, with no change to the code after its commit. The release workflow packs with
+    /// it, where no store is.
+    pub self_check: Option<PathBuf>,
 }
 
 /// The EOS files a release adds, checked before anything is built: a bad credentials file is named by its path and
@@ -66,22 +75,23 @@ struct EosFiles {
     credentials: Vec<u8>,
 }
 
-/// `linux`: a release with the Linux game, which needs `MVS_EOS_SO` too.
-fn eos_files(linux: bool) -> Result<EosFiles, String> {
-    eos_files_from(|k| std::env::var_os(k).map(PathBuf::from), linux)
+/// `linux`: a release with the Linux game, which takes the Linux library too.
+fn eos_files(repo: &Path, linux: bool) -> Result<EosFiles, String> {
+    eos_files_from(|k| std::env::var_os(k).map(PathBuf::from), repo, linux)
 }
 
 /// [`eos_files`] with the variables `var` gives.
-fn eos_files_from(var: impl Fn(&str) -> Option<PathBuf>, linux: bool) -> Result<EosFiles, String> {
-    let (Some(dll), Some(credentials)) = (var("MVS_EOS_DLL"), var("MVS_EOS_CREDENTIALS")) else {
-        return Err("dist: --eos needs MVS_EOS_DLL and MVS_EOS_CREDENTIALS".to_owned());
+fn eos_files_from(var: impl Fn(&str) -> Option<PathBuf>, repo: &Path, linux: bool) -> Result<EosFiles, String> {
+    let Some(credentials) = var("MVS_EOS_CREDENTIALS") else {
+        return Err("dist: --eos needs MVS_EOS_CREDENTIALS".to_owned());
     };
+    let dll = var("MVS_EOS_DLL").unwrap_or_else(|| repo.join(EOS_DLL_IN_REPO));
     let named = dll.file_name().is_some_and(|n| n.to_string_lossy().eq_ignore_ascii_case(EOS_DLL));
     if !named || !dll.is_file() {
         return Err(format!("dist: MVS_EOS_DLL is not an {EOS_DLL}: {}", dll.display()));
     }
     let so = if linux {
-        let so = var("MVS_EOS_SO").ok_or("dist: --eos with --game-linux needs MVS_EOS_SO")?;
+        let so = var("MVS_EOS_SO").unwrap_or_else(|| repo.join(EOS_SO_IN_REPO));
         let named = so.file_name().is_some_and(|n| n.to_string_lossy().eq_ignore_ascii_case(EOS_SO));
         if !named || !so.is_file() {
             return Err(format!("dist: MVS_EOS_SO is not a {EOS_SO}: {}", so.display()));
@@ -622,11 +632,79 @@ fn game_files(
     files.extend(common());
     files.extend(rest);
     if let Some(e) = eos {
-        let so = e.so.clone().ok_or("dist: --eos with --game-linux needs MVS_EOS_SO")?;
+        let so = e.so.clone().ok_or("dist: --eos with --game-linux has no Linux EOS library")?;
         files.push((in_game(EOS_SO), so, false));
         files.push((in_game(EOS_CREDENTIALS), e.credentials.clone(), false));
     }
     Ok((windows, Some(with_list(files))))
+}
+
+/// A self check's reference made beforehand: `file` read, and held to the id `exe --compat-id` prints (the id a
+/// player's fresh import gets; a reference for another one is never used).
+fn made_self_check(runner: &Runner, exe: &Path, file: &Path, repo: &Path) -> Result<Vec<u8>, String> {
+    let text = read(file)?;
+    let r: SelfCheckRef =
+        serde_json::from_slice(&text).map_err(|e| format!("dist: {} is not a self check: {e}", file.display()))?;
+    let out = runner
+        .command(exe, &[Arg::Word("--compat-id")])?
+        .output()
+        .map_err(|e| format!("dist: {} --compat-id did not start: {e}", exe.display()))?;
+    let id = String::from_utf8_lossy(&out.stdout).trim().to_owned();
+    if !out.status.success() || id.is_empty() {
+        return Err(format!("dist: {} --compat-id gave no id", exe.display()));
+    }
+    if r.compat != id {
+        return Err(format!(
+            "dist: {} is for {}, the release's id is {id}: make it again with `mvs --self-test --check-out`",
+            file.display(),
+            r.compat
+        ));
+    }
+    code_unchanged_since(repo, file)?;
+    println!("dist: self check {:08x} for {} (from {})", r.hash, r.compat, file.display());
+    Ok(text)
+}
+
+/// The paths a self check's hash comes from: the code and what it is built with. The id holds the version, so a
+/// reference of another release is caught by it; this catches one of this version made before a later change.
+const CHECKED_CODE: [&str; 4] = ["crates", "Cargo.toml", "Cargo.lock", "rust-toolchain.toml"];
+
+/// Err unless `file` is the repo's, committed as it is, and no commit after the last one that holds it (nor the
+/// working tree) changed the code it was made from. Needs the history back to that commit (no shallow clone).
+fn code_unchanged_since(repo: &Path, file: &Path) -> Result<(), String> {
+    let full = |p: &Path| p.canonicalize().map_err(|e| format!("dist: {}: {e}", p.display()));
+    let (repo_full, file_full) = (full(repo)?, full(file)?);
+    let Ok(rel) = file_full.strip_prefix(&repo_full) else {
+        return Err(format!("dist: {} is not in the repo: --self-check takes the committed one", file.display()));
+    };
+    let rel = rel.to_string_lossy().replace('\\', "/");
+    let git = |args: &[&str]| {
+        Command::new("git").arg("-C").arg(repo).args(args).output().map_err(|e| format!("dist: git did not start: {e}"))
+    };
+    let out = git(&["status", "--porcelain", "--", &rel])?;
+    if !out.status.success() || !out.stdout.is_empty() {
+        return Err(format!("dist: {rel} is not committed as it is: commit it with the release"));
+    }
+    let out = git(&["log", "-1", "--format=%H", "--", &rel])?;
+    let made = String::from_utf8_lossy(&out.stdout).trim().to_owned();
+    if !out.status.success() || made.is_empty() {
+        return Err(format!("dist: no commit holds {rel} (a shallow clone? fetch the history back to it)"));
+    }
+    let since = [&["diff", "--quiet", &made, "HEAD", "--"][..], &CHECKED_CODE[..]].concat();
+    let now = [&["diff", "--quiet", "HEAD", "--"][..], &CHECKED_CODE[..]].concat();
+    for (args, what) in [(since, format!("since {}", &made[..made.len().min(10)])), (now, "in the working tree".into())]
+    {
+        match git(&args)?.status.code() {
+            Some(0) => {}
+            Some(1) => {
+                return Err(format!(
+                    "dist: the code changed {what}, after {rel} was made: make it again (tools/self-check.ps1)"
+                ));
+            }
+            _ => return Err(format!("dist: git diff failed on {}", args.join(" "))),
+        }
+    }
+    Ok(())
 }
 
 /// The whole release; Err names the step that failed.
@@ -647,7 +725,7 @@ pub fn run(o: &Options) -> Result<(), String> {
     let relay_linux = o.relay_linux.clone().or_else(|| linux_host.then(|| o.repo.join(LINUX_RELAY)));
     let build_game = linux_host && o.game_linux.is_none() && !o.no_build;
     let build_relay = linux_host && o.relay_linux.is_none() && !o.no_build;
-    let eos = if o.eos { Some(eos_files(game_linux.is_some())?) } else { None };
+    let eos = if o.eos { Some(eos_files(&o.repo, game_linux.is_some())?) } else { None };
     if let Some(l) = &relay_linux
         && !build_relay
         && !l.is_file()
@@ -666,6 +744,9 @@ pub fn run(o: &Options) -> Result<(), String> {
     }
     if o.programs.is_some() && o.no_build {
         return Err("dist: --programs and --no-build both name what to pack; give one".to_owned());
+    }
+    if o.self_check.is_some() && o.store.is_some() {
+        return Err("dist: --self-check and --store both name the self check's source; give one".to_owned());
     }
     if let Some(dir) = &o.programs
         && !dir.is_dir()
@@ -750,7 +831,10 @@ pub fn run(o: &Options) -> Result<(), String> {
         check_version(&runner, &exe, &format!("mvs {}", o.version))?;
         check_version(&runner, &launcher_exe, &format!("mvs-launcher {}", o.version))?;
         check_version(&runner, &relay_exe, &format!("mvs-relay {}", o.version))?;
-        self_check(&runner, &exe, o.store.as_deref(), &o.out.join(SELF_CHECK_JSON))?
+        match &o.self_check {
+            Some(file) => made_self_check(&runner, &exe, file, &o.repo)?,
+            None => self_check(&runner, &exe, o.store.as_deref(), &o.out.join(SELF_CHECK_JSON))?,
+        }
     };
     // the Linux relay built in the container (here or by the last run), run on this host
     if linux_host && o.relay_linux.is_none() {
@@ -1008,7 +1092,7 @@ mod tests {
     }
 
     #[test]
-    fn eos_with_the_linux_game_needs_the_so() {
+    fn eos_with_the_linux_game_takes_the_so() {
         let dir = temp("eos-so");
         let secret = "FAKE-client-secret-0123456789abcdef";
         let credentials = dir.join("eos.json");
@@ -1033,14 +1117,25 @@ mod tests {
                 _ => None,
             }
         };
-        let err = eos_files_from(vars(None), true).err().expect("refused");
-        assert_eq!(err, "dist: --eos with --game-linux needs MVS_EOS_SO");
-        let err = eos_files_from(vars(Some("libother.so")), true).err().expect("refused");
+        // without MVS_EOS_SO, the repo's copy: refused when the repo has none, taken when it has
+        let err = eos_files_from(vars(None), &dir, true).err().expect("refused");
+        let in_dir = dir.join("third_party/eos/libEOSSDK-Linux-Shipping.so");
+        assert!(
+            err.contains("MVS_EOS_SO is not a libEOSSDK-Linux-Shipping.so")
+                && err.contains(&in_dir.display().to_string())
+                && !err.contains(secret),
+            "{err}"
+        );
+        let repo = dir.join("repo");
+        let in_repo = repo.join("third_party/eos/libEOSSDK-Linux-Shipping.so");
+        put(&in_repo, b"\x7fELF");
+        assert_eq!(eos_files_from(vars(None), &repo, true).unwrap().so, Some(in_repo));
+        let err = eos_files_from(vars(Some("libother.so")), &dir, true).err().expect("refused");
         assert!(err.contains("MVS_EOS_SO is not a libEOSSDK-Linux-Shipping.so") && !err.contains(secret), "{err}");
-        assert_eq!(eos_files_from(vars(Some(EOS_SO)), true).unwrap().so, Some(dir.join(EOS_SO)));
+        assert_eq!(eos_files_from(vars(Some(EOS_SO)), &dir, true).unwrap().so, Some(dir.join(EOS_SO)));
         // without the Linux game the Windows files are enough, and the library is not taken
-        assert_eq!(eos_files_from(vars(Some(EOS_SO)), false).unwrap().so, None);
-        assert!(eos_files_from(vars(None), false).is_ok());
+        assert_eq!(eos_files_from(vars(Some(EOS_SO)), &dir, false).unwrap().so, None);
+        assert!(eos_files_from(vars(None), &dir, false).is_ok());
         std::fs::remove_dir_all(&dir).unwrap();
         // and the lists refuse a Linux zip with EOS but no library
         let linux = linux_build("eos-so-lists", "0.1.0");
@@ -1087,6 +1182,7 @@ mod tests {
             no_build: false,
             programs: None,
             store: None,
+            self_check: None,
         }
     }
 
@@ -1316,5 +1412,39 @@ mod tests {
     fn the_linux_zip_is_never_the_windows_ones_name() {
         assert_eq!(game_zip_name_linux("0.1.0"), "MVS-Classic-0.1.0-linux.zip");
         assert_ne!(game_zip_name_linux("0.1.0"), game_zip_name("0.1.0"));
+    }
+
+    fn git(dir: &Path, args: &[&str]) {
+        let ok = Command::new("git").arg("-C").arg(dir).args(args).status().expect("git runs").success();
+        assert!(ok, "git {args:?}");
+    }
+
+    fn commit(dir: &Path, what: &str) {
+        git(dir, &["add", "-A"]);
+        git(dir, &["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", what]);
+    }
+
+    #[test]
+    fn a_reference_is_refused_once_the_code_changes_after_it() {
+        let dir = std::env::temp_dir().join(format!("mvs-dist-selfcheck-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("crates")).unwrap();
+        git(&dir, &["init", "-q"]);
+        let (code, reference) = (dir.join("crates/a.rs"), dir.join("self-check.json"));
+        std::fs::write(&code, "1").unwrap();
+        std::fs::write(&reference, "{}").unwrap();
+        commit(&dir, "code and its reference");
+        assert!(code_unchanged_since(&dir, &reference).is_ok());
+
+        std::fs::write(&code, "2").unwrap();
+        assert!(code_unchanged_since(&dir, &reference).is_err(), "a change in the working tree");
+        commit(&dir, "a later change");
+        assert!(code_unchanged_since(&dir, &reference).is_err(), "a change committed after the reference");
+
+        std::fs::write(&reference, "{ }").unwrap();
+        assert!(code_unchanged_since(&dir, &reference).is_err(), "a reference not committed as it is");
+        commit(&dir, "the reference made again");
+        assert!(code_unchanged_since(&dir, &reference).is_ok());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

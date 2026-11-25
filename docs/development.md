@@ -81,16 +81,16 @@ which needs:
   do: the script never runs it.
 
 The self check runs the Windows game under Wine, so Wine is needed too, in a prefix of its own beside the output
-folder that is removed at the end; your own Wine prefix is not touched. `--eos` takes the EOS SDK's files from
-`MVS_EOS_DLL` (the Windows DLL), `MVS_EOS_SO` (the Linux library) and `MVS_EOS_CREDENTIALS`. The guard reads the
-paks' key as shown under "Point the tools at your beta". `release-check` tests the Windows updater and needs
-Windows.
+folder that is removed at the end; your own Wine prefix is not touched. `--eos` takes the EOS SDK's libraries from
+the repo's `third_party/eos` (`MVS_EOS_DLL` and `MVS_EOS_SO` name other copies of the Windows DLL and the Linux
+library) and the credentials from `MVS_EOS_CREDENTIALS`. The guard reads the paks' key as shown under "Point the
+tools at your beta". `release-check` tests the Windows updater and needs Windows.
 
 A version tag (`v<x.y.z>`) also builds the Linux game on GitHub (`.github/workflows/release.yml`, job
 `game-linux`), and `tools/release-fetch.ps1`, run on the maintainer's machine, packs it into the Linux zip with the
-others; with `--eos` (the default) that machine needs `MVS_EOS_SO` as well. Every push and pull request also builds a
-Linux test build (no EOS files, not a release): open the run on the repo's Actions tab and download
-`mvs-classic-linux` under "Artifacts".
+others; with `--eos` (the default) its EOS library is the repo's too, so that machine needs only
+`MVS_EOS_CREDENTIALS`. Every push and pull request also builds a Linux test build (no EOS files, not a release): open
+the run on the repo's Actions tab and download `mvs-classic-linux` under "Artifacts".
 
 ### When you change Direct3D code or HLSL
 The Linux build needs two things that Windows makes for itself. Both are files in the repo, made again by a command
