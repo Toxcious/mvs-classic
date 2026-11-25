@@ -86,6 +86,12 @@ folder that is removed at the end; your own Wine prefix is not touched. `--eos` 
 paks' key as shown under "Point the tools at your beta". `release-check` tests the Windows updater and needs
 Windows.
 
+A version tag (`v<x.y.z>`) also builds the Linux game on GitHub (`.github/workflows/release.yml`, job
+`game-linux`), and `tools/release-fetch.ps1`, run on the maintainer's machine, packs it into the Linux zip with the
+others; with `--eos` (the default) that machine needs `MVS_EOS_SO` as well. Every push and pull request also builds a
+Linux test build (no EOS files, not a release): open the run on the repo's Actions tab and download
+`mvs-classic-linux` under "Artifacts".
+
 ## Check a change
 - `cargo fmt --check` and `cargo clippy --release --all-targets`: no new warning.
 - `cargo test --profile trace --no-fail-fast -p <crate>` for each crate you touched. Tests that read the store use
