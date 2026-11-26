@@ -7,8 +7,9 @@
 # paks' key and the EOS secrets before anything is handed out.
 #
 # To make a release:
-#   1. Set the version in Cargo.toml ([workspace.package] version, 0.2.0 say), make self-check.json again for that
-#      code (tools/self-check.ps1), commit both and push. build.yml builds the commit.
+#   1. Set the version in Cargo.toml ([workspace.package] version, 0.2.0 say) and commit it. On that clean tree make
+#      self-check.json for that code (tools/self-check.ps1, which refuses uncommitted code), commit it and push.
+#      build.yml builds the commit.
 #   2. Tag that commit v0.2.0 and push the tag: git tag v0.2.0 && git push origin v0.2.0
 #      This workflow waits for the build if it is still running. A suffix (v0.2.0-test1) makes a prerelease.
 #   3. When this has run, the release is a draft on the repo's Releases page. Check it, then publish it there (Edit,
