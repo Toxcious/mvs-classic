@@ -55,7 +55,7 @@ pub struct Options {
     /// Skip the cargo builds and pack the last ones (a re-pack of the same version).
     pub no_build: bool,
     /// Skip the cargo builds and pack the programs in this folder (`mvs.exe`, `mvs-launcher.exe`, `mvs-relay.exe`):
-    /// the release workflow's, fetched and verified by `tools/release-fetch.ps1`.
+    /// the release workflow's (`release.yml`), downloaded from the build workflow's run.
     pub programs: Option<PathBuf>,
     /// The store the self check's match runs on (None: the one the built exe finds, its data root's).
     pub store: Option<PathBuf>,
