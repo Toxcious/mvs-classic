@@ -87,13 +87,12 @@ pub struct Flood {
 impl Flood {
     /// Compiles `style`'s look when it is not yet.
     pub fn load(&mut self, gpu: &Gpu, assets: &crate::assets::Assets, style: FloodStyle) -> Result<()> {
-        let (slot, file, shader, name) = match style {
-            FloodStyle::Tropical => (&mut self.tropical, "flood_tropical.hlsl", TROPICAL, "flood"),
-            FloodStyle::Storm => (&mut self.storm, "flood_storm.hlsl", STORM, "storm flood"),
+        let (slot, name) = match style {
+            FloodStyle::Tropical => (&mut self.tropical, "flood"),
+            FloodStyle::Storm => (&mut self.storm, "storm flood"),
         };
         if slot.is_none() {
-            let look = LookFile { params: vec![[0.0; 4]; 8], screen: screens(style), ..LookFile::default() };
-            *slot = Some(Look::build(gpu, assets, look, Some((file, shader)), Path::new(name))?);
+            *slot = Some(Look::build(gpu, assets, look_file(style), Some(shader_file(style)), Path::new(name))?);
         }
         Ok(())
     }
@@ -159,6 +158,24 @@ impl Flood {
             });
         }
     }
+}
+
+/// The style's shader file: its name and text.
+fn shader_file(style: FloodStyle) -> (&'static str, &'static str) {
+    match style {
+        FloodStyle::Tropical => ("flood_tropical.hlsl", TROPICAL),
+        FloodStyle::Storm => ("flood_storm.hlsl", STORM),
+    }
+}
+
+/// The style's look file as `Flood::load` compiles it.
+pub(crate) fn look_file(style: FloodStyle) -> LookFile {
+    LookFile { params: vec![[0.0; 4]; 8], screen: screens(style), ..LookFile::default() }
+}
+
+/// The HLSL `Flood::load` compiles for `style` (`shaders.rs` lists it for Linux).
+pub(crate) fn look_source(style: FloodStyle) -> String {
+    crate::look::source(&look_file(style), Some(shader_file(style)))
 }
 
 /// The style's screen passes, in order.

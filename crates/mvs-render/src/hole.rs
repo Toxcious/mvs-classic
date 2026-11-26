@@ -9,6 +9,23 @@ use crate::gpu::Gpu;
 use crate::look::{Look, LookFile};
 
 const SHADER: &str = include_str!("look/hole.hlsl");
+/// The look's shader file: its name and text.
+const SHADER_FILE: (&str, &str) = ("hole.hlsl", SHADER);
+
+/// The look's file as `Hole::load` compiles it.
+pub(crate) fn look_file() -> LookFile {
+    LookFile {
+        textures: TEXTURES.map(str::to_owned).to_vec(),
+        params: vec![[0.0; 4], GLOW, [0.0; 4]],
+        screen: vec!["Lens".to_owned()],
+        ..LookFile::default()
+    }
+}
+
+/// The HLSL `Hole::load` compiles (`shaders.rs` lists it for Linux).
+pub(crate) fn look_source() -> String {
+    crate::look::source(&look_file(), Some(SHADER_FILE))
+}
 
 /// The store's textures the look reads: the dashed ring and the stringy noise.
 const TEXTURES: [&str; 2] = [
@@ -39,13 +56,7 @@ pub struct Hole {
 
 impl Hole {
     pub fn load(gpu: &Gpu, assets: &crate::assets::Assets) -> Result<Hole> {
-        let file = LookFile {
-            textures: TEXTURES.map(str::to_owned).to_vec(),
-            params: vec![[0.0; 4], GLOW, [0.0; 4]],
-            screen: vec!["Lens".to_owned()],
-            ..LookFile::default()
-        };
-        Ok(Hole { look: Look::build(gpu, assets, file, Some(("hole.hlsl", SHADER)), Path::new("black hole"))? })
+        Ok(Hole { look: Look::build(gpu, assets, look_file(), Some(SHADER_FILE), Path::new("black hole"))? })
     }
 
     /// Its parameters set to `at`.

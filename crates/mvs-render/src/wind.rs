@@ -8,6 +8,23 @@ use crate::gpu::Gpu;
 use crate::look::{Look, LookFile};
 
 const SHADER: &str = include_str!("look/wind.hlsl");
+/// The look's shader file: its name and text.
+const SHADER_FILE: (&str, &str) = ("wind.hlsl", SHADER);
+
+/// The look's file as `Wind::load` compiles it.
+pub(crate) fn look_file() -> LookFile {
+    LookFile {
+        textures: TEXTURES.map(str::to_owned).to_vec(),
+        params: vec![[0.0; 4]],
+        screen: vec!["Wind".to_owned()],
+        ..LookFile::default()
+    }
+}
+
+/// The HLSL `Wind::load` compiles (`shaders.rs` lists it for Linux).
+pub(crate) fn look_source() -> String {
+    crate::look::source(&look_file(), Some(SHADER_FILE))
+}
 
 /// The store's textures the look reads: the M010 wind line mask and the noise streaks.
 const TEXTURES: [&str; 2] = [
@@ -38,13 +55,7 @@ pub struct Wind {
 
 impl Wind {
     pub fn load(gpu: &Gpu, assets: &crate::assets::Assets) -> Result<Wind> {
-        let file = LookFile {
-            textures: TEXTURES.map(str::to_owned).to_vec(),
-            params: vec![[0.0; 4]],
-            screen: vec!["Wind".to_owned()],
-            ..LookFile::default()
-        };
-        Ok(Wind { look: Look::build(gpu, assets, file, Some(("wind.hlsl", SHADER)), Path::new("wind"))? })
+        Ok(Wind { look: Look::build(gpu, assets, look_file(), Some(SHADER_FILE), Path::new("wind"))? })
     }
 
     /// Its parameters set to `at`.

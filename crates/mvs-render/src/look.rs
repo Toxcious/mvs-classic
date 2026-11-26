@@ -223,6 +223,34 @@ fn bad(path: &Path, e: impl std::fmt::Display) -> Error {
     Error::Format { what: path.display().to_string(), why: e.to_string() }
 }
 
+/// The HLSL a look of `file` compiles: the prelude, the shader file (its name and text), then each shape's entry
+/// behind a test of the scene's depth (hidden where the scene stands in front). It depends on the shapes' entries
+/// alone, not where they stand, so a look's source is the same every frame (`shaders.rs` lists it for Linux).
+pub(crate) fn source(file: &LookFile, shader: Option<(&str, &str)>) -> String {
+    let mut src = PRELUDE.to_string();
+    if let Some((name, text)) = shader {
+        src.push_str(&format!("#line 1 \"{name}\"\n"));
+        src.push_str(text);
+    }
+    for (k, s) in file.shapes.iter().enumerate() {
+        src.push_str(&format!(
+            "\nfloat4 LookShape{k}(ShapeIn i) : SV_Target {{ if (SceneDepth(i.pos.xy) < i.depth - 1) discard; return {}(i); }}\n",
+            s.entry
+        ));
+    }
+    src
+}
+
+/// Every (entry, target) a look of `file` compiles: its two vertex shaders, a pixel shader per shape, then one per
+/// screen pass.
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) fn entries(file: &LookFile) -> Vec<(String, &'static str)> {
+    let mut e = vec![("ShapeVS".to_owned(), "vs_5_0"), ("ScreenVS".to_owned(), "vs_5_0")];
+    e.extend((0..file.shapes.len()).map(|k| (format!("LookShape{k}"), "ps_5_0")));
+    e.extend(file.screen.iter().map(|s| (s.clone(), "ps_5_0")));
+    e
+}
+
 /// A shape's pixel shader and blend.
 #[derive(Debug)]
 struct ShapeDraw {
@@ -274,20 +302,7 @@ impl Look {
         shader: Option<(&str, &str)>,
         dir: &Path,
     ) -> Result<Look> {
-        let mut src = PRELUDE.to_string();
-        if let Some((name, text)) = shader {
-            src.push_str(&format!("#line 1 \"{name}\"\n"));
-            src.push_str(text);
-        }
-        // Each shape's entry behind a test of the scene's depth: hidden where the scene stands in front.
-        let mut wrapped = String::new();
-        for (k, s) in file.shapes.iter().enumerate() {
-            wrapped.push_str(&format!(
-                "\nfloat4 LookShape{k}(ShapeIn i) : SV_Target {{ if (SceneDepth(i.pos.xy) < i.depth - 1) discard; return {}(i); }}\n",
-                s.entry
-            ));
-        }
-        src.push_str(&wrapped);
+        let src = source(&file, shader);
         if file.textures.len() > TEXTURES {
             return Err(bad(dir, format!("{} textures, at most {TEXTURES}", file.textures.len())));
         }

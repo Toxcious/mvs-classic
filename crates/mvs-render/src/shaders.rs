@@ -5,8 +5,9 @@
 // On Windows only the test reads the list.
 #![cfg_attr(all(windows, not(test)), allow(dead_code))]
 
+use crate::flood::{FloodStyle, look_source as flood};
 use crate::post::skip::src;
-use crate::{capture, lighting, post, scenery, translucency};
+use crate::{capture, hole, lava, lighting, post, scenery, translucency, wind};
 
 /// One compiled shader: its blob's name (`<module>.<const>.<entry>.<target>`), the source, entry and target it is
 /// compiled with, and the committed blob.
@@ -64,7 +65,56 @@ pub(crate) fn shaders() -> Vec<Shader> {
         shader!(post_skip, MARK, "Main", "vs_5_0", src(MARK)),
         shader!(post_skip, COPY, "Vertex", "vs_5_0", COPY),
         shader!(post_skip, COPY, "Pixel", "ps_5_0", COPY),
+        // (the looks: each built source, `look::source` of its file)
+        shader!(lava, SOURCE, "ShapeVS", "vs_5_0", lava::look_source()),
+        shader!(lava, SOURCE, "ScreenVS", "vs_5_0", lava::look_source()),
+        shader!(lava, SOURCE, "LookShape0", "ps_5_0", lava::look_source()),
+        shader!(lava, SOURCE, "LookShape1", "ps_5_0", lava::look_source()),
+        shader!(lava, SOURCE, "LookShape2", "ps_5_0", lava::look_source()),
+        shader!(lava, SOURCE, "Heat", "ps_5_0", lava::look_source()),
+        shader!(wind, SOURCE, "ShapeVS", "vs_5_0", wind::look_source()),
+        shader!(wind, SOURCE, "ScreenVS", "vs_5_0", wind::look_source()),
+        shader!(wind, SOURCE, "Wind", "ps_5_0", wind::look_source()),
+        shader!(hole, SOURCE, "ShapeVS", "vs_5_0", hole::look_source()),
+        shader!(hole, SOURCE, "ScreenVS", "vs_5_0", hole::look_source()),
+        shader!(hole, SOURCE, "Lens", "ps_5_0", hole::look_source()),
+        shader!(flood, TROPICAL, "ShapeVS", "vs_5_0", flood(FloodStyle::Tropical)),
+        shader!(flood, TROPICAL, "ScreenVS", "vs_5_0", flood(FloodStyle::Tropical)),
+        shader!(flood, TROPICAL, "Water", "ps_5_0", flood(FloodStyle::Tropical)),
+        shader!(flood, STORM, "ShapeVS", "vs_5_0", flood(FloodStyle::Storm)),
+        shader!(flood, STORM, "ScreenVS", "vs_5_0", flood(FloodStyle::Storm)),
+        shader!(flood, STORM, "Storm", "ps_5_0", flood(FloodStyle::Storm)),
+        shader!(flood, STORM, "Flood", "ps_5_0", flood(FloodStyle::Storm)),
+        shader!(flood, STORM, "Rain", "ps_5_0", flood(FloodStyle::Storm)),
     ]
+}
+
+#[cfg(test)]
+mod look_tests {
+    use super::shaders;
+    use crate::flood::FloodStyle;
+    use crate::look::{LookFile, entries};
+
+    /// Every entry each look compiles is listed with that look's source, so Linux finds its blob.
+    #[test]
+    fn every_look_entry_is_listed() {
+        let looks: [(LookFile, String); 5] = [
+            (crate::lava::look_file(), crate::lava::look_source()),
+            (crate::wind::look_file(), crate::wind::look_source()),
+            (crate::hole::look_file(), crate::hole::look_source()),
+            (crate::flood::look_file(FloodStyle::Tropical), crate::flood::look_source(FloodStyle::Tropical)),
+            (crate::flood::look_file(FloodStyle::Storm), crate::flood::look_source(FloodStyle::Storm)),
+        ];
+        let list = shaders();
+        for (file, src) in &looks {
+            for (entry, target) in entries(file) {
+                assert!(
+                    list.iter().any(|s| s.entry == entry && s.target == target && &s.src == src),
+                    "{entry} {target} of a look is not listed in src/shaders.rs"
+                );
+            }
+        }
+    }
 }
 
 #[cfg(all(test, windows))]

@@ -9,6 +9,18 @@ use crate::gpu::Gpu;
 use crate::look::{Blend, Look, LookFile, LookLight, Shape};
 
 const SHADER: &str = include_str!("look/lava.hlsl");
+/// The look's shader file: its name and text.
+const SHADER_FILE: (&str, &str) = ("lava.hlsl", SHADER);
+
+/// The look's file as `Lava::load` compiles it.
+pub(crate) fn look_file() -> LookFile {
+    file(LavaAt { level: 0.0, middle: 0.0, time: 0.0 })
+}
+
+/// The HLSL `Lava::load` compiles (`shaders.rs` lists it for Linux).
+pub(crate) fn look_source() -> String {
+    crate::look::source(&look_file(), Some(SHADER_FILE))
+}
 
 /// The glow's colour and reach over the surface (cm): Params[1].
 const GLOW: [f32; 4] = [1.0, 0.36, 0.07, 300.0];
@@ -46,8 +58,7 @@ pub struct Lava {
 
 impl Lava {
     pub fn load(gpu: &Gpu, assets: &crate::assets::Assets) -> Result<Lava> {
-        let file = file(LavaAt { level: 0.0, middle: 0.0, time: 0.0 });
-        Ok(Lava { look: Look::build(gpu, assets, file, Some(("lava.hlsl", SHADER)), Path::new("rising lava"))? })
+        Ok(Lava { look: Look::build(gpu, assets, look_file(), Some(SHADER_FILE), Path::new("rising lava"))? })
     }
 
     /// Its shapes and parameters moved to `at`.
