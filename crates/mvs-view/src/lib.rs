@@ -48,6 +48,7 @@ pub mod tape;
 mod tutorial_meeseeks;
 pub mod view;
 pub mod virtual_bone;
+pub mod wind_cam;
 
 pub use camera::MatchCamera;
 pub use chars::bugs::{at_on as rocket_at_on, rocket_squash_scale};

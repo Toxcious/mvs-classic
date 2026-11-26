@@ -48,6 +48,7 @@ use mvs_sim::fighter::FighterId;
 use mvs_sim::{Event, World};
 
 use crate::frame::{Camera, M4};
+use crate::wind_cam::{Lean, WindCam};
 
 const ASPECT_REF: f64 = 1.777778;
 const UE_DEFAULT_FOV: f64 = 90.0;
@@ -692,8 +693,9 @@ impl CameraRig {
 
     /// The frame's camera at `a` between the last tick (0) and the latest (1): the lens = centre + pitch(A) x (0, 0,
     /// 100), the view direction = pitch(A) x yaw(180) x forward = (-cos A, 0, -sin A), the shake in camera space
-    /// (X forward, Z up = (-sin A, 0, cos A)) held for the whole tick.
-    pub fn place(&mut self, a: f64) -> Camera {
+    /// (X forward, Z up = (-sin A, 0, cos A)) held for the whole tick; then `wind` (`wind_cam`) pushes the lens along UE
+    /// Y and turns it about UE Z, the actor's root with it.
+    pub fn place(&mut self, a: f64, wind: Lean) -> Camera {
         let angle = self.prot + (self.rot - self.prot) * a;
         let c = [0, 1, 2].map(|i| self.p[i] + (self.c[i] - self.p[i]) * a);
         self.center = c;
@@ -701,14 +703,18 @@ impl CameraRig {
         let (sx, sz) = (self.shaker.x, self.shaker.z);
         let pos = [
             c[0] - LENS_UP * dsin(angle) + sx * dx - sz * dsin(angle),
-            c[1],
+            c[1] + wind.pan,
             c[2] + LENS_UP * dcos(angle) + sx * dz + sz * dcos(angle),
         ];
-        self.root = [c[0] - LENS_UP * dsin(angle), c[1], c[2] + LENS_UP * dcos(angle)];
-        self.pov = Pov { pos, right: [0.0, -1.0, 0.0], up: [-dsin(angle), 0.0, dcos(angle)], front: [dx, 0.0, dz] };
+        self.root = [c[0] - LENS_UP * dsin(angle), c[1] + wind.pan, c[2] + LENS_UP * dcos(angle)];
+        // the turn about UE Z: (x, y) -> (x cos - y sin, x sin + y cos)
+        let (ws, wc) = (dsin(wind.yaw), dcos(wind.yaw));
+        let turn = |v: [f64; 3]| [v[0] * wc - v[1] * ws, v[0] * ws + v[1] * wc, v[2]];
+        let (right, up, front) = (turn([0.0, -1.0, 0.0]), turn([-dsin(angle), 0.0, dcos(angle)]), turn([dx, 0.0, dz]));
+        self.pov = Pov { pos, right, up, front };
         Camera {
             origin: pos,
-            translated_world_to_view: look_at(pos, [pos[0] + dx * 1000.0, pos[1], pos[2] + dz * 1000.0]),
+            translated_world_to_view: look_at(pos, [0, 1, 2].map(|i| pos[i] + front[i] * 1000.0)),
             view_to_clip: self.projection(),
         }
     }
@@ -792,6 +798,8 @@ struct KoAnchor {
 #[derive(Clone, Debug)]
 pub struct MatchCamera {
     pub rig: CameraRig,
+    /// Wind's hold on the lens (the port's own rule).
+    wind: WindCam,
     /// RegisteredOnscreenActors in its order, with each one's point of the tick.
     order: IndexMap<Onscreen, CameraTarget>,
     anchors: Vec<KoAnchor>,
@@ -812,6 +820,7 @@ impl MatchCamera {
         rig.resize(aspect);
         MatchCamera {
             rig,
+            wind: WindCam::default(),
             order: IndexMap::new(),
             anchors: Vec::new(),
             next_anchor: 0,
@@ -844,16 +853,18 @@ impl MatchCamera {
             }
         }
         self.feed(w);
+        self.wind.step(w);
     }
 
-    /// The Lab's reset: the shakes end.
+    /// The Lab's reset: the shakes end and the wind lets go.
     pub fn reset(&mut self) {
         self.rig.shaker.clear();
+        self.wind.reset();
     }
 
     /// The frame's camera at `alpha` between the last tick (0) and the latest (1).
     pub fn camera(&mut self, alpha: f32) -> Camera {
-        self.rig.place(f64::from(alpha))
+        self.rig.place(f64::from(alpha), self.wind.at(f64::from(alpha)))
     }
 
     fn feed(&mut self, w: &World) {
