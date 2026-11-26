@@ -325,7 +325,7 @@ impl OnlineTab {
     }
 
     /// Test connection: a child `mvs.exe --net-test` on the game's data and online defaults (net_test) that writes its
-    /// result to a file of this test's own in the temp folder (`--out`, test_file) as well as to stdout, its result
+    /// result to a file of this test's own in the data folder (`--out`, test_file) as well as to stdout, its result
     /// taken by `poll_test` (run_child). While the game runs the child tests the relay alone and Epic and LAN are the
     /// game's.
     pub fn start_test(&mut self, game: &GameArgs) {
@@ -343,7 +343,7 @@ impl OnlineTab {
         if relay_only {
             cmd.arg("--relay-only");
         }
-        let out = test_file();
+        let out = test_file(&data);
         let _ = std::fs::remove_file(&out);
         cmd.arg("--out").arg(&out);
         if let Some(d) = game.exe.parent() {
@@ -731,10 +731,12 @@ fn port_of_address(a: &str) -> Option<u16> {
     a.rsplit_once(':')?.1.parse().ok()
 }
 
-/// A Test connection's result file in the temp folder, this launcher's own: its process id and the test's number.
-fn test_file() -> PathBuf {
+/// A Test connection's result file in the player's data folder, this launcher's own: its process id and the test's
+/// number. Not the temp folder, which every user of a Linux machine shares: another user could plant the file or a
+/// link under the name first.
+fn test_file(data: &Path) -> PathBuf {
     let n = TESTS.fetch_add(1, Ordering::Relaxed);
-    std::env::temp_dir().join(format!("mvs-net-test-{}-{n}.json", std::process::id()))
+    data.join(format!("net-test-{}-{n}.json", std::process::id()))
 }
 
 /// The child's run: waited for up to TEST_LIMIT (then killed), its result the `--out` file's `out` or its stdout's
