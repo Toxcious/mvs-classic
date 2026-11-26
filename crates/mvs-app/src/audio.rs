@@ -11,6 +11,7 @@
 //! for one sound 4000 + n.
 
 mod jake;
+mod lava;
 pub mod posted;
 pub(crate) mod scopes;
 
@@ -245,6 +246,8 @@ pub struct MatchAudio {
     spawned: usize,
     /// Jake's stretches' head pitch (from the drawn pose).
     head_pitch: jake::HeadPitch,
+    /// (the port's own) Rising Lava's roar.
+    lava: lava::Roar,
     /// `BeginOpts::podium`.
     podium: Vec<(String, PodiumMontages)>,
 }
@@ -388,6 +391,7 @@ impl MatchAudio {
             scenery_objects: Vec::new(),
             spawned: AK_SPAWNED_COUNT - 1,
             head_pitch: jake::HeadPitch::default(),
+            lava: lava::Roar::default(),
             podium: podium.unwrap_or_default(),
         };
         if let Some(k) = kept {
@@ -524,6 +528,8 @@ impl MatchAudio {
         let wheel = world.setup.wheel.is_some().then_some(mvs_ui::hud::WHEEL_SOUNDS);
         let wheel = wheel.into_iter().flatten().filter(|e| self.known.has(e)).map(String::from).collect();
         c.scope("wheel", wheel, Vec::new());
+        let lava = lava::scope(world).into_iter().filter(|e| self.known.has(e)).collect();
+        c.scope("lava", lava, Vec::new());
         if self.kept {
             let items = self.item_events(world);
             c.scope("items", items, Vec::new());
@@ -954,6 +960,7 @@ impl MatchAudio {
         }
         // (the stretch actors' Tick, on the pose just drawn)
         self.head_pitch.tick(world, views, &mut c);
+        self.lava.tick(world, &mut c);
         // (presentTick: the modules' place posts their sounds after handleEvents, then the scenery's tick)
         for (ev, at) in views.take_sounds() {
             c.post(&ev, Some(-1), None, None, Some(at));
@@ -1339,6 +1346,7 @@ impl MatchAudio {
             c.post(&ev, Some(-1), None, None, Some(at));
         }
         self.flush_scene(&mut c);
+        self.lava.place(pov.pos, &mut c);
         c.push(Call::SetListener { pos: pov.pos, right: pov.right, up: pov.up, front: pov.front });
     }
 

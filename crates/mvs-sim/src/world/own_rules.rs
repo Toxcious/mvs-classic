@@ -113,6 +113,9 @@ pub const LAVA_SINK_TICKS: i32 = 180;
 /// `LAVA_ROW_REST` ticks down, from the match's start.
 pub const LAVA_ROW_WINDOW: i32 = 1200;
 pub const LAVA_ROW_REST: i32 = 600;
+/// Rising Lava's touch: the sound posted on the fighter it bounces (the `name!` in `bounce`).
+// Unverified: the beta has no such rule and so no sound for it; the shared firewall's burn hit is picked by its name.
+pub const LAVA_HIT_SOUND: &str = "sfx_shared_combat_firewall_burn_hit";
 /// Bomb Rain's and Projectile Party's spawner: the next item, seconds after the one before.
 pub const ITEMS_EVERY: Real = 2.0;
 /// Ghosts: a hidden fighter shows for `GHOST_FLASH` ticks of every `GHOST_BEAT`.
@@ -295,6 +298,17 @@ fn bounce(w: &mut World, f: FighterId) {
     };
     let b = &w.fighter(f).body;
     let at = V2 { x: b.x, y: b.y };
+    let ev = crate::name!("sfx_shared_combat_firewall_burn_hit");
+    let fighter = w.fighter(f).id;
+    w.events.push(crate::Event::Sound {
+        fighter,
+        ev,
+        x: Some(at.x),
+        y: Some(at.y),
+        hit: None,
+        pooled: false,
+        key: None,
+    });
     let dealer = crate::actors::ActorRef::Fighter(f);
     crate::combat::hits::apply_level_hit(
         w,

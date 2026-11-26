@@ -6,7 +6,7 @@ use mvs_sim::fighter::FighterId;
 use mvs_sim::setup::{MatchPlayer, MatchSetup, Rules, TeamStyle, Wheel};
 use mvs_sim::world::own_rules::{self, Rule};
 use mvs_sim::world::wheel::change_to;
-use mvs_sim::{InputState, Real, World};
+use mvs_sim::{Event, InputState, Real, World};
 use mvs_sim_trace::harness::{self, Harness};
 
 /// The wheel's own rules and the pool's joins, in `mvs_mutators::ALL`'s order.
@@ -133,9 +133,16 @@ fn rising_lava_floods_the_floor_and_bounces_those_it_touches() {
     let low = own_rules::lava_level(&h.w).expect("on");
     let floor = h.w.fighter(fs[0]).body.y;
     let mut top = floor;
+    let mut hiss = 0;
     for _ in 0..own_rules::LAVA_RISE_TICKS + 120 {
         h.step_recorded();
         top = top.max(h.w.fighter(fs[0]).body.y);
+        let names = &h.w.names;
+        hiss +=
+            h.w.events
+                .iter()
+                .filter(|e| matches!(e, Event::Sound { ev, .. } if names.str(*ev) == own_rules::LAVA_HIT_SOUND))
+                .count();
     }
     let high = own_rules::lava_level(&h.w).expect("on");
     assert!(high > low + 500.0, "the lava rises from {low} to {high}");
@@ -145,6 +152,7 @@ fn rising_lava_floods_the_floor_and_bounces_those_it_touches() {
         assert_eq!(d % own_rules::LAVA_DAMAGE, 0.0, "fighter {n} took {d}");
     }
     assert!(top - floor > 200.0, "a bounce rises {}", top - floor);
+    assert!(hiss >= 2, "a sound per touch: {hiss}");
     change_to(&mut h.w, None);
     assert_eq!(own_rules::lava_level(&h.w), None);
 }
