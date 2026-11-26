@@ -146,6 +146,8 @@ pub struct Post {
     pub key: Option<Key>,
     pub stop_key: Option<Key>,
     pub at: Option<V3>,
+    /// (the port's own) Its Play actions play whatever their probability (`Call::PostSure`).
+    pub sure: bool,
 }
 
 /// The order the values of a music switch group can take: the group, the value the flow starts with, and per value
@@ -616,6 +618,19 @@ impl Audio {
                     key: key.as_deref().map(Key::new),
                     stop_key: stop_key.as_deref().map(Key::new),
                     at: *at,
+                    sure: false,
+                };
+                self.post(tick, p);
+            }
+            Call::PostSure { ev, owner } => {
+                let p = Post {
+                    id: PostId::default(),
+                    event: short_id(ev),
+                    obj: Some(obj(*owner)),
+                    key: None,
+                    stop_key: None,
+                    at: None,
+                    sure: true,
                 };
                 self.post(tick, p);
             }

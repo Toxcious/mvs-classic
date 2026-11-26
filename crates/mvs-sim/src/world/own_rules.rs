@@ -113,9 +113,11 @@ pub const LAVA_SINK_TICKS: i32 = 180;
 /// `LAVA_ROW_REST` ticks down, from the match's start.
 pub const LAVA_ROW_WINDOW: i32 = 1200;
 pub const LAVA_ROW_REST: i32 = 600;
-/// Rising Lava's touch: the sound posted on the fighter it bounces (the `name!` in `bounce`).
-// Unverified: the beta has no such rule and so no sound for it; the shared firewall's burn hit is picked by its name.
-pub const LAVA_HIT_SOUND: &str = "sfx_shared_combat_firewall_burn_hit";
+/// Rising Lava's touch: the sound posted on the fighter it bounces (the `name!` in `bounce`), behind its hit.
+/// The game's side plays the fighter's pain line with it each time, not by the line's chance as for another hit.
+// Unverified: the beta has no such rule and so no sound for it; the user picked the shared firewall's ignite by
+// ear.
+pub const LAVA_HIT_SOUND: &str = "sfx_shared_combat_firewall_ignite";
 /// Bomb Rain's and Projectile Party's spawner: the next item, seconds after the one before.
 pub const ITEMS_EVERY: Real = 2.0;
 /// Ghosts: a hidden fighter shows for `GHOST_FLASH` ticks of every `GHOST_BEAT`.
@@ -298,17 +300,6 @@ fn bounce(w: &mut World, f: FighterId) {
     };
     let b = &w.fighter(f).body;
     let at = V2 { x: b.x, y: b.y };
-    let ev = crate::name!("sfx_shared_combat_firewall_burn_hit");
-    let fighter = w.fighter(f).id;
-    w.events.push(crate::Event::Sound {
-        fighter,
-        ev,
-        x: Some(at.x),
-        y: Some(at.y),
-        hit: None,
-        pooled: false,
-        key: None,
-    });
     let dealer = crate::actors::ActorRef::Fighter(f);
     crate::combat::hits::apply_level_hit(
         w,
@@ -320,6 +311,22 @@ fn bounce(w: &mut World, f: FighterId) {
         V2 { x: 0.0, y: 1.0 },
         &[],
     );
+    // The hit's pain line is the touch sound's (it needs no chance): the hit event carries none.
+    let fighter = w.fighter(f).id;
+    if let Some(crate::Event::Hit { pain_damage, .. }) =
+        w.events.iter_mut().rev().find(|e| matches!(e, crate::Event::Hit { victim, .. } if *victim == fighter))
+    {
+        *pain_damage = 0.0;
+    }
+    w.events.push(crate::Event::Sound {
+        fighter,
+        ev: crate::name!("sfx_shared_combat_firewall_ignite"),
+        x: Some(at.x),
+        y: Some(at.y),
+        hit: None,
+        pooled: false,
+        key: None,
+    });
 }
 
 /// Ghosts on `f` this tick: hidden but while it attacks, is in hitstun, or flashes.

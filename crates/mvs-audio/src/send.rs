@@ -468,7 +468,15 @@ mod tests {
     use crate::{GameObj, Post};
 
     fn post(id: u32, event: Id) -> Cmd {
-        Cmd::Post(Post { id: PostId(id), event, obj: Some(GameObj::GLOBAL), key: None, stop_key: None, at: None })
+        Cmd::Post(Post {
+            id: PostId(id),
+            event,
+            obj: Some(GameObj::GLOBAL),
+            key: None,
+            stop_key: None,
+            at: None,
+            sure: false,
+        })
     }
 
     fn bank(id: Id, act: Id) -> Vec<(String, Arc<EventBank>)> {

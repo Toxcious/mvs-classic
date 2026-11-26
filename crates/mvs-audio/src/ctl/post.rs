@@ -21,8 +21,16 @@ pub fn post(ctl: &mut Ctl, p: &Post, now: u64, out: &mut Out) {
         ctl.warn("event not loaded: post dropped", u64::from(p.event), out);
         return;
     };
-    let opts =
-        Opts { post: p.id, obj: p.obj, key: p.key, stop_key: p.stop_key, at: p.at, skip_delay: None, chain: None };
+    let opts = Opts {
+        post: p.id,
+        obj: p.obj,
+        key: p.key,
+        stop_key: p.stop_key,
+        at: p.at,
+        skip_delay: None,
+        chain: None,
+        sure: p.sure,
+    };
     post_event(ctl, &acts, &opts, now, out);
 }
 
@@ -38,9 +46,10 @@ fn post_event(ctl: &mut Ctl, acts: &[Id], opts: &Opts, now: u64, out: &mut Out) 
         match a.kind {
             ActionKind::Play => {
                 // CAkActionPlay::Execute (1800c5750): an action with the probability property (0x11, percent)
-                // does nothing when it is 0 or under a roll of 0..100
+                // does nothing when it is 0 or under a roll of 0..100 (a sure post rolls and plays)
                 if let Some(prob) = a.p.get(17)
                     && (prob == 0.0 || prob < ctl.draw(out) * 100.0)
+                    && !opts.sure
                 {
                     continue;
                 }

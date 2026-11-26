@@ -65,6 +65,12 @@ pub enum Call {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         at: Option<V3>,
     },
+    /// (the port's own) A post on `owner` whose Play actions skip their probability's roll: a sound the build plays
+    /// by chance that a feature of the port's own wants each time.
+    PostSure {
+        ev: String,
+        owner: i32,
+    },
     SetRtpc {
         name: String,
         value: f64,

@@ -211,6 +211,8 @@ pub(crate) struct Opts {
     pub skip_delay: Option<Id>,
     /// The continuous container's chain a voice continues.
     pub chain: Option<u32>,
+    /// `Post::sure`.
+    pub sure: bool,
 }
 
 impl Opts {

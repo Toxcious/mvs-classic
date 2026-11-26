@@ -1023,6 +1023,15 @@ impl MatchAudio {
     }
 
     /// PlayHitSound's victim part: a hit over 2.0 damage stops the victim's character sounds and posts its VO_Pain.
+    /// (the port's own) Rising Lava's touch: `pain_vo`'s calls ahead of the touch's sound, its pain line played
+    /// each time (the hit event carries no pain for it).
+    fn lava_pain(&self, world: &World, id: i32, c: &mut Calls) {
+        c.post_on(SFX_STOP_ALL_CHARACTER, id);
+        if let Some(vo) = Self::vo_pain(world, id) {
+            let ev = self.skin_event_name(world, id, &vo);
+            c.push(Call::PostSure { ev, owner: id });
+        }
+    }
     fn pain_vo(&self, world: &World, id: i32, damage: f64, c: &mut Calls) {
         if f64::from(damage as f32) > 2.0 {
             c.post_on(SFX_STOP_ALL_CHARACTER, id);
@@ -1041,6 +1050,9 @@ impl MatchAudio {
         match e {
             Event::Sound { fighter, ev, x, y, hit, pooled, key } => {
                 let ev = s(*ev);
+                if ev == mvs_sim::world::own_rules::LAVA_HIT_SOUND {
+                    self.lava_pain(world, *fighter, c);
+                }
                 if let Some(h) = hit {
                     self.hit_sound(world, *fighter, ev, x.map(f64::from), y.map(f64::from), h, views, c);
                 } else if *pooled {
