@@ -243,10 +243,11 @@ pub fn guard_refuses(entries: &[Entry], plant: &Entry, expect: &str) -> Result<(
     Ok(())
 }
 
-/// The developer's key (content/local.json), when the repo has one: the guard's real search over the builds.
+/// The developer's key (MVS_PAK_KEY or content/local.json), when there is one: the guard's real search over the
+/// builds.
 fn real_key(repo: &Path) -> Result<Option<[u8; 32]>, String> {
     let f = repo.join("content/local.json");
-    if f.is_file() { guard::read_key(&f).map(Some) } else { Ok(None) }
+    Ok(guard::key_here(Some(f.as_path()).filter(|f| f.is_file()))?.map(|k| k.key))
 }
 
 fn read(p: &Path) -> Result<Vec<u8>, String> {
@@ -374,7 +375,7 @@ fn walk(o: &CheckOptions, s: &Path) -> Result<(), String> {
         }
         Ok(format!(
             "{n} files{}",
-            if key.is_some() { ", the developer's key searched" } else { ", no content/local.json: no key search" }
+            if key.is_some() { ", the developer's key searched" } else { ", no key: no key search" }
         ))
     })?;
     let eos_entries = zip::read(&read(&rel_eos.join(game_zip_name(NEW)))?)?;

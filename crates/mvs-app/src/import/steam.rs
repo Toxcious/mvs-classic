@@ -15,6 +15,7 @@ use super::serve::source_info;
 
 /// The beta's Steam app id (the open beta's depot is app_1818750\depot_1818751).
 const APP_ID: &str = "1818750";
+#[cfg(windows)]
 const DEFAULT_STEAM: &str = r"C:\Program Files (x86)\Steam";
 
 /// A KeyValues value: a string or a block.
@@ -137,6 +138,7 @@ pub(crate) fn real_path(p: &Path) -> PathBuf {
 }
 
 /// The Steam root the registry names (HKCU\Software\Valve\Steam SteamPath), or None (no Steam).
+#[cfg(windows)]
 pub fn steam_root_from_registry() -> Option<PathBuf> {
     use windows::Win32::System::Registry::{HKEY_CURRENT_USER, RRF_RT_REG_SZ, RegGetValueW};
     use windows::core::w;
@@ -165,6 +167,25 @@ pub fn steam_root_from_registry() -> Option<PathBuf> {
     }
     let dir = std::path::absolute(text).unwrap_or_else(|_| PathBuf::from(text));
     Some(real_path(&dir))
+}
+
+/// The Steam roots of the home folder `home` that are there, each by its real path and once (`~/.steam/steam` is
+/// often a link to the first): the native install's `~/.local/share/Steam`, `~/.steam/steam`, and the Flatpak's
+/// `~/.var/app/com.valvesoftware.Steam/.local/share/Steam`.
+#[cfg(not(windows))]
+fn steam_roots(home: &Path) -> Vec<PathBuf> {
+    let mut out: Vec<PathBuf> = Vec::new();
+    for rel in [".local/share/Steam", ".steam/steam", ".var/app/com.valvesoftware.Steam/.local/share/Steam"] {
+        let dir = home.join(rel);
+        if !dir.is_dir() {
+            continue;
+        }
+        let r = real_path(&dir);
+        if !out.contains(&r) {
+            out.push(r);
+        }
+    }
+    out
 }
 
 /// The sub folders of `dir` whose names `keep` takes, by name.
@@ -209,17 +230,54 @@ pub fn candidate_folders(last: Option<&Path>, steam_root: &Path) -> Vec<(PathBuf
         let from = if k == 0 { SourceFrom::Steam } else { SourceFrom::Library };
         let app = lib.join("steamapps").join("content").join(format!("app_{APP_ID}"));
         out.extend(subdirs(&app, is_depot).into_iter().map(|d| (d, from)));
+        // (Steam on Linux downloads a depot under the library's steamrt64 too)
+        #[cfg(not(windows))]
+        {
+            let rt = lib.join("steamrt64").join("steamapps").join("content").join(format!("app_{APP_ID}"));
+            out.extend(subdirs(&rt, is_depot).into_iter().map(|d| (d, from)));
+        }
     }
     out
 }
 
 /// Every candidate folder that holds game files, checked, each paks folder once (one folder through a junction or
 /// in another case is one). `steam_root`: None for the registry's, else C:\Program Files (x86)\Steam.
+#[cfg(windows)]
 pub fn detect_sources(last: Option<&Path>, steam_root: Option<&Path>, build: &BuildList) -> Vec<SourceCandidate> {
     let root = steam_root.map(Path::to_path_buf).or_else(steam_root_from_registry).unwrap_or(DEFAULT_STEAM.into());
     let mut out = Vec::new();
     let mut seen: Vec<String> = Vec::new();
     for (dir, from) in candidate_folders(last, &root) {
+        let s = mvs_pak::setup::source_check(&dir, build);
+        if s.kind == SourceKind::NotGame {
+            continue;
+        }
+        let key = real_path(&s.paks).to_string_lossy().to_lowercase();
+        if seen.contains(&key) {
+            continue;
+        }
+        seen.push(key);
+        out.push(SourceCandidate { source: source_info(&s), from });
+    }
+    out
+}
+
+/// Every candidate folder that holds game files, checked, each paks folder once (one folder through a link or in
+/// another case is one). `steam_root`: None for every Steam root of the home folder ([`steam_roots`]).
+#[cfg(not(windows))]
+pub fn detect_sources(last: Option<&Path>, steam_root: Option<&Path>, build: &BuildList) -> Vec<SourceCandidate> {
+    let roots = match steam_root {
+        Some(r) => vec![r.to_path_buf()],
+        None => std::env::var_os("HOME").map(|h| steam_roots(Path::new(&h))).unwrap_or_default(),
+    };
+    let mut folders: Vec<(PathBuf, SourceFrom)> =
+        last.map(|l| (l.to_path_buf(), SourceFrom::Last)).into_iter().collect();
+    for root in &roots {
+        folders.extend(candidate_folders(None, root));
+    }
+    let mut out = Vec::new();
+    let mut seen: Vec<String> = Vec::new();
+    for (dir, from) in folders {
         let s = mvs_pak::setup::source_check(&dir, build);
         if s.kind == SourceKind::NotGame {
             continue;
@@ -264,6 +322,59 @@ mod tests {
         assert!(parse_vdf("\"a\" {").is_err());
         assert!(parse_vdf("}").is_err());
         assert!(parse_vdf("\"a\" \"b").is_err());
+    }
+
+    /// A folder of the test's own under the temp folder, empty.
+    #[cfg(not(windows))]
+    fn scratch(name: &str) -> PathBuf {
+        let d = std::env::temp_dir().join(format!("mvs-steam-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn finds_the_depot_under_steamrt64() {
+        let d = scratch("rt64");
+        let depot = d.join("steamrt64/steamapps/content/app_1818750/depot_1818751");
+        std::fs::create_dir_all(depot.join("MultiVersus/Content/Paks")).unwrap();
+        let got = candidate_folders(None, &d);
+        let _ = std::fs::remove_dir_all(&d);
+        assert_eq!(got, [(depot, SourceFrom::Steam)]);
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn reads_a_library_with_a_space_and_an_accent() {
+        let d = scratch("library");
+        let root = d.join("Steam");
+        let lib = d.join("My Games é").join("Steam");
+        let depot = lib.join("steamapps/content/app_1818750/depot_1818751");
+        std::fs::create_dir_all(depot.join("MultiVersus/Content/Paks")).unwrap();
+        std::fs::create_dir_all(root.join("steamapps")).unwrap();
+        let vdf = format!("\"libraryfolders\"\n{{\n\t\"1\" {{ \"path\" \"{}\" }}\n}}\n", lib.display());
+        std::fs::write(root.join("steamapps/libraryfolders.vdf"), vdf).unwrap();
+        let got = candidate_folders(None, &root);
+        let _ = std::fs::remove_dir_all(&d);
+        assert_eq!(got, [(depot, SourceFrom::Library)]);
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn the_roots_that_are_there_once_each() {
+        let home = scratch("roots");
+        assert!(steam_roots(&home).is_empty());
+        let first = home.join(".local/share/Steam");
+        std::fs::create_dir_all(&first).unwrap();
+        std::fs::create_dir_all(home.join(".steam")).unwrap();
+        std::os::unix::fs::symlink(&first, home.join(".steam/steam")).unwrap();
+        let flatpak = home.join(".var/app/com.valvesoftware.Steam/.local/share/Steam");
+        std::fs::create_dir_all(&flatpak).unwrap();
+        let got = steam_roots(&home);
+        let want = [real_path(&first), real_path(&flatpak)];
+        let _ = std::fs::remove_dir_all(&home);
+        assert_eq!(got, want);
     }
 
     #[test]

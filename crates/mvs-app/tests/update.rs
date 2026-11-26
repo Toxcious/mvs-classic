@@ -1,6 +1,7 @@
 //! The updater against a feed served on 127.0.0.1 by the test itself: the check, the download with its size and
 //! hash refusals, the unpack, the launcher's updater's events, and the copy over the exe's folder (the start's clear
 //! is in update_clear.rs, a process of its own: the stage's lock is the process's).
+#![cfg(windows)]
 
 use std::collections::BTreeMap;
 use std::io::{BufRead, BufReader, Write};

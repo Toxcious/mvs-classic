@@ -41,19 +41,51 @@ const GAME_EXT: &[&str] = &[
 /// The notices under `licenses/`.
 pub const NOTICE_IMPORTER: &str = "NOTICE-importer.txt";
 pub const LICENSE_CUE4PARSE: &str = "LICENSE-CUE4Parse.txt";
+/// The libraries beside the Linux game's program (`tools/linux-build.sh release`): DXVK's two and SDL3.
+pub const LINUX_LIBS: [&str; 3] = ["libdxvk_d3d11.so.0", "libdxvk_dxgi.so.0", "libSDL3.so.0"];
+/// Their license texts under `licenses/` in the Linux game's folder.
+pub const LICENSE_DXVK: &str = "LICENSE-DXVK.txt";
+pub const LICENSE_SDL3: &str = "LICENSE-SDL3.txt";
 
 /// Which zip a guard reads: each has its own list of files.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Zip {
     /// The game's: `MVS-Classic-<version>.zip`.
     Game,
+    /// The Linux game's: `MVS-Classic-<version>-linux.zip`.
+    GameLinux,
     /// The relay's: `MVS-Classic-Relay-<version>.zip`.
     Relay,
+}
+
+impl Zip {
+    /// A game's zip, which may hold the EOS credentials in their own file.
+    fn is_game(self) -> bool {
+        matches!(self, Zip::Game | Zip::GameLinux)
+    }
 }
 
 /// The files a zip of this kind may hold.
 fn own_files(kind: Zip) -> Vec<String> {
     match kind {
+        Zip::GameLinux => {
+            let mut own = vec![
+                mvs_release::LINUX_LAUNCHER_EXE.to_owned(),
+                LICENSE.to_owned(),
+                in_game(mvs_release::LINUX_GAME_EXE),
+                in_game(ONLINE_JSON),
+                in_game(SELF_CHECK_JSON),
+                in_game(RELEASE_FILES),
+                in_game(&format!("{LICENSES_DIR}/{NOTICE_IMPORTER}")),
+                in_game(&format!("{LICENSES_DIR}/{LICENSE_CUE4PARSE}")),
+                in_game(&format!("{LICENSES_DIR}/{LICENSE_DXVK}")),
+                in_game(&format!("{LICENSES_DIR}/{LICENSE_SDL3}")),
+                in_game(mvs_release::EOS_SO),
+                in_game(EOS_CREDENTIALS),
+            ];
+            own.extend(LINUX_LIBS.map(in_game));
+            own
+        }
         Zip::Game => vec![
             mvs_release::LAUNCHER_EXE.to_owned(),
             LICENSE.to_owned(),
@@ -70,24 +102,80 @@ fn own_files(kind: Zip) -> Vec<String> {
     }
 }
 
-/// The developer's AES key, read from a `content/local.json` (`{ "key": "0x<64 hex digits>" }`).
+/// The environment variable that gives the guard the key (a repository secret in CI): 64 hex digits, `0x` optional.
+pub const KEY_VAR: &str = "MVS_PAK_KEY";
+
+/// The paks' AES key the guard searches for, and the name of the place it came from (never the key).
+pub struct GuardKey {
+    pub key: [u8; 32],
+    pub source: String,
+}
+
+impl std::fmt::Debug for GuardKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "GuardKey(.. from {})", self.source)
+    }
+}
+
+/// 64 hex digits, `0x` optional, as the key's 32 bytes.
+fn hex_key(hex: &str) -> Option<[u8; 32]> {
+    let hex = hex.strip_prefix("0x").or_else(|| hex.strip_prefix("0X")).unwrap_or(hex);
+    if hex.len() != 64 || !hex.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return None;
+    }
+    let mut key = [0; 32];
+    for (i, k) in key.iter_mut().enumerate() {
+        *k = u8::from_str_radix(&hex[i * 2..i * 2 + 2], 16).ok()?;
+    }
+    Some(key)
+}
+
+/// The developer's AES key, read from a `content/local.json`: its `"key"` (`"0x<64 hex digits>"`), else the key in
+/// the beta's exe beside its `"paks"` (as every other tool reads it).
 pub fn read_key(file: &Path) -> Result<[u8; 32], String> {
+    key_in_file(file).map(|k| k.key)
+}
+
+/// [`read_key`], with the name of the source.
+fn key_in_file(file: &Path) -> Result<GuardKey, String> {
     let text = std::fs::read_to_string(file).map_err(|e| format!("guard: {}: {e}", file.display()))?;
     // (no parser message: it quotes the text, which holds the key)
     let json: serde_json::Value =
         serde_json::from_str(&text).map_err(|_| format!("guard: {} is not JSON", file.display()))?;
-    let hex = json.get("key").and_then(|k| k.as_str()).unwrap_or("");
-    let hex = hex.strip_prefix("0x").or_else(|| hex.strip_prefix("0X")).unwrap_or(hex);
-    let bad = || format!("guard: {} holds no key of 64 hex digits", file.display());
-    if hex.len() != 64 || !hex.bytes().all(|b| b.is_ascii_hexdigit()) {
-        return Err(bad());
+    if let Some(k) = json.get("key") {
+        let key = k
+            .as_str()
+            .and_then(hex_key)
+            .ok_or_else(|| format!("guard: {} holds no key of 64 hex digits", file.display()))?;
+        return Ok(GuardKey { key, source: format!("{}'s \"key\"", file.display()) });
     }
-    let mut key = [0; 32];
-    for (i, k) in key.iter_mut().enumerate() {
-        *k = u8::from_str_radix(&hex[i * 2..i * 2 + 2], 16).map_err(|_| bad())?;
+    if let Some(paks) = json.get("paks").and_then(|p| p.as_str()) {
+        // the exe's error names paths, never the key
+        let exe = mvs_pak::setup::exe_beside_paks(Path::new(paks));
+        let key =
+            mvs_pak::setup::key_from_exe(&exe).map_err(|e| format!("guard: {}'s \"paks\": {e}", file.display()))?;
+        return Ok(GuardKey { key: key.0, source: format!("the exe beside {}'s \"paks\"", file.display()) });
     }
-    Ok(key)
+    Err(format!("guard: {} holds neither a \"key\" of 64 hex digits nor \"paks\"", file.display()))
 }
+
+/// The guard's key: `var` (the value of [`KEY_VAR`]) first, else `file` (a `content/local.json`, see [`read_key`]),
+/// else none (the key search is skipped). A malformed `var` is refused by name, never quoting its value.
+pub fn find_key(var: Option<&std::ffi::OsStr>, file: Option<&Path>) -> Result<Option<GuardKey>, String> {
+    if let Some(v) = var {
+        let key = v.to_str().and_then(hex_key).ok_or_else(|| format!("guard: {KEY_VAR} is not 64 hex digits"))?;
+        return Ok(Some(GuardKey { key, source: KEY_VAR.to_owned() }));
+    }
+    file.map(key_in_file).transpose()
+}
+
+/// [`find_key`] with this process's [`KEY_VAR`].
+pub fn key_here(file: Option<&Path>) -> Result<Option<GuardKey>, String> {
+    find_key(std::env::var_os(KEY_VAR).as_deref(), file)
+}
+
+/// The line the tools print when no key was found: the search is skipped.
+pub const NO_KEY: &str = "no key in MVS_PAK_KEY or content/local.json (\"key\" or \"paks\"): the key search is skipped";
 
 /// The keys a build list may hold: its id, the paks' and files' names, paths, sizes and hashes.
 const BUILD_KEYS: &[&str] = &["id", "paks", "files", "tables", "name", "path", "size", "sha256"];
@@ -183,7 +271,7 @@ pub fn check_files(where_: &str, entries: &[Entry], kind: Zip, key: Option<&[u8;
     let mut findings = Vec::new();
     let mut seen = std::collections::BTreeSet::new();
     let mut secrets = secrets.to_vec();
-    if kind == Zip::Game
+    if kind.is_game()
         && let Some(e) = entries.iter().find(|e| e.name == in_game(EOS_CREDENTIALS))
     {
         match eos_secrets(&e.data) {
@@ -228,7 +316,7 @@ pub fn check_files(where_: &str, entries: &[Entry], kind: Zip, key: Option<&[u8;
                 ));
             }
         }
-        let theirs = kind == Zip::Game && *name == in_game(EOS_CREDENTIALS);
+        let theirs = kind.is_game() && *name == in_game(EOS_CREDENTIALS);
         if !theirs && secrets.iter().any(|s| contains(&e.data, s)) {
             findings
                 .push(format!("{where_}: {name}: the EOS client credentials, outside {}", in_game(EOS_CREDENTIALS)));
@@ -474,5 +562,161 @@ mod tests {
         let found = findings(&e);
         assert_eq!(found.len(), 1);
         assert!(found[0].contains("MVS Classic.exe: needs VCRUNTIME140.dll"));
+    }
+
+    /// The Linux release: the Windows one's files with the Linux programs, libraries and their licenses.
+    fn clean_linux() -> Vec<Entry> {
+        let mut e: Vec<Entry> =
+            clean().into_iter().filter(|e| !e.name.ends_with(".exe") && !e.name.ends_with(".dll")).collect();
+        e.push(entry(&in_game(mvs_release::LINUX_GAME_EXE), b"\x7fELF the program"));
+        e.push(entry(mvs_release::LINUX_LAUNCHER_EXE, b"\x7fELF the launcher"));
+        e.extend(LINUX_LIBS.map(|l| entry(&in_game(l), b"\x7fELF a library")));
+        e.push(entry(&in_game(&format!("{LICENSES_DIR}/{LICENSE_DXVK}")), b"zlib"));
+        e.push(entry(&in_game(&format!("{LICENSES_DIR}/{LICENSE_SDL3}")), b"zlib"));
+        e.push(entry(&in_game(mvs_release::EOS_SO), b"\x7fELF fake so"));
+        e
+    }
+
+    fn linux_findings(entries: &[Entry]) -> Vec<String> {
+        check_files("l.zip", entries, Zip::GameLinux, Some(&KEY), &[]).findings
+    }
+
+    #[test]
+    fn the_linux_zip_refuses_the_windows_programs_and_dll() {
+        assert_eq!(linux_findings(&clean_linux()), Vec::<String>::new());
+        for windows in [in_game(EOS_DLL), in_game(GAME_EXE), mvs_release::LAUNCHER_EXE.to_owned()] {
+            let mut e = clean_linux();
+            e.push(entry(&windows, b"MZ"));
+            let found = linux_findings(&e);
+            assert_eq!(found, vec![format!("l.zip: {windows}: not one of the release's own files")]);
+        }
+    }
+
+    #[test]
+    fn the_windows_zip_refuses_the_linux_library() {
+        let mut e = clean();
+        e.push(entry(&in_game(mvs_release::EOS_SO), b"\x7fELF fake so"));
+        assert_eq!(findings(&e), vec!["t.zip: game/libEOSSDK-Linux-Shipping.so: not one of the release's own files"]);
+    }
+
+    #[test]
+    fn the_eos_secret_is_found_outside_its_file_in_the_linux_zip() {
+        let mut e = clean_linux();
+        e.iter_mut().find(|f| f.name == in_game(mvs_release::LINUX_GAME_EXE)).expect("the program").data =
+            format!("..{SECRET}..").into_bytes();
+        let found = linux_findings(&e);
+        assert_eq!(found.len(), 1);
+        assert!(found[0].contains("game/MVS Classic: the EOS client credentials, outside game/resources/eos.json"));
+        assert!(!found[0].contains(SECRET));
+        // the zip's own credentials file is theirs, and its secrets go on to the next zip's search
+        let r = check_files("l.zip", &clean_linux(), Zip::GameLinux, None, &[]);
+        assert!(r.findings.is_empty());
+        assert!(r.secrets.contains(&SECRET.as_bytes().to_vec()));
+    }
+
+    /// A fresh folder for a test's `local.json`.
+    fn key_dir(name: &str) -> std::path::PathBuf {
+        let d = std::env::temp_dir().join(format!("mvs-dist-key-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).expect("the folder");
+        d
+    }
+
+    fn local_json(d: &Path, json: &str) -> std::path::PathBuf {
+        let f = d.join("local.json");
+        std::fs::write(&f, json).expect("local.json");
+        f
+    }
+
+    fn key_hex(key: &[u8; 32]) -> String {
+        key.iter().map(|b| format!("{b:02x}")).collect()
+    }
+
+    #[test]
+    fn the_key_comes_from_the_variable_then_the_file_then_nowhere() {
+        let d = key_dir("order");
+        let mut other = KEY;
+        other[0] ^= 0xff;
+        let f = local_json(&d, &format!(r#"{{"key": "0x{}"}}"#, key_hex(&other)));
+        for var in [key_hex(&KEY), format!("0x{}", key_hex(&KEY)), format!("0X{}", key_hex(&KEY).to_uppercase())] {
+            let k = find_key(Some(var.as_ref()), Some(&f)).unwrap().expect("a key");
+            assert_eq!((k.key, k.source.as_str()), (KEY, KEY_VAR));
+        }
+        let k = find_key(None, Some(&f)).unwrap().expect("a key");
+        assert_eq!(k.key, other);
+        assert_eq!(k.source, format!("{}'s \"key\"", f.display()));
+        assert!(find_key(None, None).unwrap().is_none());
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn a_malformed_variable_is_refused_without_its_value() {
+        let d = key_dir("malformed");
+        let f = local_json(&d, &format!(r#"{{"key": "{}"}}"#, key_hex(&KEY)));
+        let short = &key_hex(&KEY)[..62];
+        let bad_digit = format!("{}g", &key_hex(&KEY)[..63]);
+        for var in [short, bad_digit.as_str(), ""] {
+            let e = find_key(Some(var.as_ref()), Some(&f)).unwrap_err();
+            assert!(e.contains(KEY_VAR), "{e}");
+            assert!(var.is_empty() || !e.contains(var), "{e}");
+            assert!(!e.contains(&key_hex(&KEY)[..16]), "{e}");
+        }
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn the_files_key_beats_its_paks() {
+        let d = key_dir("key-first");
+        let paks = d.join("MultiVersus/Content/Paks");
+        let json = serde_json::json!({ "paks": paks.to_str().unwrap(), "key": key_hex(&KEY) });
+        let f = local_json(&d, &json.to_string());
+        let k = find_key(None, Some(&f)).unwrap().expect("a key");
+        assert_eq!(k.key, KEY);
+        assert!(k.source.ends_with("'s \"key\""), "{}", k.source);
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn paks_with_no_exe_beside_them_are_refused_naming_the_exe() {
+        let d = key_dir("no-exe");
+        let paks = d.join("MultiVersus/Content/Paks");
+        std::fs::create_dir_all(&paks).expect("the paks folder");
+        let f = local_json(&d, &serde_json::json!({ "paks": paks.to_str().unwrap() }).to_string());
+        let e = find_key(None, Some(&f)).unwrap_err();
+        let exe = mvs_pak::setup::exe_beside_paks(&paks);
+        assert!(e.contains(&exe.display().to_string()), "{e}");
+        assert!(e.contains("\"paks\""), "{e}");
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn a_file_with_neither_key_nor_paks_is_refused_naming_both() {
+        let d = key_dir("neither");
+        let f = local_json(&d, r#"{"store": "x"}"#);
+        let e = find_key(None, Some(&f)).unwrap_err();
+        assert!(e.contains("\"key\"") && e.contains("\"paks\""), "{e}");
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    /// The owner's beta: run once on the host with `--ignored`. Prints nothing of the key.
+    #[test]
+    #[ignore = "needs the beta's paks and exe on this machine"]
+    fn the_real_beta_exe_gives_the_key() {
+        const PAKS: &str = "/home/tool/.local/share/Steam/steamrt64/steamapps/content/app_1818750/depot_1818751/\
+                            MultiVersus/Content/Paks";
+        let d = key_dir("real");
+        let f = local_json(&d, &serde_json::json!({ "paks": PAKS }).to_string());
+        let k = find_key(None, Some(&f)).expect("the exe's key").expect("a key");
+        assert!(k.source.starts_with("the exe beside"), "{}", k.source);
+        assert_ne!(k.key, [0; 32]);
+        // the key opens the beta's paks: setup's own check, every index
+        let files: Vec<_> = std::fs::read_dir(PAKS)
+            .expect("the paks")
+            .map(|e| e.expect("an entry").path())
+            .filter(|p| p.extension().is_some_and(|x| x == "pak"))
+            .collect();
+        assert!(!files.is_empty());
+        assert!(mvs_pak::PakSet::open(&files, &mvs_pak::AesKey(k.key)).is_ok(), "the key opens no pak index");
+        let _ = std::fs::remove_dir_all(&d);
     }
 }

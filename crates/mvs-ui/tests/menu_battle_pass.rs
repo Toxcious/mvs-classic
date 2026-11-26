@@ -97,8 +97,8 @@ fn the_modal_opens_and_draws_its_track() {
 #[test]
 #[ignore]
 fn draw_the_battle_pass() {
+    use mvs_d3d::Dxgi::Common::DXGI_FORMAT_R8G8B8A8_UNORM;
     use mvs_render::gpu::{Gpu, Subresource, TexDesc, TexKind, TexViews};
-    use windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_R8G8B8A8_UNORM;
     let Some(mut e) = env() else { return };
     let out = std::env::var("BP_SHOT").unwrap_or_else(|_| "battle_pass.png".into());
     let (mut s, mut t) = open(&mut e);

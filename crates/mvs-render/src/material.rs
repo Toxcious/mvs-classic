@@ -5,9 +5,9 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use mvs_d3d::Direct3D11::*;
 use mvs_material::material::{Address, Filter, MaterialTexture, Sampler, TextureBind};
 use mvs_material::{Frequency, ShaderCode};
-use windows::Win32::Graphics::Direct3D11::*;
 
 use crate::assets::Assets;
 use crate::gpu::{

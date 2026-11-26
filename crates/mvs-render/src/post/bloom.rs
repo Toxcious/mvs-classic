@@ -4,8 +4,8 @@
 
 use std::collections::HashMap;
 
+use mvs_d3d::Dxgi::Common::DXGI_FORMAT_R16G16B16A16_FLOAT;
 use mvs_material::Frequency;
-use windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_R16G16B16A16_FLOAT;
 
 use super::pass::{
     Binds, Global, Quad, Rows, Stage, States, bilinear_range, constant_buffer, draw_rect, screen_position_vs,

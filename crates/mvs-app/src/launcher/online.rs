@@ -22,8 +22,9 @@
 //! the newest look or test of the address in use).
 
 use std::io::Read;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Child;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::mpsc::{self, Receiver};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
@@ -57,6 +58,9 @@ const TEST_LIMIT: Duration = Duration::from_secs(15);
 /// The test child is looked at this often while it runs.
 const TEST_POLL: Duration = Duration::from_millis(50);
 
+/// The Test connections this launcher started: the next one's number in its result file's name (test_file).
+static TESTS: AtomicU32 = AtomicU32::new(0);
+
 /// A Test connection under way: its child (killed past TEST_LIMIT, or when the launcher quits), its answer, and
 /// whether it tested the relay alone (a game ran) with what started it (a full test again if the game quit).
 #[derive(Debug)]
@@ -65,6 +69,8 @@ struct Testing {
     answer: Receiver<Result<TestResult, String>>,
     relay_only: bool,
     game: GameArgs,
+    /// The child's `--out` file (removed once read, or when the launcher quits).
+    out: PathBuf,
 }
 
 #[derive(Debug)]
@@ -104,10 +110,11 @@ pub struct OnlineTab {
 }
 
 impl Drop for OnlineTab {
-    /// A test child under way ends with the launcher.
+    /// A test child under way ends with the launcher, and its result file with it.
     fn drop(&mut self) {
         if let Some(t) = &self.test {
             let _ = lock(&t.child).kill();
+            let _ = std::fs::remove_file(&t.out);
         }
     }
 }
@@ -317,8 +324,10 @@ impl OnlineTab {
         line.map(|l| line_note(&l)).unwrap_or_default()
     }
 
-    /// Test connection: a child `mvs.exe --net-test` on the game's data and online defaults (net_test), its result
-    /// taken by `poll_test`. While the game runs the child tests the relay alone and Epic and LAN are the game's.
+    /// Test connection: a child `mvs.exe --net-test` on the game's data and online defaults (net_test) that writes its
+    /// result to a file of this test's own in the temp folder (`--out`, test_file) as well as to stdout, its result
+    /// taken by `poll_test` (run_child). While the game runs the child tests the relay alone and Epic and LAN are the
+    /// game's.
     pub fn start_test(&mut self, game: &GameArgs) {
         if self.test.is_some() {
             return;
@@ -334,9 +343,13 @@ impl OnlineTab {
         if relay_only {
             cmd.arg("--relay-only");
         }
+        let out = test_file();
+        let _ = std::fs::remove_file(&out);
+        cmd.arg("--out").arg(&out);
         if let Some(d) = game.exe.parent() {
             cmd.current_dir(d);
         }
+        #[cfg(windows)]
         {
             use std::os::windows::process::CommandExt;
             // CREATE_NO_WINDOW: no console flashes up for the child
@@ -347,6 +360,7 @@ impl OnlineTab {
         let mut child = match cmd.spawn() {
             Ok(c) => c,
             Err(e) => {
+                let _ = std::fs::remove_file(&out);
                 self.tested = Some(Err(e.to_string()));
                 return;
             }
@@ -355,10 +369,11 @@ impl OnlineTab {
         let child = Arc::new(Mutex::new(child));
         let (tx, rx) = mpsc::channel();
         let waited = child.clone();
+        let read = out.clone();
         std::thread::spawn(move || {
-            let _ = tx.send(run_child(&waited, stdout));
+            let _ = tx.send(run_child(&waited, stdout, &read));
         });
-        self.test = Some(Testing { child, answer: rx, relay_only, game: game.clone() });
+        self.test = Some(Testing { child, answer: rx, relay_only, game: game.clone(), out });
     }
 
     /// A Test connection runs (PLAY waits for it: its Epic sign-in would take the game's place).
@@ -716,8 +731,40 @@ fn port_of_address(a: &str) -> Option<u16> {
     a.rsplit_once(':')?.1.parse().ok()
 }
 
-/// The child's run: waited for up to TEST_LIMIT (then killed), its last line of stdout read as the result.
-fn run_child(child: &Arc<Mutex<Child>>, stdout: Option<std::process::ChildStdout>) -> Result<TestResult, String> {
+/// A Test connection's result file in the temp folder, this launcher's own: its process id and the test's number.
+fn test_file() -> PathBuf {
+    let n = TESTS.fetch_add(1, Ordering::Relaxed);
+    std::env::temp_dir().join(format!("mvs-net-test-{}-{n}.json", std::process::id()))
+}
+
+/// The child's run: waited for up to TEST_LIMIT (then killed), its result the `--out` file's `out` or its stdout's
+/// (result_of). The file is removed whatever the end.
+fn run_child(
+    child: &Arc<Mutex<Child>>,
+    stdout: Option<std::process::ChildStdout>,
+    out: &Path,
+) -> Result<TestResult, String> {
+    let r = wait_child(child, stdout).and_then(|text| result_of(std::fs::read_to_string(out).ok().as_deref(), &text));
+    let _ = std::fs::remove_file(out);
+    r
+}
+
+/// The test's result from the child's `--out` file's text (`file`; None: none read) and its stdout: the file's when
+/// it parses, else the last line of stdout that parses (on Linux the EOS SDK prints lines of its own around the
+/// JSON), else the last non-empty line's error (no line: TEST_STOPPED).
+fn result_of(file: Option<&str>, stdout: &str) -> Result<TestResult, String> {
+    if let Some(r) = file.and_then(|f| serde_json::from_str(f).ok()) {
+        return Ok(r);
+    }
+    if let Some(r) = stdout.lines().rev().find_map(|l| serde_json::from_str(l).ok()) {
+        return Ok(r);
+    }
+    let line = stdout.lines().rev().find(|l| !l.trim().is_empty()).ok_or_else(|| w::TEST_STOPPED.to_owned())?;
+    serde_json::from_str(line).map_err(|e| e.to_string())
+}
+
+/// The child waited for up to TEST_LIMIT (then killed: TEST_TOO_LONG), its stdout once it ended.
+fn wait_child(child: &Arc<Mutex<Child>>, stdout: Option<std::process::ChildStdout>) -> Result<String, String> {
     // (read on a thread of its own: a full pipe would hold the child)
     let reader = std::thread::spawn(move || {
         let mut text = String::new();
@@ -738,9 +785,7 @@ fn run_child(child: &Arc<Mutex<Child>>, stdout: Option<std::process::ChildStdout
         }
         std::thread::sleep(TEST_POLL);
     }
-    let text = reader.join().unwrap_or_default();
-    let line = text.lines().rev().find(|l| !l.trim().is_empty()).ok_or_else(|| w::TEST_STOPPED.to_owned())?;
-    serde_json::from_str(line).map_err(|e| e.to_string())
+    Ok(reader.join().unwrap_or_default())
 }
 
 #[cfg(test)]
@@ -1079,5 +1124,46 @@ mod tests {
         let v = tab.view(&s);
         assert!(v.held);
         assert_eq!(v.summary, summary(Way::Local, Way::Off));
+    }
+
+    /// A child's result and its JSON line.
+    fn test_json(ms: u64) -> (TestResult, String) {
+        let r = TestResult { relay: Ok((ms, 7)), udp: Some(true), uses: TestUses::Relay, ..TestResult::default() };
+        let j = serde_json::to_string(&r).expect("its JSON");
+        (r, j)
+    }
+
+    #[test]
+    fn the_result_file_wins_over_stdout() {
+        let (file, file_json) = test_json(16);
+        let (_, other) = test_json(99);
+        let stdout = format!("{other}\nShutdown handler: cleanup.\n");
+        assert_eq!(result_of(Some(&file_json), &stdout), Ok(file));
+    }
+
+    #[test]
+    fn with_no_good_file_the_stdout_line_that_parses_is_the_result() {
+        // (the child's stdout on Linux with EOS: the SDK's own lines before and after the JSON)
+        let (r, j) = test_json(16);
+        let stdout = format!("Shutdown handler: initialize.\n{j}\nShutdown handler: cleanup.\n");
+        // no file, or one not read (None), or garbage in it
+        assert_eq!(result_of(None, &stdout), Ok(r.clone()));
+        assert_eq!(result_of(Some("{\"relay\":"), &stdout), Ok(r.clone()));
+        assert_eq!(result_of(Some(""), &stdout), Ok(r));
+    }
+
+    #[test]
+    fn with_nothing_that_parses_the_last_lines_error_is_said() {
+        let last = "Shutdown handler: cleanup.";
+        let today = serde_json::from_str::<TestResult>(last).expect_err("not JSON").to_string();
+        let got = result_of(Some("garbage"), &format!("Shutdown handler: initialize.\n{last}\n\n"));
+        assert_eq!(got, Err(today));
+        assert_eq!(got, Err("expected value at line 1 column 1".to_owned()));
+    }
+
+    #[test]
+    fn with_no_stdout_and_no_file_the_test_stopped() {
+        assert_eq!(result_of(None, ""), Err(w::TEST_STOPPED.to_owned()));
+        assert_eq!(result_of(None, "\n  \n"), Err(w::TEST_STOPPED.to_owned()));
     }
 }

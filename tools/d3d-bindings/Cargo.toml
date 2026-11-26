@@ -1,0 +1,15 @@
+[package]
+name = "d3d-bindings"
+description = "Writes mvs-d3d's Linux bindings (crates/mvs-d3d/src/linux/bindings.rs) from the names in crates/mvs-d3d/names.txt, or checks that the committed file is what it writes."
+edition = "2024"
+version = "0.0.0"
+license = "MIT"
+publish = false
+
+# Not a member of the game's workspace: the generator and its metadata stay out of the game's build.
+[workspace]
+
+[dependencies]
+windows-bindgen = "=0.65.0"
+# reads the same Win32 metadata file windows-bindgen reads, for the fields that are WCHAR arrays
+windows-metadata = "=0.100.0"

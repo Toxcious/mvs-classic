@@ -10,10 +10,10 @@
 
 use std::sync::Arc;
 
+use mvs_d3d::Direct3D::D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+use mvs_d3d::Direct3D11::*;
+use mvs_d3d::Dxgi::Common::DXGI_FORMAT_R8G8B8A8_UNORM;
 use mvs_view::{Camera, M4};
-use windows::Win32::Graphics::Direct3D::D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-use windows::Win32::Graphics::Direct3D11::*;
-use windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_R8G8B8A8_UNORM;
 
 use super::host::SceneryHost;
 use crate::Result;
@@ -123,7 +123,7 @@ fn draws_before(key: (f32, bool, f32), z: f32) -> bool {
 
 /// The quad: its corners' clip positions from the constants (u, v: (0, 0), (0, 1), (1, 1), (1, 0)), two
 /// triangles; the picture un-premultiplied, sRGB decoded (straight alpha, sRGB colour space).
-const QUAD: &str = r"
+pub(crate) const QUAD: &str = r"
 cbuffer Quad : register(b0) { float4 Corner[4]; };
 Texture2D<float4> Picture : register(t0);
 SamplerState Linear : register(s0);

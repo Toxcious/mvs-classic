@@ -45,6 +45,7 @@ fn main() {
     let mut rescan = start;
     let mut last = [None; SLOTS];
     let mut owners = [None; SLOTS];
+    #[cfg(windows)]
     let mut listed = 0;
     while start.elapsed().as_secs_f64() < secs {
         if rescan.elapsed() >= Duration::from_secs(1) {
@@ -52,7 +53,9 @@ fn main() {
             pads.device_arrived();
         }
         pads.poll();
+        #[cfg(windows)]
         let sony = pads.sony.describe();
+        #[cfg(windows)]
         if sony.len() != listed {
             listed = sony.len();
             for s in &sony {
@@ -90,6 +93,7 @@ fn main() {
         }
         std::thread::sleep(Duration::from_millis(16));
     }
+    #[cfg(windows)]
     for s in pads.sony.describe() {
         println!("sony pad {}: output refused {}", s.serial, s.write_failed);
     }

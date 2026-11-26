@@ -81,3 +81,54 @@ fn a_down_relay_and_epic_off_are_said() {
     assert!(text.starts_with("mvs ") && text.lines().count() == 5, "{text}");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// The child on a down relay with Epic off, `--out` given: its exit, stdout and stderr.
+fn child_with_out(name: &str, out: &std::path::Path) -> (PathBuf, std::process::Output) {
+    let dir = folder(name);
+    let data = dir.join("data");
+    std::fs::create_dir_all(&data).expect("made");
+    let defaults = dir.join("online.json");
+    let config = format!(r#"{{"relay":"127.0.0.1:1","eos":false,"lan":{},"direct":false}}"#, free_port());
+    std::fs::write(&defaults, config).expect("written");
+    let run = std::process::Command::new(env!("CARGO_BIN_EXE_mvs"))
+        .args(["--net-test", "--direct-loopback", "--data"])
+        .arg(&data)
+        .arg("--online-defaults")
+        .arg(&defaults)
+        .arg("--out")
+        .arg(out)
+        .output()
+        .expect("ran");
+    (dir, run)
+}
+
+#[test]
+fn the_child_writes_its_result_to_the_out_file_too() {
+    let dir = folder("out");
+    let out = dir.join("result.json");
+    let (child_dir, run) = child_with_out("out-child", &out);
+    assert!(run.status.success(), "{}", String::from_utf8_lossy(&run.stderr));
+    let stdout = String::from_utf8_lossy(&run.stdout);
+    let file = std::fs::read_to_string(&out).expect("the out file");
+    assert_eq!(file.trim(), stdout.trim());
+    let from_file: TestResult = serde_json::from_str(&file).expect("its JSON");
+    let from_stdout: TestResult = serde_json::from_str(stdout.trim()).expect("its JSON");
+    assert_eq!(from_file, from_stdout);
+    let _ = std::fs::remove_dir_all(&dir);
+    let _ = std::fs::remove_dir_all(&child_dir);
+}
+
+#[test]
+fn an_out_file_not_written_leaves_the_result_on_stdout() {
+    let dir = folder("out-missing");
+    let out = dir.join("no such folder").join("result.json");
+    let (child_dir, run) = child_with_out("out-missing-child", &out);
+    let stderr = String::from_utf8_lossy(&run.stderr);
+    assert!(run.status.success(), "{stderr}");
+    let stdout = String::from_utf8_lossy(&run.stdout);
+    let _: TestResult = serde_json::from_str(stdout.trim()).expect("its JSON");
+    assert!(stderr.contains(&out.display().to_string()), "{stderr}");
+    assert!(!out.exists());
+    let _ = std::fs::remove_dir_all(&dir);
+    let _ = std::fs::remove_dir_all(&child_dir);
+}

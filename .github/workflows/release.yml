@@ -1,6 +1,8 @@
 # Builds a release's programs from its tag on GitHub's own machines and attests each one (where it was built, from
 # which commit, by this workflow), so anyone can check that the programs in a release zip came from this repo's code:
 #   gh attestation verify "MVS Classic.exe" --repo <owner>/<repo>
+# Three jobs, run side by side: `windows` (the Windows game, its launcher and the relay), `relay-linux` (the relay
+# for Linux servers) and `game-linux` (the Linux game and its launcher, with the libraries they load).
 # The zip itself is packed on the maintainer's machine by tools/release-fetch.ps1, which downloads these programs,
 # verifies their attestations and adds what only that machine has (the self check's reference, made by playing the
 # check match on an imported store, and Epic's SDK). Started only by a version tag; it holds no secrets.
@@ -96,4 +98,86 @@ jobs:
         with:
           name: programs-relay-linux
           path: programs/
+          if-no-files-found: error
+
+  # The Linux game, built the way tools/linux-build.sh builds it on a desktop: inside the Steam Runtime "sniper"
+  # container, so it runs on a Steam Deck and on ordinary desktop distributions.
+  game-linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      # The runner has 14 GB of disk for the container image (about 4 GB) and the build: remove preinstalled
+      # toolchains this job never uses, for room to spare. It takes about a minute, and a release run that fails for
+      # want of disk costs far more than that.
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
+          df -h /
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # DXVK-native (the library that turns the game's Direct3D 11 calls into Vulkan), built by `deps` at the tag
+      # the script pins. It is kept between runs under that tag, as the Linux workflow (linux.yml) keeps it, since
+      # building it takes minutes and gives the same files each time.
+      - name: DXVK tag
+        id: dxvk
+        run: echo "tag=$(sed -n 's/^DXVK_TAG=//p' tools/linux-build.sh)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: dxvk-cache
+        with:
+          # The library and DXVK's license: `release` copies the license from DXVK's source folder, which is
+          # not kept otherwise.
+          path: |
+            target/linux-deps/dxvk
+            target/linux-deps/src/LICENSE
+          key: dxvk-${{ steps.dxvk.outputs.tag }}
+      - name: Build DXVK-native
+        if: steps.dxvk-cache.outputs.cache-hit != 'true'
+        run: tools/linux-build.sh deps
+
+      # The tag's version (v0.2.0 gives 0.2.0) goes into the programs. No MVS_UPDATE_FEED, unlike the Windows job:
+      # the game's updater is off on Linux, so a Linux build never looks for a newer release. The release folder is
+      # laid out in target/linux-release: "MVSC Launcher" at the top, the game and its libraries in game/.
+      - name: Build
+        run: MVS_VERSION="${GITHUB_REF_NAME#v}" tools/linux-build.sh release
+      # Each program must report the tag's version, as in the other jobs: a mismatch stops the release here.
+      # The programs run in the container the build used, not on the runner: the SDL3 library in game/ comes from
+      # the Steam Runtime and loads the sound and window-system libraries (PulseAudio, ALSA, X11, Wayland) that a
+      # desktop has and this runner does not. The image is already here from the build, under the same engine.
+      - name: Check the versions
+        run: |
+          engine=$(command -v podman || command -v docker)
+          image=$(sed -n 's/^IMAGE=//p' tools/linux-build.sh)
+          "$engine" run --rm --security-opt label=disable -v "$PWD/target/linux-release:/r:ro" \
+            -e version="${GITHUB_REF_NAME#v}" "$image" bash -euc '
+              check() {
+                line=$("$1" --version | head -n 1)
+                case "$line" in
+                  "$2 $version" | "$2 $version "*) echo "$line" ;;
+                  *) echo "$1 says \"$line\", not \"$2 $version\"" >&2; exit 1 ;;
+                esac
+              }
+              check "/r/MVSC Launcher" mvs-launcher
+              check "/r/game/MVS Classic" mvs'
+          sha256sum "target/linux-release/MVSC Launcher" "target/linux-release/game/MVS Classic"
+      # Both programs, one path per line, as the action's documentation lists several files. The spaces in the
+      # names need no quotes here: each line is read whole as one path.
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: |
+            target/linux-release/MVSC Launcher
+            target/linux-release/game/MVS Classic
+      # The whole folder, libraries and game/linux-build.json included: mvs-dist checks the programs against that
+      # file. GitHub's artifact download loses the files' Unix permissions (the "executable" mark), which is fine
+      # here: tools/release-fetch.ps1, on the maintainer's machine, hands the folder to mvs-dist, and mvs-dist marks
+      # the two programs executable by name when it packs the Linux zip.
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: programs-game-linux
+          path: target/linux-release/
           if-no-files-found: error

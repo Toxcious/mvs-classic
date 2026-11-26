@@ -5,17 +5,22 @@
 //! its clip and its 2x2 transform about an origin (CSS skew and rotate). Colours are the page's sRGB values, blended
 //! as a browser does: on the encoded values, premultiplied.
 
+#[cfg(windows)]
 use std::ffi::c_void;
 
+use mvs_d3d::Direct3D::D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+#[cfg(windows)]
+use mvs_d3d::Direct3D::ID3DBlob;
+use mvs_d3d::Direct3D11::*;
+use mvs_d3d::Dxgi::Common::{DXGI_FORMAT_R8_UNORM, DXGI_FORMAT_R8G8B8A8_UNORM};
+#[cfg(windows)]
+use mvs_d3d::core::PCSTR;
 use mvs_render::gpu::{
     BlendKey, BlendTarget, BufDesc, BufKind, Buffer, DepthKey, Gpu, RasterKey, SamplerKey, StateId, StateKey,
     Subresource, TexDesc, TexKind, TexViews, Texture,
 };
+#[cfg(windows)]
 use windows::Win32::Graphics::Direct3D::Fxc::{D3DCOMPILE_OPTIMIZATION_LEVEL3, D3DCompile};
-use windows::Win32::Graphics::Direct3D::{D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST, ID3DBlob};
-use windows::Win32::Graphics::Direct3D11::*;
-use windows::Win32::Graphics::Dxgi::Common::{DXGI_FORMAT_R8_UNORM, DXGI_FORMAT_R8G8B8A8_UNORM};
-use windows::core::PCSTR;
 
 use crate::{Error, Result};
 
@@ -162,7 +167,7 @@ fn row_of(s: &Shape, atlas_scale: f32) -> Row {
     Row(r)
 }
 
-const SOURCE: &str = r#"
+pub(crate) const SOURCE: &str = r#"
 struct Shape {
     float4 rect; float4 color; float4 border_color; float4 misc; float4 grad; float4 gparams;
     float4 uv; float4 clip; float4 xform; float4 origin; float4 p; float4 fade;
@@ -300,7 +305,8 @@ float4 MainPS(V v) : SV_Target {
 "#;
 
 /// HLSL of the launcher's own compiled by d3dcompiler_47.
-fn compile(entry: &str, target: &str) -> Result<Vec<u8>> {
+#[cfg(windows)]
+pub(crate) fn compile(entry: &str, target: &str) -> Result<Vec<u8>> {
     let e = format!("{entry}\0");
     let t = format!("{target}\0");
     let mut code: Option<ID3DBlob> = None;
@@ -330,7 +336,15 @@ fn compile(entry: &str, target: &str) -> Result<Vec<u8>> {
     }
 }
 
-fn dx(what: &'static str) -> impl FnOnce(windows::core::Error) -> Error {
+/// HLSL of the launcher's own as the DXBC d3dcompiler_47 made of it on Windows (Linux has no `D3DCompile`): the
+/// blob `shaders/keys.txt` names for the source, entry and target's `mvs_d3d::dxbc_key`.
+#[cfg(not(windows))]
+#[track_caller]
+pub(crate) fn compile(entry: &str, target: &str) -> Result<Vec<u8>> {
+    crate::shaders::committed(SOURCE, entry, target, std::panic::Location::caller())
+}
+
+fn dx(what: &'static str) -> impl FnOnce(mvs_d3d::core::Error) -> Error {
     move |e| Error::Format { what: what.into(), why: e.to_string() }
 }
 
@@ -454,7 +468,7 @@ impl Painter {
 
     /// The picture's texels are sRGB (sampled linear): the Image shapes encode them again.
     pub fn picture_srgb(&self, slot: u32) -> bool {
-        use windows::Win32::Graphics::Dxgi::Common::*;
+        use mvs_d3d::Dxgi::Common::*;
         self.picture(slot).is_some_and(|t| {
             matches!(
                 t.desc.format,

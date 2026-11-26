@@ -10,12 +10,16 @@
 use std::path::{Path, PathBuf};
 
 use mvs_ui::launcher::words as w;
+#[cfg(windows)]
 use windows::Win32::Foundation::ERROR_SUCCESS;
+#[cfg(windows)]
 use windows::Win32::System::Registry::{
     HKEY, HKEY_CURRENT_USER, KEY_SET_VALUE, REG_OPTION_NON_VOLATILE, REG_SZ, RRF_RT_REG_SZ, RegCloseKey,
     RegCreateKeyExW, RegGetValueW, RegSetValueExW,
 };
+#[cfg(windows)]
 use windows::Win32::UI::WindowsAndMessaging::{MB_ICONWARNING, MB_OK, MessageBoxW};
+#[cfg(windows)]
 use windows::core::HSTRING;
 
 use super::game::{Game, GameArgs};
@@ -24,6 +28,7 @@ use super::setup_os::{data_root, store_dir};
 use crate::online::link as game_link;
 
 /// Where the current user's classes live under HKEY_CURRENT_USER.
+#[cfg(windows)]
 const USER_CLASSES: &str = r"Software\Classes";
 
 /// A registry the scheme's keys are read from and written to (HKCU in the program; a map in the tests).
@@ -34,17 +39,20 @@ pub trait Keys {
 }
 
 /// HKEY_CURRENT_USER under `base` (`Software\Classes`).
+#[cfg(windows)]
 #[derive(Debug)]
 pub struct UserKeys {
     pub base: String,
 }
 
+#[cfg(windows)]
 impl UserKeys {
     fn path(&self, key: &str) -> HSTRING {
         HSTRING::from(format!("{}\\{key}", self.base))
     }
 }
 
+#[cfg(windows)]
 impl Keys for UserKeys {
     fn get(&self, key: &str, name: &str) -> Option<String> {
         let mut buf = vec![0u16; 2048];
@@ -126,6 +134,7 @@ pub fn register_in(keys: &mut dyn Keys, scheme: &str, exe: &Path) -> Result<bool
 }
 
 /// Writes the scheme's keys for this launcher when they are not there or name another program.
+#[cfg(windows)]
 pub fn register() -> Result<(), String> {
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
     let mut keys = UserKeys { base: USER_CLASSES.to_owned() };
@@ -133,6 +142,61 @@ pub fn register() -> Result<(), String> {
         eprintln!("mvs-launcher: join links ({}://) open {}", mvs_release::URL_SCHEME, exe.display());
     }
     Ok(())
+}
+
+/// The join links' desktop entry, in the user's applications folder.
+#[cfg(not(windows))]
+const LINK_DESKTOP: &str = "mvsclassic-link.desktop";
+
+/// Writes the scheme's handler for this launcher when it is not there or names another program: the desktop entry
+/// [`link_desktop_entry`] in the user's applications folder, then `xdg-mime` makes it the scheme's default.
+#[cfg(not(windows))]
+pub fn register() -> Result<(), String> {
+    use std::process::{Command, Stdio};
+    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    if exe.to_str().is_none() {
+        return Err(format!("{}: not UTF-8, which a desktop entry cannot name", exe.display()));
+    }
+    let dir = super::setup_os::applications_dir().ok_or("no home folder (HOME)")?;
+    let file = dir.join(LINK_DESKTOP);
+    let text = link_desktop_entry(&exe);
+    let mime = format!("x-scheme-handler/{}", mvs_release::URL_SCHEME);
+    let written = std::fs::read_to_string(&file).is_ok_and(|t| t == text);
+    let default = Command::new("xdg-mime")
+        .args(["query", "default", &mime])
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .output()
+        .is_ok_and(|o| o.status.success() && String::from_utf8_lossy(&o.stdout).trim() == LINK_DESKTOP);
+    if written && default {
+        return Ok(());
+    }
+    if !written {
+        std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+        std::fs::write(&file, &text).map_err(|e| format!("{}: {e}", file.display()))?;
+    }
+    let o = Command::new("xdg-mime")
+        .args(["default", LINK_DESKTOP, &mime])
+        .stdin(Stdio::null())
+        .output()
+        .map_err(|e| format!("xdg-mime: {e}"))?;
+    if !o.status.success() {
+        return Err(format!("xdg-mime: {} {}", o.status, String::from_utf8_lossy(&o.stderr).trim()));
+    }
+    eprintln!("mvs-launcher: join links ({}://) open {}", mvs_release::URL_SCHEME, exe.display());
+    Ok(())
+}
+
+/// The join links' desktop entry for the launcher at `launcher`: the scheme's handler, `--link <url>` (the
+/// registry's command on Windows), kept out of the menu.
+#[cfg(not(windows))]
+pub fn link_desktop_entry(launcher: &Path) -> String {
+    format!(
+        "[Desktop Entry]\nType=Application\nName=MVS Classic\nExec={} --link %u\nMimeType=x-scheme-handler/{};\n\
+         NoDisplay=true\nTerminal=false\n",
+        super::setup_os::desktop_exec_arg(launcher),
+        mvs_release::URL_SCHEME
+    )
 }
 
 /// The lobby code of a join link `<scheme>://join/<code>` (the scheme and `join` in any case, one `/` after the code
@@ -256,6 +320,7 @@ pub fn route(url: &str, o: &Options, os: &mut dyn LinkOs) -> Result<Routed, Stri
 
 /// `mvs-launcher --link <url>` with the launcher's other options: the link's code to the game; the exit code. A
 /// link that cannot be followed says why in a box (a click on a link has no console).
+#[cfg(windows)]
 pub fn forward(url: &str, o: &Options) -> u8 {
     match route(url, o, &mut RealOs) {
         Ok(r) => {
@@ -268,6 +333,36 @@ pub fn forward(url: &str, o: &Options) -> u8 {
             unsafe {
                 MessageBoxW(None, &HSTRING::from(why), &HSTRING::from("MVS Classic"), MB_OK | MB_ICONWARNING);
             }
+            1
+        }
+    }
+}
+
+/// `mvs-launcher --link <url>` with the launcher's other options: the link's code to the game; the exit code. A
+/// link that cannot be followed says why on stderr and in SDL's message box (a click on a link has no terminal),
+/// which SDL shows without its video started.
+#[cfg(not(windows))]
+pub fn forward(url: &str, o: &Options) -> u8 {
+    use sdl3_sys::messagebox::{SDL_MESSAGEBOX_WARNING, SDL_ShowSimpleMessageBox};
+    match route(url, o, &mut RealOs) {
+        Ok(r) => {
+            eprintln!("mvs-launcher: --link: {r:?}");
+            0
+        }
+        Err(why) => {
+            eprintln!("mvs-launcher: --link: {why}");
+            let text = std::ffi::CString::new(why.replace('\0', "")).unwrap_or_default();
+            eprintln!("mvs-launcher: --link: showing the message box");
+            // SAFETY: a modal box with no parent, on the launcher's main thread, its strings alive through the call.
+            let shown = unsafe {
+                SDL_ShowSimpleMessageBox(
+                    SDL_MESSAGEBOX_WARNING,
+                    c"MVS Classic".as_ptr(),
+                    text.as_ptr(),
+                    std::ptr::null_mut(),
+                )
+            };
+            eprintln!("mvs-launcher: --link: the message box closed (shown: {shown})");
             1
         }
     }
@@ -308,6 +403,7 @@ mod tests {
         assert_eq!(register_in(&mut k, "mvsclassic", Path::new(r"D:\MVS\mvs-launcher.exe")), Ok(true));
     }
 
+    #[cfg(windows)]
     #[test]
     fn the_users_registry_takes_and_gives_the_values() {
         // (a test key of its own under the user's classes, removed after: never the scheme's)
@@ -324,6 +420,21 @@ mod tests {
         assert_eq!(again, Ok(false));
         assert_eq!(command.as_deref(), Some(r#""C:\MVS\mvs-launcher.exe" --link "%1""#));
         assert_eq!(gone, ERROR_SUCCESS);
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn the_desktop_entry_names_the_launcher_quoted() {
+        let exec = |p: &str| {
+            let text = link_desktop_entry(Path::new(p));
+            assert!(text.starts_with("[Desktop Entry]\n"), "{text}");
+            assert!(text.lines().any(|l| l == "MimeType=x-scheme-handler/mvsclassic;"), "{text}");
+            text.lines().find(|l| l.starts_with("Exec=")).map(str::to_owned)
+        };
+        // (`--link` first: the launcher reads a link only there)
+        assert_eq!(exec("/a b/MVSC Launcher").as_deref(), Some(r#"Exec="/a b/MVSC Launcher" --link %u"#));
+        assert_eq!(exec("/a$b/MVSC Launcher").as_deref(), Some(r#"Exec="/a\\$b/MVSC Launcher" --link %u"#));
+        assert_eq!(exec("/a\"b/MVSC Launcher").as_deref(), Some(r#"Exec="/a\\"b/MVSC Launcher" --link %u"#));
     }
 
     /// A relay code of the release's relay, as a host writes it.

@@ -1,24 +1,33 @@
 //! mvs-dist: the developer's release tool.
 //!
-//!   mvs-dist build --version <x.y.z> [--feed <url>] [--eos] [--out <dir>] [--relay-linux <file>] [--no-build]
-//!       [--programs <dir>] [--store <dir> | --self-check <file>]
+//!   mvs-dist build --version <x.y.z> [--feed <url>] [--eos] [--out <dir>] [--relay-linux <file>]
+//!       [--game-linux <dir>] [--no-build] [--programs <dir>] [--store <dir> | --self-check <file>]
 //!       builds mvs.exe and mvs-relay.exe for the version (and the feed the exe checks), writes into <dir> (default
 //!       <repo>/target/dist) the release folder, MVS-Classic-<version>.zip and MVS-Classic-Relay-<version>.zip, then
 //!       guards both zips. --eos packs the EOS SDK's DLL (the repo's third_party/eos, or MVS_EOS_DLL) and the
 //!       credentials named by MVS_EOS_CREDENTIALS.
-//!       --relay-linux packs a Linux mvs-relay built elsewhere. --no-build packs the last build again (built for the
-//!       same version and feed). --programs packs the programs in <dir> instead of building them (the release
-//!       workflow's, fetched by tools/release-fetch.ps1). The built mvs.exe runs the self check's match on --store
-//!       (default: the store it finds itself) for the release's self-check.json; --self-check packs one made
-//!       beforehand instead (the repo's, made on a fresh import's store), held to the exe's `--compat-id`.
+//!       --relay-linux packs a Linux mvs-relay built elsewhere. --game-linux packs the Linux game built elsewhere
+//!       (tools/linux-build.sh release's folder, its stamp naming the version) into MVS-Classic-<version>-linux.zip,
+//!       with the self check of the Windows run; with --eos, its EOS library is the repo's third_party/eos one (or
+//!       MVS_EOS_SO's). --no-build packs the last build again (built for the same version and feed). --programs
+//!       packs the programs in <dir> instead of building them (the release workflow's, fetched by
+//!       tools/release-fetch.ps1). The built mvs.exe runs the self check's match on --store (default: the store it
+//!       finds itself) for the release's self-check.json; --self-check packs one made beforehand instead (the
+//!       repo's, made on a fresh import's store), held to the exe's `--compat-id`.
+//!       On a Linux host the Windows programs are cross-built (tools/windows-cross.sh, target/xwin) unless --programs
+//!       names them, and run under Wine in a prefix made for the run beside <dir> (<dir>.wine, removed at the end),
+//!       and the Linux game and relay are built in the container (tools/linux-build.sh) unless --game-linux and
+//!       --relay-linux name them; --no-build packs their last builds too.
 //!   mvs-dist guard <game zip> [<relay zip>] [--key <local.json>]
-//!       the guard alone (the key from <repo>/content/local.json unless --key names one)
+//!       the guard alone (the key from MVS_PAK_KEY, else <repo>/content/local.json unless --key names one: its
+//!       "key", else the exe beside its "paks")
 //!   mvs-dist serve <dir> [--port <n>]
 //!       serves <dir> on 127.0.0.1 (port 0 or none: any free port; the URL is printed) until stopped
 //!   mvs-dist release-check [--store <dir>] [--keep]
 //!       builds 0.1.0 and 0.1.1 test releases against a local feed and walks them through the guard, the
 //!       self-test and an update (mvs_dist::check), in <repo>/.scratch/release-check (deleted at the end unless
-//!       --keep); --store names the developer's store the self-test reads (default content/.store)
+//!       --keep); --store names the developer's store the self-test reads (default content/.store). Windows only: it
+//!       tests the Windows updater.
 
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -29,10 +38,15 @@ use mvs_dist::pack::{self, Options};
 use mvs_dist::serve;
 
 const USAGE: &str =
-    "usage: mvs-dist build --version <x.y.z> [--feed <url>] [--eos] [--out <dir>] [--relay-linux <file>] [--no-build] [--programs <dir>] [--store <dir> | --self-check <file>]
+    "usage: mvs-dist build --version <x.y.z> [--feed <url>] [--eos] [--out <dir>] [--relay-linux <file>]
+           [--game-linux <dir>] [--no-build] [--programs <dir>] [--store <dir> | --self-check <file>]
        mvs-dist guard <game zip> [<relay zip>] [--key <local.json>]
        mvs-dist serve <dir> [--port <n>]
-       mvs-dist release-check [--store <dir>] [--keep]";
+       mvs-dist release-check [--store <dir>] [--keep]
+
+On Linux, build cross-builds the Windows programs (tools/windows-cross.sh) unless --programs names them, runs them
+under Wine in a prefix of its own, and builds the Linux game and relay unless --game-linux and --relay-linux name
+them. release-check needs Windows.";
 
 /// The arguments: flags with their values, and the rest in order.
 struct Args {
@@ -82,7 +96,7 @@ fn absolute(p: &str) -> Result<PathBuf, String> {
 fn build(args: &[String]) -> Result<(), String> {
     let a = parse(
         args,
-        &["--version", "--feed", "--out", "--relay-linux", "--programs", "--store", "--self-check"],
+        &["--version", "--feed", "--out", "--relay-linux", "--game-linux", "--programs", "--store", "--self-check"],
         &["--eos", "--no-build"],
     )?;
     if !a.rest.is_empty() {
@@ -96,6 +110,7 @@ fn build(args: &[String]) -> Result<(), String> {
         eos: a.has("--eos"),
         out: a.get("--out").map_or_else(|| Ok(repo.join("target/dist")), absolute)?,
         relay_linux: a.get("--relay-linux").map(absolute).transpose()?,
+        game_linux: a.get("--game-linux").map(absolute).transpose()?,
         no_build: a.has("--no-build"),
         programs: a.get("--programs").map(absolute).transpose()?,
         store: a.get("--store").map(absolute).transpose()?,
@@ -114,10 +129,12 @@ fn guard_only(args: &[String]) -> Result<(), String> {
         Some(k) => Some(PathBuf::from(k)),
         None => repo.as_ref().map(|r| r.join("content/local.json")).filter(|f| f.is_file()),
     };
-    let key = key_file.as_deref().map(guard::read_key).transpose()?;
-    if key.is_none() {
-        println!("guard: no content/local.json: the key search is skipped");
+    let key = guard::key_here(key_file.as_deref())?;
+    match &key {
+        Some(k) => println!("guard: the key from {}", k.source),
+        None => println!("guard: {}", guard::NO_KEY),
     }
+    let key = key.map(|k| k.key);
     let mut findings = Vec::new();
     // the build list the exe embeds, when run inside the repo
     match &repo {
@@ -157,6 +174,9 @@ fn serve_dir(args: &[String]) -> Result<(), String> {
 }
 
 fn release_check(args: &[String]) -> Result<(), String> {
+    if !cfg!(windows) {
+        return Err("release-check: it tests the Windows updater and needs Windows".to_owned());
+    }
     let a = parse(args, &["--store"], &["--keep"])?;
     if !a.rest.is_empty() {
         return Err(USAGE.to_owned());

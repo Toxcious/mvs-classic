@@ -1,13 +1,17 @@
 //! The online gate's checks: the update feed served on 127.0.0.1 by the test (a newer release, the same, a feed that
 //! never answers, one that is not there) and a store of an older import, folded into the hub's gate.
 
+#[cfg(windows)]
 use std::io::{BufRead, BufReader, Write};
 use std::net::TcpListener;
 use std::time::{Duration, Instant};
 
-use mvs_app::online::gate::{self, FEED_WAIT, Feed, FeedCheck, Gate};
+#[cfg(windows)]
+use mvs_app::online::gate::{self, Gate};
+use mvs_app::online::gate::{FEED_WAIT, Feed, FeedCheck};
 
 /// A feed (the GitHub API's latest release) that offers `version`; its address.
+#[cfg(windows)]
 fn feed_of(version: &str) -> String {
     let l = TcpListener::bind("127.0.0.1:0").unwrap();
     let port = l.local_addr().unwrap().port();
@@ -49,6 +53,7 @@ fn answer_within(f: &mut FeedCheck, most: Duration) -> Feed {
     }
 }
 
+#[cfg(windows)]
 #[test]
 fn an_old_release_sees_the_newer_one_on_the_feed() {
     let feed = feed_of("9.0.0");
@@ -58,6 +63,7 @@ fn an_old_release_sees_the_newer_one_on_the_feed() {
     assert_eq!(answer_within(&mut same, Duration::from_secs(10)), Feed::Done);
 }
 
+#[cfg(windows)]
 #[test]
 fn a_feed_that_never_answers_opens_online_after_the_wait() {
     // (a listener that takes the connection and says nothing)
@@ -88,6 +94,7 @@ fn no_feed_there_is_no_gate() {
     assert!(started.elapsed() < FEED_WAIT, "a refused feed does not wait it out");
 }
 
+#[cfg(windows)]
 #[test]
 fn a_stale_store_gates_online_until_imported_and_a_newer_release_outranks_it() {
     let data = std::env::temp_dir().join(format!("mvs-gate-test-{}", std::process::id()));

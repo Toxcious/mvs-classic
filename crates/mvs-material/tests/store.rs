@@ -4,13 +4,21 @@
 //! the Material buffer's resources the entry lists, and every vertex, pixel, geometry, hull and domain shader is
 //! created on a D3D11 WARP device. A tree with no store, or a store with no material kind, says so and passes.
 
-use std::collections::{BTreeMap, BTreeSet};
+#[cfg(windows)]
+use std::collections::BTreeMap;
+use std::collections::BTreeSet;
 
+#[cfg(windows)]
 use mvs_material::material::TextureBind;
-use mvs_material::{Entry, Frequency, GLOBAL_SHADER_CACHE, Sha1, ShaderCode, hashed_name, read_code, read_entry};
+use mvs_material::{Entry, Frequency, GLOBAL_SHADER_CACHE, hashed_name, read_entry};
+#[cfg(windows)]
+use mvs_material::{Sha1, ShaderCode, read_code};
 use mvs_store::{Pack, Store, dev_store_dir};
+#[cfg(windows)]
 use windows::Win32::Foundation::HMODULE;
+#[cfg(windows)]
 use windows::Win32::Graphics::Direct3D::{D3D_DRIVER_TYPE_WARP, D3D_FEATURE_LEVEL_11_0};
+#[cfg(windows)]
 use windows::Win32::Graphics::Direct3D11::{
     D3D11_CREATE_DEVICE_FLAG, D3D11_SDK_VERSION, D3D11CreateDevice, ID3D11Device,
 };
@@ -51,6 +59,7 @@ fn named_materials(store: &Store, kind: &str, pick: impl Fn(&str) -> bool, out: 
     n
 }
 
+#[cfg(windows)]
 fn warp() -> ID3D11Device {
     let mut dev = None;
     // SAFETY: every pointer argument is None or a live local (the feature level slice, `dev`); a null adapter with
@@ -73,6 +82,7 @@ fn warp() -> ID3D11Device {
 }
 
 /// Creates the code's shader on the device; None for a frequency D3D11 has no Create* of here (compute, ray).
+#[cfg(windows)]
 fn create(dev: &ID3D11Device, code: &ShaderCode) -> Option<windows::core::Result<()>> {
     let b = &code.dxbc;
     // SAFETY: `b` is a live byte slice for the call's duration (D3D copies the bytecode), no class linkage, and the
@@ -122,6 +132,8 @@ fn every_entry_decodes() {
     assert!(n > 0 && overrides == 2);
 }
 
+// WARP is Windows' own: DXVK has no software device.
+#[cfg(windows)]
 #[test]
 fn global_shaders_by_name() {
     let Some((_, materials, shaders)) = store() else { return };
@@ -161,6 +173,7 @@ fn global_shaders_by_name() {
     }
 }
 
+#[cfg(windows)]
 #[test]
 fn shaggy_and_the_lab_create_on_warp() {
     let Some((store, materials, shaders)) = store() else { return };

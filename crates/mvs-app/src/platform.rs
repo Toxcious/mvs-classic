@@ -36,6 +36,8 @@ use crate::input::Devices;
 use crate::input::keys::key_name;
 use crate::{Error, Result};
 
+pub use crate::platform_common::{FIRST_RUN, content_size, launcher_size};
+
 /// RAWKEYBOARD.Flags: RI_KEY_BREAK (the key went up) and RI_KEY_E0 (the E0 prefix).
 const RI_KEY_BREAK: u16 = 1;
 const RI_KEY_E0: u16 = 2;
@@ -135,18 +137,6 @@ impl KeyRecord {
     }
 }
 
-/// The window's first-run client size (display.ts FIRST_RUN): a saved size of 0 or larger than its display.
-pub const FIRST_RUN: [u32; 2] = [1280, 720];
-
-/// The client size for an asked one on a display of `display` pixels whose work area is `work` (display.ts
-/// contentDip): 0 or larger than the display gives the first-run size; then kept inside the work area less `frame`
-/// (the window's border and title; 0 while it covers its display).
-pub fn content_size(asked: [u32; 2], display: [u32; 2], work: [u32; 2], frame: [u32; 2]) -> [u32; 2] {
-    let fits = asked[0] > 0 && asked[1] > 0 && asked[0] <= display[0] && asked[1] <= display[1];
-    let want = if fits { asked } else { FIRST_RUN };
-    [0, 1].map(|i| want[i].min(work[i].saturating_sub(frame[i])).max(1))
-}
-
 /// Where a window opens.
 #[derive(Clone, Copy, Debug)]
 enum Placement {
@@ -157,17 +147,6 @@ enum Placement {
     /// The launcher's: `page` (its layout's size, in the monitor's 96-DPI units) at the monitor's scale, made smaller
     /// to fit its work area down to `least` of that, centred there; frameless and of a fixed size.
     Launcher { page: [u32; 2], least: f32 },
-}
-
-/// The launcher window's client size, pixels (window.ts openLauncher's zoom, the page's size times it): the page at
-/// the monitor's `scale` (its DPI over 96), smaller to fit the work area of `work` pixels, no smaller than `least`.
-// Deviation: a fixed size (window.ts let the player drag it at the page's aspect ratio and kept the zoom in the
-// settings: Settings.launcherZoom); its first zoom is the saved one's default, 1.
-pub fn launcher_size(page: [u32; 2], scale: f32, work: [u32; 2], least: f32) -> [u32; 2] {
-    let [pw, ph] = [page[0] as f32 * scale, page[1] as f32 * scale];
-    let fits = (work[0] as f32 / pw).min(work[1] as f32 / ph);
-    let zoom = fits.min(1.0).max(least);
-    [(pw * zoom).round() as u32, (ph * zoom).round() as u32]
 }
 
 /// The launcher's drag band (its page's title bar): its height and the width kept at its right for the buttons

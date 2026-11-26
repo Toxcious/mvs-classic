@@ -9,12 +9,16 @@ const fs = require('fs');
 // File kinds by extension (lower case).
 const KINDS = new Set([
   'rs', 'toml', 'lock', 'md', 'json', 'txt', 'js', 'ps1', 'bat', 'yml', 'yaml', 'rc', 'hlsl',
+  // the Linux build script
+  'sh',
   // the vendored FreeType sources
   'c', 'h', 'mk', 'cin', 'hin', 'dat',
   // the launcher's fonts and the app's icons
   'ttf', 'ico', 'png',
   // the README's screenshots
   'jpg',
+  // the port's own shaders compiled for Linux, which has no D3DCompile
+  'dxbc',
   // the Expert bot's trained network (our own weights) and the scripts that train it
   'net', 'py',
 ]);

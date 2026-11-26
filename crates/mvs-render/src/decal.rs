@@ -6,11 +6,11 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use mvs_d3d::Direct3D::D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+use mvs_d3d::Direct3D11::*;
+use mvs_d3d::Dxgi::Common::*;
 use mvs_material::{Frequency, PreshaderInputs};
 use mvs_view::M4;
-use windows::Win32::Graphics::Direct3D::D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-use windows::Win32::Graphics::Direct3D11::*;
-use windows::Win32::Graphics::Dxgi::Common::*;
 
 use crate::assets::Assets;
 use crate::fx::FloorDecal;
@@ -732,7 +732,7 @@ impl Decals {
 
     /// The read-only view of the scene depth-stencil `depth`, made once per resource.
     fn read_only_depth(&mut self, gpu: &Gpu, depth: &Texture) -> Result<ID3D11DepthStencilView> {
-        use windows::core::Interface;
+        use mvs_d3d::core::Interface;
         let key = depth.res.as_raw() as usize;
         if let Some((k, v)) = &self.read_only
             && *k == key

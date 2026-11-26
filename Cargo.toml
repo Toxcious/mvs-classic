@@ -37,6 +37,7 @@ mvs-net = { path = "crates/mvs-net" }
 mvs-host = { path = "crates/mvs-host" }
 mvs-relay = { path = "crates/mvs-relay" }
 mvs-release = { path = "crates/mvs-release" }
+mvs-d3d = { path = "crates/mvs-d3d" }
 # the EOS SDK's DLL, loaded at run time (mvs-net backend/eos)
 libloading = "=0.9.0"
 # a chat message's graphemes (mvs-protocol chat)
@@ -82,6 +83,10 @@ lz4_flex = { version = "0.11", default-features = false, features = ["safe-decod
 windows = "0.62.2"
 # the COM objects the port implements (`#[implement]` names this crate: mvs-audio's device notifications)
 windows-core = "0.62.2"
+# the C library on Linux (mvs-ui: the launcher clock's local time)
+libc = "0.2"
+# SDL3 on Linux (mvs-app: the window, input and frame pacing), linked against the system libSDL3.so.0
+sdl3-sys = "0.7"
 # the stage editor's panels and fields (mvs-stage-editor only: the game never links it); the core crate alone, drawn
 # by the editor's own Direct3D 11 painter, without default_fonts (the editor hands it the launcher's faces)
 egui = { version = "=0.37.0", default-features = false }

@@ -23,7 +23,17 @@ fn a_failed_open_keeps_the_gpu() {
         audio_offline: false,
         online_defaults: data.join("online.json"),
     };
-    let mut shell = Shell::new(&o).unwrap();
+    let shell = Shell::new(&o);
+    // (Linux: SDL has no video device, as in a container with no display, so there is no window to make)
+    #[cfg(not(windows))]
+    if let Err(mvs_app::Error::Platform(why)) = &shell
+        && why.starts_with("SDL_Init:")
+    {
+        eprintln!("no video device: skipped ({why})");
+        let _ = std::fs::remove_dir_all(&data);
+        return;
+    }
+    let mut shell = shell.unwrap();
     // no store folder at all
     assert!(shell.open_store(&data.join("store")).is_err());
     assert!(shell.store().is_none());

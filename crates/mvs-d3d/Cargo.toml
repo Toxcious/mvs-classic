@@ -1,0 +1,26 @@
+[package]
+name = "mvs-d3d"
+description = "The Direct3D 11 and DXGI items the renderer and UI name, by the same paths on both platforms: the windows crate's on Windows, bindings generated for DXVK-native on Linux."
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows = { workspace = true, features = [
+  "Win32_Foundation",
+  "Win32_Graphics_Direct3D",
+  "Win32_Graphics_Direct3D11",
+  "Win32_Graphics_Direct3D_Fxc",
+  "Win32_Graphics_Dxgi",
+  "Win32_Graphics_Dxgi_Common",
+] }
+
+[target.'cfg(not(windows))'.dependencies]
+# asks whether SDL's video starts before DXVK-native's SDL3 window system is (`linux_wsi_ready`)
+sdl3-sys.workspace = true
+windows-core.workspace = true
+
+[build-dependencies]
+# finds DXVK-native's d3d11 and dxgi libraries on Linux
+pkg-config = "0.3"

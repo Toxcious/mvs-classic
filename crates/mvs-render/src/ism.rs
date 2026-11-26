@@ -14,10 +14,10 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use mvs_d3d::Direct3D11::ID3D11Buffer;
+use mvs_d3d::Dxgi::Common::*;
 use mvs_view::{MaterialRef, MeshPose};
 use serde::Deserialize;
-use windows::Win32::Graphics::Direct3D11::ID3D11Buffer;
-use windows::Win32::Graphics::Dxgi::Common::*;
 
 use crate::draw::{Bound, DrawItem, MeshSlice, VfInput};
 use crate::gpu::{BufDesc, BufKind, Buffer, Gpu, InputElement, ShaderId, rows_bytes};

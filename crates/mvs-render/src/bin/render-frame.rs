@@ -33,6 +33,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::Instant;
 
+use mvs_d3d::Dxgi::Common::DXGI_FORMAT_R8G8B8A8_UNORM;
 use mvs_render::assets::Assets;
 use mvs_render::fx::surfaces::level_surfaces;
 use mvs_render::fx::{CameraRoot, Fx};
@@ -46,7 +47,6 @@ use mvs_view::{
     ActorPose, Camera, FighterPose, FrameInput, FrameTime, MatchCamera, MaterialRef, MeshPose, PoseTape, ViewPoser,
 };
 use serde::Deserialize;
-use windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_R8G8B8A8_UNORM;
 
 /// The system allocator, its allocations and reallocations counted while `COUNTING` is set.
 struct Counting;
@@ -1066,6 +1066,8 @@ fn grow_run(args: &Args, name: &str, until: u32) -> Result<(), String> {
 }
 
 fn main() -> ExitCode {
+    // (DXVK-native's settings, before any thread: the device reads them)
+    mvs_d3d::set_linux_wsi();
     let go = |a: Args| match &a.source {
         Source::Match { name, tick, .. } if a.grow => grow_run(&a, name, *tick),
         _ if a.grow => Err("--grow needs --match".into()),

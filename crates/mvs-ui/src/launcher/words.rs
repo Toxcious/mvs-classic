@@ -563,6 +563,14 @@ pub const LINK_NOT_READY: &str = "MVS Classic is not ready to play yet: finish t
 pub fn link_game_failed(e: &str) -> String {
     format!("The game could not be started for the join link: {e}")
 }
+/// Linux: the box when no graphics device can be made (no Vulkan driver DXVK can use).
+pub fn no_vulkan(e: &str) -> String {
+    format!(
+        "MVS Classic could not start its graphics: {e}\n\nOn Linux the game draws through DXVK, which needs a \
+         working Vulkan driver for your graphics card. Install or update your Vulkan driver (Mesa, or your card \
+         maker's) and start the game again."
+    )
+}
 
 // Updates (the launcher's lines, and why a check or a download did not finish).
 pub const CHECKING_UPDATES: &str = "Checking for updates";

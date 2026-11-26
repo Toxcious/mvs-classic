@@ -176,6 +176,24 @@ fn detect_finds_the_depots_of_every_library() {
     let _ = std::fs::remove_dir_all(&d);
 }
 
+/// The PID of a process that has exited.
+#[cfg(windows)]
+fn exited_process() -> u32 {
+    let mut gone = std::process::Command::new("cmd").args(["/c", "exit"]).spawn().unwrap();
+    let pid = gone.id();
+    gone.wait().unwrap();
+    pid
+}
+
+/// The PID of a process that has exited.
+#[cfg(not(windows))]
+fn exited_process() -> u32 {
+    let mut gone = std::process::Command::new("true").spawn().unwrap();
+    let pid = gone.id();
+    gone.wait().unwrap();
+    pid
+}
+
 #[test]
 fn state_before_setup_and_a_killed_runs_leftovers() {
     let root = scratch("state");
@@ -195,9 +213,7 @@ fn state_before_setup_and_a_killed_runs_leftovers() {
         kinds: Default::default(),
     };
     mvs_store::write_manifest(&store, &m).unwrap();
-    let mut gone = std::process::Command::new("cmd").args(["/c", "exit"]).spawn().unwrap();
-    let pid = gone.id();
-    gone.wait().unwrap();
+    let pid = exited_process();
     std::fs::write(
         store.join("import.lock"),
         format!("{{\"pid\":{pid},\"started\":\"2026-11-09T00:00:00.000Z\",\"nonce\":\"0123456789abcdef\"}}"),
@@ -221,6 +237,36 @@ fn state_before_setup_and_a_killed_runs_leftovers() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
+/// Whether process `pid` is there (running, or a zombie not reaped).
+#[cfg(not(windows))]
+fn there(pid: u32) -> bool {
+    Path::new(&format!("/proc/{pid}")).exists()
+}
+
+// Deviation: a Linux process ended is a zombie until its parent waits on it; Windows has none to test.
+#[cfg(not(windows))]
+#[test]
+fn a_dropped_worker_is_reaped() {
+    let root = scratch("reap");
+    let mut pid = None;
+    let ev =
+        run_op(WorkerOp::State, &ImportRequest { data_root: root.clone(), ..Default::default() }, 4 * GB, |_, w| {
+            pid.get_or_insert(w.pid());
+            Act::Go
+        });
+    assert!(matches!(ev.iter().find(|e| e.ends()), Some(ImportEvent::State { .. })), "{ev:?}");
+    // the worker answered and its Worker dropped: its process is killed and reaped, not left a zombie of the
+    // launcher's (gone from /proc, where a zombie stays)
+    let pid = pid.expect("the worker's pid");
+    let t = Instant::now();
+    while there(pid) && t.elapsed() < Duration::from_secs(2) {
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).unwrap_or_default();
+    assert!(!there(pid), "the worker {pid} is still there 2 s after its Worker dropped: {stat}");
+    let _ = std::fs::remove_dir_all(&root);
+}
+
 #[test]
 fn a_worker_gone_without_its_answer_fails() {
     let root = scratch("gone");
@@ -239,7 +285,10 @@ fn a_worker_gone_without_its_answer_fails() {
         ev.extend(w.poll());
         std::thread::sleep(Duration::from_millis(20));
     }
+    #[cfg(windows)]
     assert!(matches!(ev.last(), Some(ImportEvent::Failed { say: Say::WorkerStopped { code: Some(1) } })), "{ev:?}");
+    #[cfg(not(windows))]
+    assert!(matches!(ev.last(), Some(ImportEvent::Failed { say: Say::WorkerStopped { code: Some(137) } })), "{ev:?}");
     // a run with no beta folder chosen fails with its reason
     let e = answer(WorkerOp::Run, &ImportRequest { data_root: root.clone(), ..Default::default() });
     assert!(matches!(&e, ImportEvent::Failed { say: Say::NoBetaChosen }), "{e:?}");

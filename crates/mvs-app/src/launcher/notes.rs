@@ -7,10 +7,16 @@
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver};
 
+#[cfg(windows)]
 use mvs_release::{NOTES_KEPT, ReleaseNotes, newer, notes_feed, notes_from_github, parse_version};
+#[cfg(not(windows))]
+use mvs_release::{NOTES_KEPT, ReleaseNotes, newer, notes_feed, parse_version};
 use mvs_ui::launcher::notes::{self as ui, NoteAge, PatchNote};
 use mvs_ui::launcher::words as w;
 
+#[cfg(not(windows))]
+use crate::update::UpdateError;
+#[cfg(windows)]
 use crate::update::{UpdateError, http};
 
 /// The kept list's file in the data folder.
@@ -20,6 +26,7 @@ pub const FILE: &str = "patch-notes.json";
 pub const FEED_ENV: &str = "MVS_NOTES_FEED";
 
 /// The list's answer is a few KB a release: one that answers more is not it.
+#[cfg(windows)]
 const LIST_MAX: usize = 1024 * 1024;
 
 /// Where the releases' list is read: beside this build's update feed, or where a developer's run says. None:
@@ -42,6 +49,7 @@ fn keep(data: &Path, list: &[ReleaseNotes]) -> std::io::Result<()> {
     std::fs::write(data.join(FILE), serde_json::to_vec_pretty(list).map_err(std::io::Error::other)?)
 }
 
+#[cfg(windows)]
 fn get(url: &str) -> Result<Vec<ReleaseNotes>, String> {
     let mut body = Vec::new();
     http::get(
@@ -57,6 +65,12 @@ fn get(url: &str) -> Result<Vec<ReleaseNotes>, String> {
     )
     .map_err(|e| e.to_string())?;
     notes_from_github(&String::from_utf8(body).map_err(|e| e.to_string())?)
+}
+
+/// The list at `url`: never read on Linux, where the updater (WinHTTP) is off.
+#[cfg(not(windows))]
+fn get(_url: &str) -> Result<Vec<ReleaseNotes>, String> {
+    Err(UpdateError::NoFeed.to_string())
 }
 
 /// Reads the list at `url` on a thread of its own and keeps it in `data`; the answer comes once. None: the thread

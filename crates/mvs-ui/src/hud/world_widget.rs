@@ -182,8 +182,8 @@ fn unknown(w: &WorldWidget, class: &str) -> Error {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use mvs_d3d::Dxgi::Common::DXGI_FORMAT_R8G8B8A8_UNORM;
     use mvs_render::gpu::{Gpu, Subresource, TexDesc, TexKind, TexViews};
-    use windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_R8G8B8A8_UNORM;
 
     /// The scoreboard painted at 950 x 950 with the EnterAnim and both ScoreChangeAnims at their ends: the picture
     /// has the box and the numbers (a part of it covered, not all). `MVS_WIDGET_PNG=<file>` writes it over grey.

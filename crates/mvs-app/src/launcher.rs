@@ -1258,16 +1258,21 @@ impl Launcher {
     // buttons only to the bound devices' actions, which the launcher has none of. A press and release inside one
     // frame (8 ms) is missed.
     fn pointer(&mut self, host: &mut Host) -> mvs_ui::launcher::draw::Pointer {
+        #[cfg(windows)]
         use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_LBUTTON};
+        #[cfg(windows)]
         use windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
         let wheel = host.devices.take_wheel();
         self.online.typed.extend(host.devices.take_chars());
         let at = host.devices.pointer.map(|(x, y)| [x, y]);
         // SAFETY: plain reads of the foreground window and the button's state.
+        #[cfg(windows)]
         let down = unsafe {
             GetForegroundWindow() == host.window.hwnd
                 && (GetAsyncKeyState(i32::from(VK_LBUTTON.0)) as u16 & 0x8000) != 0
         };
+        #[cfg(not(windows))]
+        let down = host.window.left_down();
         let click = self.was_down && !down && at.is_some();
         self.was_down = down;
         mvs_ui::launcher::draw::Pointer { at, down, click, wheel }

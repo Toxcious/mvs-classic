@@ -81,8 +81,33 @@ pub fn iso_utc(t: SystemTime) -> String {
 }
 
 /// A path made absolute (path.resolve).
+#[cfg(windows)]
 fn resolve(p: &Path) -> PathBuf {
     std::path::absolute(p).unwrap_or_else(|_| p.to_path_buf())
+}
+
+/// A path made absolute (path.resolve), its `.` and `..` taken out by the text as Windows' `std::path::absolute`
+/// does (on POSIX it keeps them); a `..` at the root stays at the root.
+#[cfg(not(windows))]
+fn resolve(p: &Path) -> PathBuf {
+    use std::path::Component;
+    let a = std::path::absolute(p).unwrap_or_else(|_| p.to_path_buf());
+    let mut out = PathBuf::new();
+    for c in a.components() {
+        match c {
+            Component::CurDir => {}
+            Component::ParentDir => match out.components().next_back() {
+                Some(Component::Normal(_)) => {
+                    out.pop();
+                }
+                Some(Component::RootDir | Component::Prefix(_)) => {}
+                // (a relative path, when the working folder could not be read, keeps its leading `..`)
+                _ => out.push(".."),
+            },
+            c => out.push(c),
+        }
+    }
+    out
 }
 
 fn same_path(a: &Path, b: &Path) -> bool {
@@ -473,6 +498,7 @@ mod tests {
         assert_eq!(grouped, built);
     }
 
+    #[cfg(windows)]
     #[test]
     fn paths_inside() {
         assert!(inside(Path::new(r"D:\Beta\data"), Path::new(r"d:\beta")));
@@ -481,5 +507,26 @@ mod tests {
         let paks = Path::new(r"D:\Steam\depot_1\MultiVersus\Content\Paks");
         assert!(root_inside_beta(Path::new(r"D:\Steam\depot_1\mvs"), paks).is_some());
         assert!(root_inside_beta(Path::new(r"D:\Games\MVS Classic"), paks).is_none());
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn paths_inside_on_linux() {
+        assert!(inside(Path::new("/home/x/Beta/data"), Path::new("/home/x/beta")));
+        assert!(inside(Path::new("/home/x/Beta"), Path::new("/home/x/beta/")));
+        assert!(!inside(Path::new("/home/x/Beta2"), Path::new("/home/x/Beta")));
+        let paks = Path::new("/home/x/Steam/depot_1/MultiVersus/Content/Paks");
+        assert!(root_inside_beta(Path::new("/home/x/Steam/depot_1/mvs"), paks).is_some());
+        assert!(root_inside_beta(Path::new("/home/x/Games/MVS Classic"), paks).is_none());
+        // (a data root not made yet, spelled through a link to the depot's folder: only the text sees it)
+        let d = std::env::temp_dir().join(format!("mvs-serve-inside-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        let paks = d.join("real/depot_1/MultiVersus/Content/Paks");
+        std::fs::create_dir_all(&paks).unwrap();
+        std::os::unix::fs::symlink(d.join("real"), d.join("link")).unwrap();
+        let through = d.join("link/depot_1/MultiVersus/Content/Paks");
+        let refused = root_inside_beta(&d.join("link/depot_1/new"), &through);
+        let _ = std::fs::remove_dir_all(&d);
+        assert!(refused.is_some());
     }
 }

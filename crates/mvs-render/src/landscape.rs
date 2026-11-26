@@ -11,10 +11,10 @@
 use std::sync::Arc;
 
 use indexmap::IndexMap;
+use mvs_d3d::Direct3D11::*;
+use mvs_d3d::Dxgi::Common::*;
 use mvs_view::{Camera, M4};
 use serde::Deserialize;
-use windows::Win32::Graphics::Direct3D11::*;
-use windows::Win32::Graphics::Dxgi::Common::*;
 
 use crate::Result;
 use crate::assets::{LodBuffers, Mesh, MeshLod, MeshSection};

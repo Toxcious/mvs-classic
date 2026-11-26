@@ -10,6 +10,7 @@ publish.workspace = true
 mvs-mutators.workspace = true
 indexmap.workspace = true
 mvs-data.workspace = true
+mvs-d3d.workspace = true
 mvs-freetype.workspace = true
 mvs-material.workspace = true
 # the online menus' view of the net service (its requests, events and targets)
@@ -26,16 +27,20 @@ png.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
+zstd.workspace = true
+
+# What the crate calls of Windows beyond the D3D11 items mvs-d3d names: D3DCompile, and GetLocalTime.
+[target.'cfg(windows)'.dependencies]
 windows = { workspace = true, features = [
   "Win32_Foundation",
   "Win32_Graphics_Direct3D",
   "Win32_Graphics_Direct3D_Fxc",
-  "Win32_Graphics_Direct3D11",
-  "Win32_Graphics_Direct3D_Fxc",
-  "Win32_Graphics_Dxgi_Common",
   "Win32_System_SystemInformation",
 ] }
-zstd.workspace = true
+
+# Linux: localtime_r, the launcher clock's local time.
+[target.'cfg(not(windows))'.dependencies]
+libc.workspace = true
 
 [dev-dependencies]
 mvs-sim-trace = { path = "../mvs-sim-trace" }

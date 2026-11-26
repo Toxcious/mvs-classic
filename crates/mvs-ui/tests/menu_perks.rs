@@ -293,8 +293,8 @@ fn no_perk_or_slot_is_locked_offline() {
 #[test]
 #[ignore]
 fn draw_the_perk_page() {
+    use mvs_d3d::Dxgi::Common::DXGI_FORMAT_R8G8B8A8_UNORM;
     use mvs_render::gpu::{Gpu, Subresource, TexDesc, TexKind, TexViews};
-    use windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_R8G8B8A8_UNORM;
     let Some(mut e) = env() else { return };
     let Some(c) = e.character() else { return };
     let out = std::env::var("PERK_SHOT").unwrap_or_else(|_| "perk_page.png".into());

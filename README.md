@@ -83,6 +83,8 @@ The port also has a few features of its own. None of them change the characters 
 ## What you need
 
 - **Windows 10 or 11, 64-bit**, with a graphics card that supports Direct3D 11
+- **Or Linux, 64-bit** (a Steam Deck, or a desktop distribution with glibc 2.31 or newer), with a Vulkan driver for
+  your graphics card
 - **MultiVersus in your Steam library.** The open beta is downloaded through Steam, which only works for accounts
   that have MultiVersus.
 - **About 16 GB of disk space:** about 8 GB for the open beta and 8 GB for the game the launcher builds from it
@@ -91,7 +93,8 @@ The port also has a few features of its own. None of them change the characters 
 
 1. **Download MVS Classic.** Download the zip from the
    [latest release](https://github.com/Toxcious/mvs-classic/releases/latest) and unzip it into the folder where you want
-   the game.
+   the game. On Linux, download `MVS-Classic-<version>-linux.zip` from the same release instead and unzip it the
+   same way. On both, the game keeps its settings and saves in a `data` folder beside the launcher.
 2. **Download the open beta.** It's still on Steam and is downloaded through the Steam console, about 8 GB. The
    launcher shows these steps too.
    1. Start Steam and sign in.
@@ -105,7 +108,7 @@ The port also has a few features of its own. None of them change the characters 
 
    4. Wait for the message "Depot download complete", which names the folder it was saved to. The console shows no
       progress while it downloads.
-3. **Set up the game.** Run `MVSC Launcher.exe` and follow its three steps:
+3. **Set up the game.** Run `MVSC Launcher.exe` (on Linux, `MVSC Launcher`) and follow its three steps:
    1. Choose where to install the game.
    2. Locate your open beta: press **Auto detect**, or **Choose folder** and pick the `depot_1818751` folder Steam
       created.

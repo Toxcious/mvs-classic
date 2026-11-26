@@ -477,8 +477,8 @@ fn a_long_chat_line_stays_in_its_box() {
 #[test]
 #[ignore]
 fn draw_the_lobby_chat() {
+    use mvs_d3d::Dxgi::Common::DXGI_FORMAT_R8G8B8A8_UNORM;
     use mvs_render::gpu::{Gpu, Subresource, TexDesc, TexKind, TexViews};
-    use windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_R8G8B8A8_UNORM;
     let Some(mut l) = Lobby::new(env()) else { return };
     let out = std::env::var("LOBBY_CHAT_SHOT").unwrap_or_else(|_| "lobby_chat.png".into());
     let velma = LobbyPlayer { account_id: "velma".into(), username: "Velma".into(), ..me() };

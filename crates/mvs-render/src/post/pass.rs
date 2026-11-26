@@ -3,10 +3,10 @@
 
 use std::sync::Arc;
 
+use mvs_d3d::Direct3D::D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+use mvs_d3d::Direct3D11::*;
+use mvs_d3d::Dxgi::Common::*;
 use mvs_material::{Frequency, ShaderCode};
-use windows::Win32::Graphics::Direct3D::D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-use windows::Win32::Graphics::Direct3D11::*;
-use windows::Win32::Graphics::Dxgi::Common::*;
 
 use crate::assets::Assets;
 use crate::gpu::{
@@ -123,7 +123,7 @@ pub(super) fn bilinear_range(size: [u32; 2]) -> [f32; 4] {
 /// z and w passed on.
 // Deviation: the build draws its downsample with the cooked FScreenPassVS (AddDrawScreenPass's), whose linkage the
 // driver resolves by the system value; the port's VS gives the same positions.
-const SCREEN_POSITION_VS: &str = r"
+pub(crate) const SCREEN_POSITION_VS: &str = r"
 cbuffer DrawRectangleParameters : register(b0) {
     float4 PosScaleBias;
     float4 UVScaleBias;

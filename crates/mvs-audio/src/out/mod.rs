@@ -1,5 +1,9 @@
 //! The output: the mixer driven by the default device (WASAPI) or pumped by the caller (offline).
 
+#[cfg(windows)]
+pub mod wasapi;
+#[cfg(not(windows))]
+#[path = "sdl.rs"]
 pub mod wasapi;
 
 use std::io::Write;

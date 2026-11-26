@@ -1,9 +1,9 @@
 //! The grading LUT (FLUTBlenderPS into a 32^3 volume through FWriteToSliceVS / GS), the tonemapper (FTonemapVS +
 //! FTonemapPS) and FXAA (FFXAAVS + FFXAAPS), with this build's FPostProcessSettings defaults (render/post).
 
+use mvs_d3d::Direct3D11::ID3D11ShaderResourceView;
+use mvs_d3d::Dxgi::Common::*;
 use mvs_material::Frequency;
-use windows::Win32::Graphics::Direct3D11::ID3D11ShaderResourceView;
-use windows::Win32::Graphics::Dxgi::Common::*;
 
 use super::pass::{
     Binds, Global, Quad, Rows, Stage, States, bilinear_range, constant_buffer, draw_rect, set_target, unbind, write,

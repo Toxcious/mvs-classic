@@ -8,6 +8,10 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use indexmap::IndexSet;
+use mvs_d3d::Direct3D::D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+use mvs_d3d::Direct3D11::*;
+use mvs_d3d::Dxgi::Common::*;
+use mvs_d3d::Foundation::RECT;
 use mvs_material::material::Filter;
 use mvs_render::Assets;
 use mvs_render::gpu::{
@@ -19,10 +23,6 @@ use mvs_render::material::{
     slate_blend, slate_material_blend, view_sampler,
 };
 use mvs_render::view::{VIEW_RESOURCES, VIEW_ROWS};
-use windows::Win32::Foundation::RECT;
-use windows::Win32::Graphics::Direct3D::D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-use windows::Win32::Graphics::Direct3D11::*;
-use windows::Win32::Graphics::Dxgi::Common::*;
 
 use crate::bundle::{Bundle, Rgba};
 use crate::menu::blur::BlurPass;
@@ -428,7 +428,7 @@ pub struct Ui {
     retained_bytes: u64,
 }
 
-fn dx(what: &'static str) -> impl FnOnce(windows::core::Error) -> Error {
+fn dx(what: &'static str) -> impl FnOnce(mvs_d3d::core::Error) -> Error {
     move |source| Error::Render(mvs_render::Error::Device { what: what.into(), source })
 }
 

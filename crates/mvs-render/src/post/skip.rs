@@ -7,11 +7,9 @@
 //! skip's own; the cooked pass drawn full screen under a stencil-equal test (the hardware's early stencil rejects the
 //! rest) and the other pixels copied from its input, so the blendable's output is the same picture.
 
-use windows::Win32::Graphics::Direct3D::{
-    D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST, D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP,
-};
-use windows::Win32::Graphics::Direct3D11::*;
-use windows::Win32::Graphics::Dxgi::Common::*;
+use mvs_d3d::Direct3D::{D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST, D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP};
+use mvs_d3d::Direct3D11::*;
+use mvs_d3d::Dxgi::Common::*;
 
 use super::pass::{Rows, constant_buffer, unbind, write};
 use crate::Result;
@@ -29,7 +27,7 @@ const COVERED: u32 = 1;
 const PARAMS: &str = "cbuffer Params : register(b0) { uint2 View; uint2 Count; int D; };\n";
 
 /// One thread group per tile: 1 where a texel of the tile's has a custom stencil above 0.
-const REDUCE: &str = r"
+pub(crate) const REDUCE: &str = r"
 Texture2D<uint2> Stencil : register(t0);
 RWTexture2D<uint> Tiles : register(u0);
 groupshared uint Any;
@@ -44,7 +42,7 @@ void Main(uint3 g : SV_GroupID, uint3 t : SV_GroupThreadID, uint i : SV_GroupInd
 }";
 
 /// The tiles within D of a tile above 0.
-const DILATE: &str = r"
+pub(crate) const DILATE: &str = r"
 Texture2D<uint> Tiles : register(t0);
 RWTexture2D<uint> Covered : register(u0);
 [numthreads(8, 8, 1)]
@@ -58,7 +56,7 @@ void Main(uint3 id : SV_DispatchThreadID) {
 }";
 
 /// A quad per tile (a 4-vertex strip, instanced), outside the view for a tile not covered.
-const MARK: &str = r"
+pub(crate) const MARK: &str = r"
 Texture2D<uint> Covered : register(t0);
 float4 Main(uint v : SV_VertexID, uint i : SV_InstanceID) : SV_Position {
     uint2 t = uint2(i % Count.x, i / Count.x);
@@ -68,13 +66,18 @@ float4 Main(uint v : SV_VertexID, uint i : SV_InstanceID) : SV_Position {
 }";
 
 /// A triangle over the view, and the input's texel at each pixel.
-const COPY: &str = r"
+pub(crate) const COPY: &str = r"
 Texture2D<float4> Input : register(t0);
 float4 Vertex(uint v : SV_VertexID) : SV_Position {
     float2 u = float2((v << 1) & 2, v & 2);
     return float4(u.x * 2 - 1, 1 - u.y * 2, 0, 1);
 }
 float4 Pixel(float4 p : SV_Position) : SV_Target { return Input.Load(int3(p.xy, 0)); }";
+
+/// A shader body with the parameters it reads put before it.
+pub(crate) fn src(body: &str) -> String {
+    format!("{PARAMS}{body}")
+}
 
 /// The tile counts of a view of `size`.
 fn tile_count(size: [u32; 2]) -> [u32; 2] {
@@ -157,7 +160,6 @@ pub(super) struct Skip {
 
 impl Skip {
     pub fn new(gpu: &Gpu, opaque: StateId, cull_none: StateId) -> Result<Skip> {
-        let src = |body: &str| format!("{PARAMS}{body}");
         let reduce = compile(&src(REDUCE), "Main", "cs_5_0")?;
         let dilate = compile(&src(DILATE), "Main", "cs_5_0")?;
         let mark = compile(&src(MARK), "Main", "vs_5_0")?;

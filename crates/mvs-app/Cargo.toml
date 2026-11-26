@@ -17,6 +17,7 @@ path = "src/bin/mvs-launcher.rs"
 [dependencies]
 mvs-mutators.workspace = true
 mvs-audio.workspace = true
+mvs-d3d.workspace = true
 mvs-data.workspace = true
 # the import worker (`mvs --import-worker`): the same library as the CLI
 mvs-import = { path = "../mvs-import" }
@@ -45,6 +46,8 @@ indexmap.workspace = true
 png.workspace = true
 # the updater: the download's SHA-256
 sha2.workspace = true
+
+[target.'cfg(windows)'.dependencies]
 windows = { workspace = true, features = [
     "Win32_Devices_DeviceAndDriverInstallation",
     "Win32_Devices_HumanInterfaceDevice",
@@ -73,6 +76,10 @@ windows = { workspace = true, features = [
     "Win32_UI_Shell",
     "Win32_UI_WindowsAndMessaging",
 ] }
+
+[target.'cfg(not(windows))'.dependencies]
+libc.workspace = true
+sdl3-sys.workspace = true
 
 [dev-dependencies]
 # the updater test's hand-written zip (deflate, CRC-32)

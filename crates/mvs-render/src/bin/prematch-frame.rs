@@ -17,13 +17,13 @@
 use std::path::PathBuf;
 use std::process::ExitCode;
 
+use mvs_d3d::Dxgi::Common::DXGI_FORMAT_R8G8B8A8_UNORM;
 use mvs_render::assets::Assets;
 use mvs_render::gpu::{Gpu, TexDesc, TexKind, TexViews};
 use mvs_render::image::write_png;
 use mvs_render::menuscene::format::{LevelName, SceneData, load_level};
 use mvs_render::menuscene::{MenuLevel, PreviewSpec, SeqCmd};
 use mvs_render::renderer::Renderer;
-use windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_R8G8B8A8_UNORM;
 
 struct Args {
     store: PathBuf,
@@ -178,6 +178,8 @@ fn run(a: &Args) -> Result<(), String> {
 }
 
 fn main() -> ExitCode {
+    // (DXVK-native's settings, before any thread: the device reads them)
+    mvs_d3d::set_linux_wsi();
     match parse(std::env::args().skip(1)).and_then(|a| run(&a)) {
         Ok(()) => ExitCode::SUCCESS,
         Err(x) => {

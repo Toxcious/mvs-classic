@@ -9,13 +9,13 @@
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
+use mvs_d3d::Direct3D11::ID3D11Resource;
+use mvs_d3d::Dxgi::Common::*;
+use mvs_d3d::core::Interface;
 use mvs_data::stage::{RadialLight, StageData, StageLight};
 use mvs_material::jsonbin::{BodyRef, JsonBin};
 use mvs_view::{M4, MaterialRef, MeshPose};
 use serde::Deserialize;
-use windows::Win32::Graphics::Direct3D11::ID3D11Resource;
-use windows::Win32::Graphics::Dxgi::Common::*;
-use windows::core::Interface;
 
 use crate::assets::upload_texture;
 use crate::draw::LightmapTextures;

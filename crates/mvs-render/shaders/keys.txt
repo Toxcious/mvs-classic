@@ -1,0 +1,17 @@
+lighting.SOURCE.MainVS.vs_5_0 a630d1c137de8c4d
+lighting.SOURCE.MainPS.ps_5_0 e83ac52e3d37cdc1
+capture.SOURCE.MainVS.vs_5_0 0b3949d4e0afece1
+capture.SOURCE.MainPS.ps_5_0 97ff311451d33885
+lighting_capture.DEPTH_FILL.MainVS.vs_5_0 9916419b9874f099
+lighting_capture.DEPTH_FILL.MainPS.ps_5_0 80ed3e87f0a513fd
+translucency.COMPOSE.MainVS.vs_5_0 00a95c630c0fde78
+translucency.COMPOSE.MainPS.ps_5_0 f3628082a1a5e0c8
+translucency.COMPOSE.CopyPS.ps_5_0 bdec978b966a70bc
+post_pass.SCREEN_POSITION_VS.MainVS.vs_5_0 6f59ea5bd7793b13
+scenery_widget.QUAD.MainVS.vs_5_0 30cc5259567e8097
+scenery_widget.QUAD.MainPS.ps_5_0 9a475c3e8cb1d56b
+post_skip.REDUCE.Main.cs_5_0 ae9657a3bf543eeb
+post_skip.DILATE.Main.cs_5_0 72a784f9dd20aed6
+post_skip.MARK.Main.vs_5_0 60084b9a00dba9b9
+post_skip.COPY.Vertex.vs_5_0 8f4caf1c2e0d216d
+post_skip.COPY.Pixel.ps_5_0 0aa45a2ce56e3233

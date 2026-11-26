@@ -12,8 +12,9 @@ not part of MVS Classic's source, and the MIT licence in the repo's `LICENSE` do
 licenses them under the Epic Online Services Developer Agreement, and they are distributed only as part of MVS
 Classic.
 
-`mvs-dist build --eos` packs the Windows library into the game's folder (`MVS_EOS_DLL` names another copy), with
-Epic's notice (`crates/mvs-dist/notices/eos-notice.txt`) after the licence in the release's `LICENSE.txt`.
+`mvs-dist build --eos` packs the Windows library into the game's folder (`MVS_EOS_DLL` names another copy) and the
+Linux library into the Linux zip's game folder (`MVS_EOS_SO` names another copy), with Epic's notice
+(`crates/mvs-dist/notices/eos-notice.txt`) after the licence in each game zip's `LICENSE.txt`.
 
 Epic, Epic Games and Epic Online Services are trademarks of Epic Games, Inc. MVS Classic is not made, endorsed or
 supported by Epic Games, Inc.

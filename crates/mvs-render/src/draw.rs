@@ -3,9 +3,9 @@
 
 use std::sync::Arc;
 
-use windows::Win32::Graphics::Direct3D::D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-use windows::Win32::Graphics::Direct3D11::*;
-use windows::Win32::Graphics::Dxgi::Common::*;
+use mvs_d3d::Direct3D::D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+use mvs_d3d::Direct3D11::*;
+use mvs_d3d::Dxgi::Common::*;
 
 use crate::assets::{Assets, Mesh};
 use crate::gpu::{BufKind, Buffer, Gpu, InputElement, SamplerKey, ShaderId, StateId, StateKey, Texture};

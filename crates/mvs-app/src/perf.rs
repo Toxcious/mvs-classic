@@ -2,14 +2,14 @@
 //! renderer's GPU passes and a UI mark, the frame intervals (mean and worst over 0.5 s), the process's and the GPU's
 //! memory, to stderr and as an overlay line; the `stat fps` line.
 
-use windows::Win32::Graphics::Dxgi::{
-    DXGI_MEMORY_SEGMENT_GROUP_LOCAL, DXGI_QUERY_VIDEO_MEMORY_INFO, IDXGIAdapter3, IDXGIDevice,
-};
+use mvs_d3d::Dxgi::{DXGI_MEMORY_SEGMENT_GROUP_LOCAL, DXGI_QUERY_VIDEO_MEMORY_INFO, IDXGIAdapter3, IDXGIDevice};
+use mvs_d3d::core::Interface;
+#[cfg(windows)]
 use windows::Win32::System::ProcessStatus::{
     GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS, PROCESS_MEMORY_COUNTERS_EX,
 };
+#[cfg(windows)]
 use windows::Win32::System::Threading::GetCurrentProcess;
-use windows::core::Interface;
 
 use mvs_render::gpu::Gpu;
 
@@ -292,6 +292,7 @@ pub fn private_mb() -> f64 {
 }
 
 /// The process's private bytes and peak working set (PROCESS_MEMORY_COUNTERS_EX PrivateUsage, PeakWorkingSetSize).
+#[cfg(windows)]
 fn memory() -> (usize, usize) {
     let mut c = PROCESS_MEMORY_COUNTERS_EX::default();
     // SAFETY: the current process and a counters struct of the size given.
@@ -305,9 +306,26 @@ fn memory() -> (usize, usize) {
     if ok.is_ok() { (c.PrivateUsage, c.PeakWorkingSetSize) } else { (0, 0) }
 }
 
+/// The process's private bytes and peak working set (/proc/self/status RssAnon, VmHWM).
+// Deviation: the private memory resident (RssAnon), where Windows gives the private memory committed (PrivateUsage):
+// private memory swapped out is not counted.
+#[cfg(not(windows))]
+fn memory() -> (usize, usize) {
+    let s = std::fs::read_to_string("/proc/self/status").unwrap_or_default();
+    let bytes = |key: &str| {
+        s.lines()
+            .find_map(|l| {
+                l.strip_prefix(key)?.strip_prefix(':')?.trim().strip_suffix("kB")?.trim().parse::<usize>().ok()
+            })
+            .map_or(0, |kb| kb * 1024)
+    };
+    (bytes("RssAnon"), bytes("VmHWM"))
+}
+
 /// Where the process's private memory sits, MB: the heaps' bytes in use and committed (the program's own
 /// allocations, the driver's too where it uses a heap), the private memory committed outside them (the driver's
 /// own allocations, stacks), and the GPU's local and non-local memory in use by the process.
+#[cfg(windows)]
 pub fn private_parts(gpu: &Gpu) -> String {
     use windows::Win32::Foundation::HANDLE;
     use windows::Win32::Graphics::Dxgi::DXGI_MEMORY_SEGMENT_GROUP_NON_LOCAL;
@@ -363,6 +381,38 @@ pub fn private_parts(gpu: &Gpu) -> String {
         used / MB,
         held / MB,
         private.saturating_sub(held) / MB,
+        video(DXGI_MEMORY_SEGMENT_GROUP_LOCAL) / MB,
+        video(DXGI_MEMORY_SEGMENT_GROUP_NON_LOCAL) / MB
+    )
+}
+
+/// Where the process's private memory sits, MB: its private memory resident, and the GPU's local and non-local
+/// memory in use by the process.
+// Deviation: no heap summary (Windows' HeapSummary and VirtualQuery walk): the private memory is one figure.
+#[cfg(not(windows))]
+pub fn private_parts(gpu: &Gpu) -> String {
+    use mvs_d3d::Dxgi::DXGI_MEMORY_SEGMENT_GROUP_NON_LOCAL;
+    const MB: usize = 1 << 20;
+    let adapter = gpu
+        .dev
+        .cast::<IDXGIDevice>()
+        .and_then(|d| {
+            // SAFETY: a live DXGI device.
+            unsafe { d.GetAdapter() }
+        })
+        .and_then(|a| a.cast::<IDXGIAdapter3>())
+        .ok();
+    let video = |group| {
+        let mut i = DXGI_QUERY_VIDEO_MEMORY_INFO::default();
+        adapter
+            .as_ref()
+            // SAFETY: a live adapter, node 0 and an out struct.
+            .and_then(|a| unsafe { a.QueryVideoMemoryInfo(0, group, &mut i) }.ok())
+            .map_or(0, |()| i.CurrentUsage as usize)
+    };
+    format!(
+        "private {} MB; gpu {} MB, shared {} MB",
+        memory().0 / MB,
         video(DXGI_MEMORY_SEGMENT_GROUP_LOCAL) / MB,
         video(DXGI_MEMORY_SEGMENT_GROUP_NON_LOCAL) / MB
     )
