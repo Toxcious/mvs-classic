@@ -83,7 +83,7 @@ Chaos rate, every mutator in the pool, no two at once (`mvs-app` `online/tables.
 builds the rule itself, as it builds a queue match's tables).
 
 - The pool (`mvs-mutators`, each with its tier): Mild (sky blue): Giant, Miniature, Low Gravity, Air Show,
-  Shields Up, Moon Jump, Heavyweight, Vampire, Magnet; Wild (violet): Big Head, Unlimited Jumps, Ability Frenzy, Heavy
+  Shields Up, Moon Jump, Heavyweight, Vampire, Black Hole; Wild (violet): Big Head, Unlimited Jumps, Ability Frenzy, Heavy
   Hitters, Double Damage, Ice Charge, Freeze Touch, Random Items, Grow, Featherweight, Dodge Frenzy, Projectile
   Party, Rising Lava, Ghosts, Ice Rink, Wind; Chaos (hot orange): Sudden Death (Instant Kill), Shrinking Arena (Final Point
   Shrink), Bomb Rain, and the events Damage Swap, Shuffle, Fresh Start, Underdog, Hot Potato, Body Swap. The reel and the card show a mutator in its tier's colour. Not on the wheel: Silly (a
@@ -101,8 +101,16 @@ builds the rule itself, as it builds a queue match's tables).
   up; ticked in the Mutators row it rises and sinks every 30 seconds from the match's start; the lava is drawn by
   the look approved in `tools/looks/rising-lava`), Ghosts (a fighter is not drawn but while it attacks, is in hitstun, or
   for a flash of 8 ticks each second), Ice Rink (the ground keeps a tenth of its friction and braking: walks slide and turns are
-  slow), Wind (every live player drifts 300 units a second, left for 10 seconds, then right, and so on) and Magnet
-  (every live player drifts 200 units a second toward the stage's middle). Bomb Rain (dynamite and mines) and Projectile Party (thrown items) run the
+  slow), Wind (a gust every 5.5 seconds from 1 second in: a
+  1.5 second warning, chevrons pulsing at the upwind edge, then 2 seconds that push every live player 420 units a
+  second the gust's way on the ground and 650 off it, so a launch carries further downwind; each gust's way is
+  drawn, the same on every machine; a gust that would outlast the window does not come; streaks and dust drawn by
+  the look approved in `tools/looks/wind`, a haunting howl heard with each) and Black Hole (key `Chaos_Magnet`: a
+  hole opens over 1 second 520 units over the main floor's middle and pulls every live player not in a hit toward
+  it, 150 units a second at 3200 units and up to 800 near it, along the ground while on it; a fighter whose middle
+  reaches its 150 unit core takes 12 damage and is thrown out the way it came, lifted; ticked in the Mutators row it
+  is open 20 seconds of every 30; drawn by the look approved in `tools/looks/black-hole`, with a burst, a hum and a
+  fall as it opens and closes). Bomb Rain (dynamite and mines) and Projectile Party (thrown items) run the
   item spawner as Random Items' window does, with that share of its list and one item every 2 seconds; they are
   the wheel's only, and never on at once with Random Items or each other.
 - The wheel's events (`mvs-sim` `world/wheel_events.rs`, the wheel's only) act at a window's start, some also at

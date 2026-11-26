@@ -115,6 +115,29 @@ fn lava_at(w: &World, alpha: f32, time: f32) -> Option<mvs_render::lava::LavaAt>
     })
 }
 
+/// The port's own Wind as drawn this frame: its gust between the last two ticks, None between gusts.
+fn wind_at(w: &World, alpha: f32, time: f32) -> Option<mvs_render::wind::WindAt> {
+    use mvs_sim::world::own_rules::{WIND_WARN, gust_at};
+    let g = gust_at(w, alpha - 1.0)?;
+    let s = mvs_sim::consts::DT;
+    #[allow(clippy::cast_precision_loss)]
+    Some(mvs_render::wind::WindAt { age: g.age * s, blow: g.blow, dir: g.dir, warn: WIND_WARN as f32 * s, time })
+}
+
+/// The port's own Black Hole as drawn this frame: between the last two ticks, None while it is off.
+fn hole_at(w: &World, alpha: f32, time: f32) -> Option<mvs_render::hole::HoleAt> {
+    use mvs_sim::world::own_rules::{HOLE_CORE, hole_at};
+    let h = hole_at(w, alpha - 1.0).filter(|h| h.open > 0.0)?;
+    // (sim x is UE -Y; the fighters' plane is UE X 0)
+    Some(mvs_render::hole::HoleAt { at: [0.0, -f64::from(h.x), f64::from(h.y)], core: HOLE_CORE, open: h.open, time })
+}
+
+/// Whether the rule `r` can be on in the match `w`: in the set-up's mutators or the wheel's pool.
+fn may_have(w: &World, r: mvs_sim::world::own_rules::Rule) -> bool {
+    let key = r.key();
+    w.setup.mutators.iter().any(|m| m == key) || w.setup.wheel.as_ref().is_some_and(|x| x.pool.iter().any(|m| m == key))
+}
+
 pub fn default_setup() -> MatchSetup {
     let p = || MatchPlayer { character: Some("shaggy".to_owned()), ..MatchPlayer::default() };
     MatchSetup {
@@ -791,12 +814,18 @@ impl MatchLoop {
         // The warm-up (the characters' mesh and actor warm-up, one empty draw): what the match may draw made
         // before its first frame, so no first spawn makes it in play.
         laps.lap("stage");
-        // (the port's own Rising Lava: its look compiled before the match, not at its first rise)
-        let lava = mvs_sim::world::own_rules::Rule::LavaFloor.key();
-        if world.setup.mutators.iter().any(|m| m == lava)
-            || world.setup.wheel.as_ref().is_some_and(|w| w.pool.iter().any(|m| m == lava))
+        // (the port's own Rising Lava, Wind and Black Hole: their looks compiled before the match, not as they start)
         {
-            renderer.load_lava()?;
+            use mvs_sim::world::own_rules::Rule;
+            if may_have(&world, Rule::LavaFloor) {
+                renderer.load_lava()?;
+            }
+            if may_have(&world, Rule::Wind) {
+                renderer.load_wind()?;
+            }
+            if may_have(&world, Rule::BlackHole) {
+                renderer.load_hole()?;
+            }
         }
         match parts.as_mut().and_then(|p| p.warm.take()) {
             Some((lists, made)) => {
@@ -2157,6 +2186,8 @@ impl MatchLoop {
             (self.fx.player.game_time() + self.acc, self.real)
         };
         renderer.lava_at = lava_at(&self.world, alpha, game as f32);
+        renderer.wind_at = wind_at(&self.world, alpha, game as f32);
+        renderer.hole_at = hole_at(&self.world, alpha, game as f32);
         let input = FrameInput {
             #[allow(clippy::cast_sign_loss)]
             tick: self.world.flow.tick.max(0) as u32,

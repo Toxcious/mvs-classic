@@ -109,7 +109,7 @@ fn scope_lists_equal_the_page_tapes() {
             .iter()
             .filter_map(|l| match &l.call {
                 Call::Scope { name, keep, lazy }
-                    if !["menu", "base", "preload", "wheel", "lava"].contains(&name.as_str()) =>
+                    if !["menu", "base", "preload", "wheel", "lava", "wind", "hole"].contains(&name.as_str()) =>
                 {
                     Some((name.clone(), keep.clone(), lazy.clone()))
                 }

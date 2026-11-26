@@ -19,6 +19,7 @@ pub mod draw;
 pub mod fighters;
 pub mod fx;
 pub mod gpu;
+pub mod hole;
 pub mod image;
 pub mod ism;
 pub mod landscape;
@@ -42,6 +43,7 @@ mod texture_quality;
 pub mod translucency;
 pub mod view;
 pub mod warm;
+pub mod wind;
 
 pub use assets::Assets;
 pub use gpu::Gpu;

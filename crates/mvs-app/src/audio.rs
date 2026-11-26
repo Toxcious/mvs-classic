@@ -10,10 +10,12 @@
 //! the hit sounds 1000 + n, the ships 2000 + the owner, the scenery's objects 3000 + n, the components the sim spawns
 //! for one sound 4000 + n.
 
+mod hole;
 mod jake;
 mod lava;
 pub mod posted;
 pub(crate) mod scopes;
+mod wind;
 
 use std::collections::{HashMap, HashSet};
 use std::io::Write;
@@ -175,6 +177,13 @@ struct Calls<'a> {
     out: &'a mut Vec<Line>,
 }
 
+/// Whether the port's own rule `r` can be on in the match: in the set-up's mutators or the Chaos Wheel's pool.
+fn may_have(world: &World, r: mvs_sim::world::own_rules::Rule) -> bool {
+    let key = r.key();
+    world.setup.mutators.iter().any(|m| m == key)
+        || world.setup.wheel.as_ref().is_some_and(|w| w.pool.iter().any(|m| m == key))
+}
+
 impl Calls<'_> {
     fn push(&mut self, call: Call) {
         self.out.push(Line { tick: self.tick, call });
@@ -246,8 +255,10 @@ pub struct MatchAudio {
     spawned: usize,
     /// Jake's stretches' head pitch (from the drawn pose).
     head_pitch: jake::HeadPitch,
-    /// (the port's own) Rising Lava's roar.
+    /// (the port's own) Rising Lava's roar, Wind's howls and Black Hole's hum.
     lava: lava::Roar,
+    wind: wind::Gusts,
+    hole: hole::Hum,
     /// `BeginOpts::podium`.
     podium: Vec<(String, PodiumMontages)>,
 }
@@ -392,6 +403,8 @@ impl MatchAudio {
             spawned: AK_SPAWNED_COUNT - 1,
             head_pitch: jake::HeadPitch::default(),
             lava: lava::Roar::default(),
+            wind: wind::Gusts::default(),
+            hole: hole::Hum::default(),
             podium: podium.unwrap_or_default(),
         };
         if let Some(k) = kept {
@@ -530,6 +543,10 @@ impl MatchAudio {
         c.scope("wheel", wheel, Vec::new());
         let lava = lava::scope(world).into_iter().filter(|e| self.known.has(e)).collect();
         c.scope("lava", lava, Vec::new());
+        let wind = wind::scope(world).into_iter().filter(|e| self.known.has(e)).collect();
+        c.scope("wind", wind, Vec::new());
+        let hole = hole::scope(world).into_iter().filter(|e| self.known.has(e)).collect();
+        c.scope("hole", hole, Vec::new());
         if self.kept {
             let items = self.item_events(world);
             c.scope("items", items, Vec::new());
@@ -961,6 +978,8 @@ impl MatchAudio {
         // (the stretch actors' Tick, on the pose just drawn)
         self.head_pitch.tick(world, views, &mut c);
         self.lava.tick(world, &mut c);
+        self.wind.tick(world, &mut c);
+        self.hole.tick(world, &mut c);
         // (presentTick: the modules' place posts their sounds after handleEvents, then the scenery's tick)
         for (ev, at) in views.take_sounds() {
             c.post(&ev, Some(-1), None, None, Some(at));
@@ -1023,9 +1042,9 @@ impl MatchAudio {
     }
 
     /// PlayHitSound's victim part: a hit over 2.0 damage stops the victim's character sounds and posts its VO_Pain.
-    /// (the port's own) Rising Lava's touch: `pain_vo`'s calls ahead of the touch's sound, its pain line played
-    /// each time (the hit event carries no pain for it).
-    fn lava_pain(&self, world: &World, id: i32, c: &mut Calls) {
+    /// (the port's own) Rising Lava's touch and Black Hole's core: `pain_vo`'s calls ahead of the rule's sound, its
+    /// pain line played each time (the hit event carries no pain for it).
+    fn rule_pain(&self, world: &World, id: i32, c: &mut Calls) {
         c.post_on(SFX_STOP_ALL_CHARACTER, id);
         if let Some(vo) = Self::vo_pain(world, id) {
             let ev = self.skin_event_name(world, id, &vo);
@@ -1050,8 +1069,9 @@ impl MatchAudio {
         match e {
             Event::Sound { fighter, ev, x, y, hit, pooled, key } => {
                 let ev = s(*ev);
-                if ev == mvs_sim::world::own_rules::LAVA_HIT_SOUND {
-                    self.lava_pain(world, *fighter, c);
+                if [mvs_sim::world::own_rules::LAVA_HIT_SOUND, mvs_sim::world::own_rules::HOLE_HIT_SOUND].contains(&ev)
+                {
+                    self.rule_pain(world, *fighter, c);
                 }
                 if let Some(h) = hit {
                     self.hit_sound(world, *fighter, ev, x.map(f64::from), y.map(f64::from), h, views, c);
@@ -1359,6 +1379,8 @@ impl MatchAudio {
         }
         self.flush_scene(&mut c);
         self.lava.place(pov.pos, &mut c);
+        self.wind.place(pov.pos, &mut c);
+        self.hole.place(pov.pos, &mut c);
         c.push(Call::SetListener { pos: pov.pos, right: pov.right, up: pov.up, front: pov.front });
     }
 

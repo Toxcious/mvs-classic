@@ -3,7 +3,7 @@
 
 use mvs_audio::tape::post::Call;
 use mvs_sim::World;
-use mvs_sim::world::own_rules::{LAVA_HIT_SOUND, lava_level};
+use mvs_sim::world::own_rules::{LAVA_HIT_SOUND, Rule, lava_level};
 
 use super::Calls;
 
@@ -16,17 +16,13 @@ const LOOP: &str = "sfx_shared_class_mage_firewall_ground_loop";
 const KEY: &str = "rising lava";
 /// The roar's fade out as the lava leaves (seconds).
 const FADE: f64 = 1.0;
-/// The mutator's key.
-const RULE: &str = "Chaos_LavaFloor";
 
 /// The lava's sounds: the scope a match where it can rise loads (not the base scope's).
 pub(super) const SOUNDS: [&str; 2] = [LOOP, LAVA_HIT_SOUND];
 
 /// The events a match where the lava can rise loads (none in another).
 pub(super) fn scope(world: &World) -> Vec<String> {
-    let on = world.setup.mutators.iter().any(|m| m == RULE)
-        || world.setup.wheel.as_ref().is_some_and(|w| w.pool.iter().any(|m| m == RULE));
-    if on { SOUNDS.map(str::to_owned).to_vec() } else { Vec::new() }
+    if super::may_have(world, Rule::LavaFloor) { SOUNDS.map(str::to_owned).to_vec() } else { Vec::new() }
 }
 
 /// The roar's state: the surface's height (UE Z) while it plays.

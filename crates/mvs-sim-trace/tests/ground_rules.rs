@@ -1,4 +1,4 @@
-//! The port's own Ice Rink, Wind and Magnet (`mvs_sim::world::own_rules`), each on all match
+//! The port's own Ice Rink, Wind and Black Hole (`mvs_sim::world::own_rules`), each on all match
 //! from the set-up's mutators (the Mutators row) as the wheel's window turns it on for its window.
 
 use mvs_sim::fighter::FighterId;
@@ -53,29 +53,49 @@ fn ice_rink_slides_further_after_a_walk() {
 }
 
 #[test]
-fn wind_blows_a_standing_fighter_left_then_right() {
+fn wind_gusts_blow_a_standing_fighter_the_gusts_way() {
+    use mvs_sim::world::own_rules::gust_at;
     let Some(mut h) = landed("Chaos_Wind") else { return };
     let f = h.fighter(1);
-    let t = h.w.flow.tick;
-    let into = t.rem_euclid(mvs_sim::world::own_rules::WIND_TICKS);
-    let left = (t / mvs_sim::world::own_rules::WIND_TICKS).rem_euclid(2) == 0;
+    // (to the next gust's start)
+    let mut n = 0;
+    while gust_at(&h.w, 0.0).is_none_or(|g| g.blow <= 0.0) {
+        idle(&mut h, 1);
+        n += 1;
+        assert!(n < 600, "no gust in 10 s");
+    }
+    let dir = gust_at(&h.w, 0.0).expect("a gust").dir;
     let x0 = x(&h, f);
-    let n = 30.min(usize::try_from(mvs_sim::world::own_rules::WIND_TICKS - into - 1).expect("ticks"));
-    idle(&mut h, n);
+    idle(&mut h, 60);
     let moved = x(&h, f) - x0;
-    assert!(moved.abs() > 3.0, "blown: {moved}");
-    assert_eq!(moved < 0.0, left, "blown the beat's way: {moved}");
+    assert!(moved * dir > 100.0, "blown {moved}, the gust's way {dir}");
+    // (past its end: calm)
+    idle(&mut h, 80);
+    assert!(gust_at(&h.w, 0.0).is_none_or(|g| g.blow <= 0.0), "a gust lasts its length");
 }
 
 #[test]
-fn magnet_draws_fighters_to_the_middle() {
+fn black_hole_pulls_fighters_in_and_throws_them_out() {
+    use mvs_sim::world::own_rules::{HOLE_OPEN, hole_at};
     let Some(mut h) = landed("Chaos_Magnet") else { return };
-    let mid = (h.w.stage.blast.left + h.w.stage.blast.right) / 2.0;
+    let hole = hole_at(&h.w, 0.0).expect("the hole open");
     let fs = [h.fighter(0), h.fighter(1)];
-    let d0: Vec<Real> = fs.iter().map(|&f| (x(&h, f) - mid).abs()).collect();
+    let d0: Vec<Real> = fs.iter().map(|&f| (x(&h, f) - hole.x).abs()).collect();
     idle(&mut h, 30);
     for (n, &f) in fs.iter().enumerate() {
-        let d = (x(&h, f) - mid).abs();
+        let d = (x(&h, f) - hole.x).abs();
         assert!(d < d0[n] - 3.0 || d < 1.0, "fighter {n}: {} -> {d}", d0[n]);
     }
+    // A fighter put in its core is hit and thrown out.
+    idle(&mut h, usize::try_from(HOLE_OPEN).expect("ticks"));
+    let f = fs[1];
+    let dmg = h.w.fighter(f).stats.damage;
+    {
+        let b = &mut h.w.fighter_mut(f).body;
+        b.x = hole.x + 20.0;
+        b.y = hole.y;
+    }
+    idle(&mut h, 20);
+    assert!(h.w.fighter(f).stats.damage > dmg, "the core hurts");
+    assert!(h.w.fighter(f).body.x > hole.x + 60.0, "thrown out its side: {}", h.w.fighter(f).body.x);
 }

@@ -247,6 +247,12 @@ pub struct Renderer {
     /// drawn).
     lava: Option<crate::lava::Lava>,
     pub lava_at: Option<crate::lava::LavaAt>,
+    /// Wind's and Black Hole's looks (`load_wind`, `load_hole`: a match whose rules may turn them on) and their
+    /// state this frame (None: not drawn).
+    wind: Option<crate::wind::Wind>,
+    pub wind_at: Option<crate::wind::WindAt>,
+    hole: Option<crate::hole::Hole>,
+    pub hole_at: Option<crate::hole::HoleAt>,
     /// The stage's radial lights before the lava's were added to them (the next frame takes them back off).
     lava_base: Option<usize>,
     /// The frame's size (the output's); the scene targets and the post chain run at the view's size inside it.
@@ -489,6 +495,10 @@ impl Renderer {
             look: None,
             lava: None,
             lava_at: None,
+            wind: None,
+            wind_at: None,
+            hole: None,
+            hole_at: None,
             lava_base: None,
             captures,
             decals,
@@ -1432,6 +1442,14 @@ impl Renderer {
             lava.place(at);
             lava.look.draw(&fr)?;
         }
+        if let (false, Some(at), Some(hole)) = (menu, self.hole_at, &mut self.hole) {
+            hole.place(at);
+            hole.look.draw(&fr)?;
+        }
+        if let (false, Some(at), Some(wind)) = (menu, self.wind_at, &mut self.wind) {
+            wind.place(at);
+            wind.look.draw(&fr)?;
+        }
         if passes.post {
             let view = if menu { self.menu.post_view() } else { crate::post::PostView::STAGE };
             self.post.draw(&mut fr, out, &view)?;
@@ -1458,6 +1476,22 @@ impl Renderer {
     pub fn load_lava(&mut self) -> Result<()> {
         if self.lava.is_none() {
             self.lava = Some(crate::lava::Lava::load(&self.gpu, &self.assets)?);
+        }
+        Ok(())
+    }
+
+    /// Compiles Wind's look for a match whose rules may turn it on.
+    pub fn load_wind(&mut self) -> Result<()> {
+        if self.wind.is_none() {
+            self.wind = Some(crate::wind::Wind::load(&self.gpu, &self.assets)?);
+        }
+        Ok(())
+    }
+
+    /// Compiles Black Hole's look for a match whose rules may turn it on.
+    pub fn load_hole(&mut self) -> Result<()> {
+        if self.hole.is_none() {
+            self.hole = Some(crate::hole::Hole::load(&self.gpu, &self.assets)?);
         }
         Ok(())
     }

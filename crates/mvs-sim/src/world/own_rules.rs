@@ -4,8 +4,8 @@
 //! list its key (the Mutators row), or for a window while the wheel has it on (`wheel::window_has`). The wheel runs
 //! Bomb Rain and Projectile Party itself, on the item area's spawner (`wheel::start_items`).
 //!
-//! None of them keeps state of its own: what is on is read off the set-up and the wheel's state, Wind's beat and
-//! Rising Lava's height off the match's tick.
+//! None of them keeps state of its own: what is on is read off the set-up and the wheel's state, Wind's gusts,
+//! Black Hole's opening and Rising Lava's height off the match's tick.
 
 use crate::Real;
 use crate::combat::buffs;
@@ -36,10 +36,12 @@ pub enum Rule {
     Ghosts,
     /// The ground keeps `ICE` of its friction and braking.
     IceRink,
-    /// Every live player drifts `WIND_SPEED` sideways, the way turning each `WIND_TICKS`.
+    /// Wind: gusts of `WIND_GUST` ticks, each after a warning of `WIND_WARN`, blow every live player one way
+    /// (`gust_at`), harder in the air, so a launch carries further downwind.
     Wind,
-    /// Every live player drifts `MAGNET_SPEED` toward the blast box's middle.
-    Magnet,
+    /// Black Hole (key `Chaos_Magnet`): a hole over the stage's middle (`hole_at`) pulls every live player in,
+    /// harder the nearer; its core deals `HOLE_DAMAGE` and throws the fighter out.
+    BlackHole,
 }
 
 impl Rule {
@@ -55,7 +57,7 @@ impl Rule {
         Rule::Ghosts,
         Rule::IceRink,
         Rule::Wind,
-        Rule::Magnet,
+        Rule::BlackHole,
     ];
 
     /// The rule's key in `mvs_mutators::ALL` and a set-up's mutators.
@@ -72,7 +74,7 @@ impl Rule {
             Rule::Ghosts => "Chaos_Ghosts",
             Rule::IceRink => "Chaos_IceRink",
             Rule::Wind => "Chaos_Wind",
-            Rule::Magnet => "Chaos_Magnet",
+            Rule::BlackHole => "Chaos_Magnet",
         }
     }
 
@@ -125,11 +127,41 @@ pub const GHOST_BEAT: i32 = 60;
 pub const GHOST_FLASH: i32 = 8;
 /// Ice Rink's share of the ground's friction, braking friction and braking deceleration.
 pub const ICE: Real = 0.1;
-/// Wind's drift (units a second) and the ticks it blows one way (left first).
-pub const WIND_SPEED: Real = 300.0;
-pub const WIND_TICKS: i32 = 600;
-/// Magnet's drift (units a second); a fighter nearer the middle than a tick's drift is put on it.
-pub const MAGNET_SPEED: Real = 200.0;
+/// Wind: the first warning's start after the rule comes on, the warning's and the gust's length and the cycle of one
+/// warning and gust (ticks). A gust that would outlast the wheel's window does not come.
+pub const WIND_FIRST: i32 = 60;
+pub const WIND_WARN: i32 = 90;
+pub const WIND_GUST: i32 = 120;
+pub const WIND_EVERY: i32 = 330;
+/// Wind: the gust's push (units a second) on a fighter on the ground and off it, and its ramp in and out (ticks).
+pub const WIND_GROUND: Real = 420.0;
+pub const WIND_AIR: Real = 650.0;
+pub const WIND_RAMP_IN: Real = 12.0;
+pub const WIND_RAMP_OUT: Real = 24.0;
+/// Black Hole: its middle's height over the main floor's top (units), the ticks it takes to open and to close (the
+/// window's last), its core's radius and the reach of its pull (units).
+pub const HOLE_HEIGHT: Real = 520.0;
+pub const HOLE_OPEN: i32 = 60;
+pub const HOLE_CLOSE: i32 = 30;
+pub const HOLE_CORE: Real = 150.0;
+pub const HOLE_REACH: Real = 3200.0;
+/// Black Hole: its pull (units a second) at the reach's edge and at the middle (it grows by the square of the
+/// nearness), and beyond the reach falling with the distance.
+pub const HOLE_PULL_FAR: Real = 150.0;
+pub const HOLE_PULL_NEAR: Real = 800.0;
+/// Black Hole: the core's hit, and the share of its throw's way that is up.
+pub const HOLE_DAMAGE: Real = 12.0;
+pub const HOLE_KNOCK_BACK: Real = 2200.0;
+pub const HOLE_SCALING: Real = 4.0;
+pub const HOLE_LIFT: Real = 0.35;
+/// Black Hole listed in the set-up's mutators (on all match): open `HOLE_ROW_WINDOW` ticks, then closed
+/// `HOLE_ROW_REST`, from the match's start.
+pub const HOLE_ROW_WINDOW: i32 = 1200;
+pub const HOLE_ROW_REST: i32 = 600;
+/// Black Hole's core: the sound posted on the fighter it throws, behind its hit (the `name!` in `throw_out`); the
+/// game's side plays the fighter's pain line with it.
+// Unverified: the beta has no such rule and so no sound for it; the shared large charge hit is picked by its name.
+pub const HOLE_HIT_SOUND: &str = "sfx_shared_combat_charge_hit_large";
 
 /// The items each spawner rule keeps of Random Items' list (a class the list lacks is never spawned: its effects
 /// and sounds are the list's).
@@ -189,42 +221,157 @@ pub fn ice(w: &World) -> Real {
     if on(w, Rule::IceRink) { ICE } else { 1.0 }
 }
 
-/// Wind and Magnet: each live player swept (`moves::sweep_move`, the stage's walls stop it) by the tick's drift.
-/// A fighter on the ground walks off a ledge it is blown over.
-fn drift(w: &mut World) {
-    let wind = on(w, Rule::Wind);
-    let magnet = on(w, Rule::Magnet);
-    if !wind && !magnet {
-        return;
+/// The clock of the rule `key` while it is on: the ticks since it came on, the ticks it is on for (None: for good)
+/// and the tick it came on. In the set-up's mutators it is on from the match's start, `row` (on, off) ticks over and
+/// over when given, else for good; in the wheel, for its window.
+fn clock(w: &World, key: &str, row: Option<(i32, i32)>) -> Option<(i32, Option<i32>, i32)> {
+    if w.setup.mutators.iter().any(|m| m == key) {
+        if w.setup.flow && !w.flow.match_started {
+            return None;
+        }
+        let start = if w.setup.flow { w.flow.match_start_tick } else { 0 };
+        let t = w.flow.tick - start;
+        return Some(match row {
+            Some((on, off)) => {
+                let k = t.div_euclid(on + off);
+                (t - k * (on + off), Some(on), start + k * (on + off))
+            }
+            None => (t, None, start),
+        });
     }
+    let (start, len) = crate::world::wheel::window_of(w, key)?;
+    Some((w.flow.tick - start, Some(len), start))
+}
+
+/// Wind's gust: its way, its age and its strength.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Gust {
+    /// The way it blows (sim x): -1 or 1.
+    pub dir: Real,
+    /// Ticks since its warning started; the gust itself starts at `WIND_WARN`.
+    pub age: Real,
+    /// Its push now: 0 through the warning, ramping to 1 and back to 0 at its end.
+    pub blow: Real,
+}
+
+/// Wind's gust `part` of a tick after this one (the view's, between two ticks: `alpha - 1`), None while Wind is off
+/// or between a gust's end and the next warning.
+#[allow(clippy::cast_precision_loss)]
+pub fn gust_at(w: &World, part: Real) -> Option<Gust> {
+    use crate::math::{max, min};
+    let (t, len, start) = clock(w, Rule::Wind.key(), None)?;
+    let into = t - WIND_FIRST;
+    if into < 0 {
+        return None;
+    }
+    let k = into.div_euclid(WIND_EVERY);
+    let c = into.rem_euclid(WIND_EVERY);
+    if c >= WIND_WARN + WIND_GUST || len.is_some_and(|len| WIND_FIRST + k * WIND_EVERY + WIND_WARN + WIND_GUST > len) {
+        return None;
+    }
+    let age = max(c as Real + part, 0.0);
+    let g = age - WIND_WARN as Real;
+    let blow =
+        if g <= 0.0 { 0.0 } else { max(min(min(g / WIND_RAMP_IN, (WIND_GUST as Real - g) / WIND_RAMP_OUT), 1.0), 0.0) };
+    // Each gust's way is drawn off the tick its rule came on and its count, the same on every machine.
+    let mut h = start.cast_unsigned().wrapping_mul(2_654_435_761) ^ k.cast_unsigned().wrapping_mul(2_246_822_519);
+    h ^= h >> 15;
+    h = h.wrapping_mul(2_654_435_761);
+    Some(Gust { dir: if (h >> 16) & 1 == 1 { 1.0 } else { -1.0 }, age, blow })
+}
+
+/// Wind: each live player not in a hit's pause swept (`moves::sweep_move`, the stage's walls stop it) by the gust's
+/// push, `WIND_AIR` off the ground. A fighter on the ground walks off a ledge it is blown over.
+fn gusts(w: &mut World) {
+    let Some(g) = gust_at(w, 0.0).filter(|g| g.blow > 0.0) else { return };
     let dt = crate::consts::DT;
-    let left = (w.flow.tick / WIND_TICKS).rem_euclid(2) == 0;
-    let mid = (w.stage.blast.left + w.stage.blast.right) / 2.0;
     for f in w.players.clone() {
-        if w.fighter(f).life.dead > 0.0 {
+        let fr = w.fighter(f);
+        if fr.life.dead > 0.0 || fr.hit.hitpause > 0.0 {
             continue;
         }
-        let x = w.fighter(f).body.x;
-        let mut dx = 0.0;
-        if wind {
-            dx += if left { -WIND_SPEED * dt } else { WIND_SPEED * dt };
-        }
-        if magnet {
-            let to = mid - x;
-            let step = MAGNET_SPEED * dt;
-            dx += if to.abs() <= step {
-                to
-            } else if to > 0.0 {
-                step
-            } else {
-                -step
-            };
-        }
-        if dx != 0.0 {
-            let ay = crate::fighter::body::actor_y(w, f);
-            crate::fighter::moves::sweep_move(w, f, x + dx, ay);
-        }
+        let x = fr.body.x;
+        let speed = if crate::fighter::grounded(w, f) { WIND_GROUND } else { WIND_AIR };
+        let ay = crate::fighter::body::actor_y(w, f);
+        crate::fighter::moves::sweep_move(w, f, x + g.dir * speed * g.blow * dt, ay);
     }
+}
+
+/// Black Hole: where it is and how far open.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Hole {
+    /// Its middle (sim x, y).
+    pub x: Real,
+    pub y: Real,
+    /// 0 to 1 as it opens, 1 while open, back to 0 as it closes.
+    pub open: Real,
+    /// Ticks since it came on.
+    pub age: Real,
+}
+
+/// Black Hole `part` of a tick after this one (the view's), None while it is off.
+#[allow(clippy::cast_precision_loss)]
+pub fn hole_at(w: &World, part: Real) -> Option<Hole> {
+    use crate::math::{max, min, narrow};
+    let (t, len, _) = clock(w, Rule::BlackHole.key(), Some((HOLE_ROW_WINDOW, HOLE_ROW_REST)))?;
+    let len = len? as Real;
+    let t = t as Real + part;
+    if t < 0.0 || t >= len {
+        return None;
+    }
+    let open = max(min(min(t / HOLE_OPEN as Real, (len - t) / HOLE_CLOSE as Real), 1.0), 0.0);
+    let g = &w.stage.ground;
+    Some(Hole { x: narrow((g.left + g.right) / 2.0), y: narrow(g.top) + HOLE_HEIGHT, open, age: t })
+}
+
+/// Black Hole: each live player not in a hit's pause or launch pulled toward it (swept, as Wind's push; along the
+/// ground only while on it), harder the nearer; one whose middle reaches its core, while it is open, is thrown out.
+fn hole(w: &mut World) {
+    use crate::math::{max, min};
+    let Some(h) = hole_at(w, 0.0).filter(|h| h.open > 0.0) else { return };
+    let dt = crate::consts::DT;
+    for f in w.players.clone() {
+        let fr = w.fighter(f);
+        if fr.life.dead > 0.0 || fr.hit.hitpause > 0.0 || fr.hit.launch.is_some() {
+            continue;
+        }
+        let (x, y) = (fr.body.x, fr.body.y);
+        let (dx, dy) = (h.x - x, h.y - y);
+        let d = (dx * dx + dy * dy).sqrt();
+        if d < HOLE_CORE && h.open >= 1.0 {
+            throw_out(w, f, -dx, -dy, d);
+            continue;
+        }
+        if d <= 0.0 {
+            continue;
+        }
+        let pull = if d < HOLE_REACH {
+            let near = 1.0 - d / HOLE_REACH;
+            HOLE_PULL_FAR + (HOLE_PULL_NEAR - HOLE_PULL_FAR) * near * near
+        } else {
+            HOLE_PULL_FAR * HOLE_REACH / d
+        };
+        let step = min(pull * h.open * dt, max(d - HOLE_CORE * 0.5, 0.0));
+        let up = if crate::fighter::grounded(w, f) { 0.0 } else { dy / d * step };
+        let ay = crate::fighter::body::actor_y(w, f);
+        crate::fighter::moves::sweep_move(w, f, x + dx / d * step, ay + up);
+    }
+}
+
+/// Black Hole's core: a level hit of `HOLE_DAMAGE` throwing `f` out the way (`ox`, `oy`) it is from the middle
+/// (`d` away; straight up at the middle), lifted by `HOLE_LIFT`.
+fn throw_out(w: &mut World, f: FighterId, ox: Real, oy: Real, d: Real) {
+    let (ox, oy) = if d > 1.0 { (ox / d, oy / d + HOLE_LIFT) } else { (0.0, 1.0) };
+    let n = (ox * ox + oy * oy).sqrt();
+    let dir = crate::fighter::moves::V2 { x: ox / n, y: oy / n };
+    rule_hit(
+        w,
+        f,
+        crate::name!("Chaos_Magnet"),
+        [HOLE_DAMAGE, HOLE_KNOCK_BACK, HOLE_SCALING],
+        dir,
+        crate::name!("sfx_shared_combat_charge_hit_large"),
+    );
 }
 
 /// Rising Lava's surface (sim y) this tick, None while it is off. It rises from the blast box's bottom to
@@ -235,17 +382,8 @@ pub fn lava_level(w: &World) -> Option<Real> {
 
 /// Rising Lava's surface `part` of a tick after this one (the view's, between two ticks: `alpha - 1`).
 pub fn lava_level_at(w: &World, part: Real) -> Option<Real> {
-    let key = Rule::LavaFloor.key();
-    let (t, len) = if w.setup.mutators.iter().any(|m| m == key) {
-        if w.setup.flow && !w.flow.match_started {
-            return None;
-        }
-        let start = if w.setup.flow { w.flow.match_start_tick } else { 0 };
-        ((w.flow.tick - start).rem_euclid(LAVA_ROW_WINDOW + LAVA_ROW_REST), LAVA_ROW_WINDOW)
-    } else {
-        let (start, len) = crate::world::wheel::window_of(w, key)?;
-        (w.flow.tick - start, len)
-    };
+    let (t, len, _) = clock(w, Rule::LavaFloor.key(), Some((LAVA_ROW_WINDOW, LAVA_ROW_REST)))?;
+    let len = len?;
     let low = w.stage.blast.bottom;
     let high = crate::math::narrow(w.stage.ground.top) + LAVA_OVER;
     let rise = LAVA_RISE_TICKS.min(len / 2).max(1);
@@ -279,13 +417,34 @@ fn lava(w: &mut World) {
 
 /// The lava's bounce: a level hit of `LAVA_DAMAGE` launching `f` straight up, dealt by itself (no one's knockout).
 fn bounce(w: &mut World, f: FighterId) {
+    rule_hit(
+        w,
+        f,
+        crate::name!("Chaos_LavaFloor"),
+        [LAVA_DAMAGE, LAVA_KNOCK_BACK, LAVA_SCALING],
+        crate::fighter::moves::V2 { x: 0.0, y: 1.0 },
+        crate::name!("sfx_shared_combat_firewall_ignite"),
+    );
+}
+
+/// A rule's level hit on `f` named `rule`, dealt by itself (no one's knockout): [damage, base knockback, its
+/// scaling] launching it along `dir`, with `sound` posted on it. The hit's pain line is the sound's, which the game's
+/// side plays each time (it needs no chance): the hit event carries none.
+fn rule_hit(
+    w: &mut World,
+    f: FighterId,
+    rule: crate::names::Name,
+    hit: [Real; 3],
+    dir: crate::fighter::moves::V2,
+    sound: crate::names::Name,
+) {
     use crate::combat::HitPacket;
     use crate::combat::packet::DataEnum;
     use crate::fighter::moves::V2;
     let p = HitPacket {
-        damage: Some(LAVA_DAMAGE),
-        base_knock_back: Some(LAVA_KNOCK_BACK),
-        knock_back_scaling: Some(LAVA_SCALING),
+        damage: Some(hit[0]),
+        base_knock_back: Some(hit[1]),
+        knock_back_scaling: Some(hit[2]),
         hit_reaction: Some(DataEnum::Value(2)),
         hit_pause_time: Some(0.1),
         hit_stun_mult: Some(0.5),
@@ -301,17 +460,7 @@ fn bounce(w: &mut World, f: FighterId) {
     let b = &w.fighter(f).body;
     let at = V2 { x: b.x, y: b.y };
     let dealer = crate::actors::ActorRef::Fighter(f);
-    crate::combat::hits::apply_level_hit(
-        w,
-        dealer,
-        crate::name!("Chaos_LavaFloor"),
-        f,
-        &p,
-        at,
-        V2 { x: 0.0, y: 1.0 },
-        &[],
-    );
-    // The hit's pain line is the touch sound's (it needs no chance): the hit event carries none.
+    crate::combat::hits::apply_level_hit(w, dealer, rule, f, &p, at, dir, &[]);
     let fighter = w.fighter(f).id;
     if let Some(crate::Event::Hit { pain_damage, .. }) =
         w.events.iter_mut().rev().find(|e| matches!(e, crate::Event::Hit { victim, .. } if *victim == fighter))
@@ -320,7 +469,7 @@ fn bounce(w: &mut World, f: FighterId) {
     }
     w.events.push(crate::Event::Sound {
         fighter,
-        ev: crate::name!("sfx_shared_combat_firewall_ignite"),
+        ev: sound,
         x: Some(at.x),
         y: Some(at.y),
         hit: None,
@@ -337,12 +486,13 @@ pub fn ghost_hidden(w: &World, f: FighterId) -> bool {
         && w.flow.tick.rem_euclid(GHOST_BEAT) >= GHOST_FLASH
 }
 
-/// `ownRulesLatent`: the rules' tick, behind the wheel's in the world's latent pass: Wind's and Magnet's drift,
-/// then Rising Lava's touch.
+/// `ownRulesLatent`: the rules' tick, behind the wheel's in the world's latent pass: Wind's gusts, Black Hole's pull
+/// and core, then Rising Lava's touch.
 pub fn own_rules_latent(w: &mut World) {
     if w.flow.match_over || (w.setup.flow && !w.flow.match_started) {
         return;
     }
-    drift(w);
+    gusts(w);
+    hole(w);
     lava(w);
 }

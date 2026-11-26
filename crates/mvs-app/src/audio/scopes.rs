@@ -206,14 +206,19 @@ pub fn skin_events(t: &SkinAudio, s: &SkinAudioSkin, known: &Index) -> Lists {
 /// The base scope's events: the shared events (none of a character's,
 /// map's, music's or class's, MATCH_UI's, nor the title's) that code outside the menus posts (`posted::POSTED`) or
 /// that the HUD bundle names (`hud_named`), in the index's order, but the Chaos Wheel card's (the scope a match with
-/// the wheel loads, `mvs_ui::hud::WHEEL_SOUNDS`) and Rising Lava's (`lava::SOUNDS`). The HUD's names are at hand at once, so only the second is set.
+/// the wheel loads, `mvs_ui::hud::WHEEL_SOUNDS`) and the port's own rules' (`lava::SOUNDS`, `wind::SOUNDS`, `hole::SOUNDS`). The HUD's names are at hand at once, so only the second is set.
 pub fn base_events(known: &Index, hud_named: &[String]) -> Vec<String> {
     let hud: HashSet<&str> = hud_named.iter().map(String::as_str).collect();
     known
         .all()
         .iter()
         .filter(|e| is_shared(e) && !is_tutorial_sound(e) && (code_posted(e) || hud.contains(e.as_str())))
-        .filter(|e| !mvs_ui::hud::WHEEL_SOUNDS.contains(&e.as_str()) && !super::lava::SOUNDS.contains(&e.as_str()))
+        .filter(|e| !mvs_ui::hud::WHEEL_SOUNDS.contains(&e.as_str()))
+        .filter(|e| {
+            ![&super::lava::SOUNDS[..], &super::wind::SOUNDS, &super::hole::SOUNDS]
+                .iter()
+                .any(|l| l.contains(&e.as_str()))
+        })
         .cloned()
         .collect()
 }

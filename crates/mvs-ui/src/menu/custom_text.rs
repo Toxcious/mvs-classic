@@ -87,7 +87,7 @@ pub const MUTATORS: [&str; 28] = [
     "Ghosts",
     "Ice Rink",
     "Wind",
-    "Magnet",
+    "Black Hole",
 ];
 /// The name of a Chaos Wheel mutator (`mvs_mutators::ALL`'s keys); "" for a key not on the list.
 pub fn wheel_name(key: &str) -> &'static str {
@@ -119,7 +119,7 @@ pub fn wheel_name(key: &str) -> &'static str {
         "Chaos_Ghosts" => "Ghosts",
         "Chaos_IceRink" => "Ice Rink",
         "Chaos_Wind" => "Wind",
-        "Chaos_Magnet" => "Magnet",
+        "Chaos_Magnet" => "Black Hole",
         "Chaos_DamageSwap" => "Damage Swap",
         "Chaos_Shuffle" => "Shuffle",
         "Chaos_FreshStart" => "Fresh Start",
