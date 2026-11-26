@@ -49,7 +49,9 @@ try {
         cargo build --release --locked -p mvs-app --bin mvs
         if ($LASTEXITCODE -ne 0) { throw "self-check: the build of mvs failed (exit $LASTEXITCODE)" }
         $target = if ($env:CARGO_TARGET_DIR) { $env:CARGO_TARGET_DIR } else { Join-Path $root 'target' }
-        & (Join-Path $target 'release/mvs.exe') --self-test --store $Store --check-out $out
+        # (mvs.exe is a windowed program, which PowerShell does not wait for unless its output is piped: without the
+        # pipe the script went on with cargo's exit code while the self-test was still running)
+        & (Join-Path $target 'release/mvs.exe') --self-test --store $Store --check-out $out | Out-Host
     }
     if ($LASTEXITCODE -ne 0) { throw "self-check: the self-test failed (exit $LASTEXITCODE)" }
 } finally {
