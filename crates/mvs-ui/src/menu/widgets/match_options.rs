@@ -1025,6 +1025,8 @@ pub struct MatchOptions {
     /// The online view as the screen last followed it (online.onChanged, party.onChange).
     seen_can_join: bool,
     seen_party: Option<mvs_net::service::api::PartyView>,
+    /// Whether the party was full when last followed ('None' before the first follow).
+    seen_full: Option<bool>,
 }
 
 impl MatchOptions {
@@ -1852,13 +1854,20 @@ impl MatchOptions {
     fn follow_online(&mut self, cx: &mut Cx<'_>) {
         let o = &cx.view.session.online;
         let (can, party) = (o.can_join, o.party.clone());
+        if self.seen_full.is_none() {
+            self.seen_full = Some(o.party_full());
+        }
         if can != self.seen_can_join {
             self.seen_can_join = can;
             self.join_card_follows(cx, false);
         }
         if party != self.seen_party {
             self.seen_party = party;
-            if cx.view.session.online.party_full() {
+            // (a party change event, not the open: a party full when the modal opened, its leader picking the mode,
+            // keeps it; one that fills while it shows closes it)
+            let full = cx.view.session.online.party_full();
+            let was_full = self.seen_full.replace(full);
+            if full && was_full == Some(false) {
                 return self.request_dismiss_self(cx);
             }
             let style = self.current_style(cx);

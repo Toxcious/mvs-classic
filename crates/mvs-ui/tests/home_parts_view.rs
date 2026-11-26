@@ -241,6 +241,33 @@ fn match_options_open_on_the_normal_row() {
     assert_eq!(t.widget(t.find_in(card, "SizeBox_1")).w_override, 550.0);
 }
 
+/// A full party's leader opens the modes to queue together: the modal stays (OnPartyChanged dismisses it only when
+/// the party changes while it shows); a party that fills while it shows still closes it.
+#[test]
+fn match_options_stay_open_for_a_full_partys_leader() {
+    use mvs_net::service::api::{PartyMember, PartyView};
+    let Some(mut e) = env() else { return };
+    let mut s = e.screen();
+    let member = |id: &str| PartyMember { id: id.into(), name: id.into(), icon: String::new() };
+    s.view.session.online.party =
+        Some(PartyView { leader: "me".into(), members: vec![member("me"), member("pal")], me: "me".into() });
+    let m = s.with_cx(&mut e.run(), |cx| show_modal_generic(cx, true, "WBP_MatchOptions", "matchoptions", ""));
+    let m = m.expect("match options are shown");
+    frames(&mut e, &mut s, 1.0, 1.0);
+    assert!(s.view.tree().alive(m) && s.view.tree().widget(m).shown(), "a full party's leader keeps the modal");
+
+    let mut s = e.screen();
+    s.view.session.online.party = Some(PartyView { leader: "me".into(), members: vec![member("me")], me: "me".into() });
+    let m = s.with_cx(&mut e.run(), |cx| show_modal_generic(cx, true, "WBP_MatchOptions", "matchoptions", ""));
+    let m = m.expect("match options are shown");
+    frames(&mut e, &mut s, 1.0, 0.5);
+    assert!(s.view.tree().alive(m) && s.view.tree().widget(m).shown(), "a party of one keeps the modal");
+    s.view.session.online.party =
+        Some(PartyView { leader: "me".into(), members: vec![member("me"), member("pal")], me: "me".into() });
+    frames(&mut e, &mut s, 1.0, 1.0);
+    assert!(!s.view.tree().alive(m) || !s.view.tree().widget(m).shown(), "the party filled while it showed: dismissed");
+}
+
 #[test]
 fn match_options_from_arcade_hide_the_type_bar() {
     let Some(mut e) = env() else { return };
