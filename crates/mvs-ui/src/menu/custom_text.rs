@@ -59,7 +59,7 @@ pub const CHAOS_QUEUE_TITLE: &str = "Chaos Queue";
 pub const CHAOS_QUEUE_SUB: &str = "A new mutator every 20 seconds";
 pub const CHAOS_QUEUE: &str = "CHAOS";
 /// The mutators row's values, in the order of mvs_protocol::lobby_rules::LOBBY_MUTATORS: Off clears the list.
-pub const MUTATORS: [&str; 28] = [
+pub const MUTATORS: [&str; 30] = [
     "Off",
     "Silly (Random)",
     "Big Head",
@@ -88,6 +88,8 @@ pub const MUTATORS: [&str; 28] = [
     "Ice Rink",
     "Wind",
     "Black Hole",
+    "Flood",
+    "Storm Flood",
 ];
 /// The name of a Chaos Wheel mutator (`mvs_mutators::ALL`'s keys); "" for a key not on the list.
 pub fn wheel_name(key: &str) -> &'static str {
