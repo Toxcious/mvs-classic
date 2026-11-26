@@ -264,9 +264,10 @@ pub struct Report {
     pub bytes: u64,
 }
 
-/// The guard over a zip's files. `key` is the developer's key (None: that search is skipped); `secrets` are EOS
-/// credentials known from elsewhere (the pack step's), searched in every file but this zip's own `resources/eos.json`.
-pub fn check_files(where_: &str, entries: &[Entry], kind: Zip, key: Option<&[u8; 32]>, secrets: &[Vec<u8>]) -> Report {
+/// The guard over a zip's files. `key` is the developer's key and where it came from (None: that search is
+/// skipped); `secrets` are EOS credentials known from elsewhere (the pack step's), searched in every file but this
+/// zip's own `resources/eos.json`.
+pub fn check_files(where_: &str, entries: &[Entry], kind: Zip, key: Option<&GuardKey>, secrets: &[Vec<u8>]) -> Report {
     let own = own_files(kind);
     let mut findings = Vec::new();
     let mut seen = std::collections::BTreeSet::new();
@@ -279,7 +280,8 @@ pub fn check_files(where_: &str, entries: &[Entry], kind: Zip, key: Option<&[u8;
             None => findings.push(format!("{where_}: {}: no client id and secret", e.name)),
         }
     }
-    let forms = key.map(key_forms).unwrap_or_default();
+    let forms = key.map(|k| key_forms(&k.key)).unwrap_or_default();
+    let source = key.map_or("", |k| k.source.as_str());
     let mut bytes = 0;
     for e in entries {
         let name = &e.name;
@@ -305,7 +307,7 @@ pub fn check_files(where_: &str, entries: &[Entry], kind: Zip, key: Option<&[u8;
             let lowered = e.data.to_ascii_lowercase();
             for f in &forms {
                 if contains(if f.any_case { &lowered } else { &e.data }, &f.bytes) {
-                    findings.push(format!("{where_}: {name}: the developer's key (content/local.json), as {}", f.name));
+                    findings.push(format!("{where_}: {name}: the developer's key (from {source}), as {}", f.name));
                 }
             }
         }
@@ -382,7 +384,7 @@ fn vc_runtime_imports(pe: &[u8]) -> Vec<String> {
 }
 
 /// The guard over a zip file.
-pub fn check_zip(path: &Path, kind: Zip, key: Option<&[u8; 32]>, secrets: &[Vec<u8>]) -> Result<Report, String> {
+pub fn check_zip(path: &Path, kind: Zip, key: Option<&GuardKey>, secrets: &[Vec<u8>]) -> Result<Report, String> {
     let bytes = std::fs::read(path).map_err(|e| format!("guard: {}: {e}", path.display()))?;
     let entries = zip::read(&bytes).map_err(|e| format!("guard: {}: {e}", path.display()))?;
     let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
@@ -395,6 +397,10 @@ mod tests {
 
     fn entry(name: &str, data: &[u8]) -> Entry {
         Entry { name: name.to_owned(), data: data.to_vec(), executable: false }
+    }
+
+    fn guard_key(key: [u8; 32]) -> GuardKey {
+        GuardKey { key, source: KEY_VAR.to_owned() }
     }
 
     const KEY: [u8; 32] = [
@@ -420,7 +426,7 @@ mod tests {
     }
 
     fn findings(entries: &[Entry]) -> Vec<String> {
-        check_files("t.zip", entries, Zip::Game, Some(&KEY), &[]).findings
+        check_files("t.zip", entries, Zip::Game, Some(&guard_key(KEY)), &[]).findings
     }
 
     /// The release with `data` planted in the game exe's bytes.
@@ -433,11 +439,22 @@ mod tests {
     }
 
     #[test]
+    fn a_finding_names_where_the_key_came_from() {
+        let mut e = clean();
+        e[0].data.extend_from_slice(&KEY);
+        let from_file = GuardKey { key: KEY, source: "content/local.json's \"key\"".to_owned() };
+        let f = check_files("t.zip", &e, Zip::Game, Some(&from_file), &[]).findings;
+        assert!(f[0].contains("from content/local.json's \"key\""), "{}", f[0]);
+        let f = check_files("t.zip", &e, Zip::Game, Some(&guard_key(KEY)), &[]).findings;
+        assert!(f[0].contains(&format!("from {KEY_VAR}")) && !f[0].contains("local.json"), "{}", f[0]);
+    }
+
+    #[test]
     fn a_clean_release_passes() {
         assert_eq!(findings(&clean()), Vec::<String>::new());
         let relay = [entry("mvs-relay.exe", b"MZ"), entry("README.md", b"x"), entry(LICENSE, b"MIT")];
         let secrets = vec![SECRET.as_bytes().to_vec()];
-        assert!(check_files("r.zip", &relay, Zip::Relay, Some(&KEY), &secrets).findings.is_empty());
+        assert!(check_files("r.zip", &relay, Zip::Relay, Some(&guard_key(KEY)), &secrets).findings.is_empty());
     }
 
     #[test]
@@ -578,7 +595,7 @@ mod tests {
     }
 
     fn linux_findings(entries: &[Entry]) -> Vec<String> {
-        check_files("l.zip", entries, Zip::GameLinux, Some(&KEY), &[]).findings
+        check_files("l.zip", entries, Zip::GameLinux, Some(&guard_key(KEY)), &[]).findings
     }
 
     #[test]

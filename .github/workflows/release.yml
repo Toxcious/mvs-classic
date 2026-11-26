@@ -11,7 +11,10 @@
 #      self-check.json for that code (tools/self-check.ps1, which refuses uncommitted code), commit it and push.
 #      build.yml builds the commit.
 #   2. Tag that commit v0.2.0 and push the tag: git tag v0.2.0 && git push origin v0.2.0
-#      This workflow waits for the build if it is still running. A suffix (v0.2.0-test1) makes a prerelease.
+#      This workflow waits for the build if it is still running. A tag that already has a release (a draft
+#      included) is refused before anything else: delete that release, and the tag, first.
+#      A suffix (v0.2.0-test1) makes a prerelease, a test tag: Cargo.toml's version must then be 0.2.0-test1 too,
+#      exactly, and the zips are named by it.
 #   3. When this has run, the release is a draft on the repo's Releases page. Check it, then publish it there (Edit,
 #      then "Publish release") or with: gh release edit v0.2.0 --draft=false
 # The game's updater reads the newest published release that is not a prerelease, so a draft or a prerelease is
@@ -19,9 +22,15 @@
 #
 # The release holds three zips (the Windows game, the Linux game, the relay for both), a .sha256 beside each, and
 # SHA256SUMS of the three. Each zip is attested (where it was made, from which commit, by this workflow):
-#   gh attestation verify MVS-Classic-0.2.0.zip --repo <owner>/<repo>
+#   gh attestation verify MVS-Classic-0.2.0.zip --repo <owner>/<repo> \
+#     --signer-workflow <owner>/<repo>/.github/workflows/release.yml --source-ref refs/tags/v0.2.0
 # The programs inside are attested by build.yml only when it built them for a push to the default branch. A tag on
 # another branch (a testing branch, say) still makes a release; its notes say that the programs are not attested.
+#
+# Three jobs, each holding the least it needs. tag-free reads the repo's releases (a draft is seen only with write
+# access) and runs nothing from the build. release runs the downloaded programs under Wine, and mvs-dist, with the
+# secrets but with a token that only reads. publish holds the token that writes (the release, the attestations) and
+# runs no built code: it takes the finished files from release.
 #
 # The secrets (the repo's Settings, then "Secrets and variables", then "Actions"):
 #   - EOS_CREDENTIALS: the text of eos.json, as it is. The game reads it to sign in to Epic's online services; it
@@ -37,11 +46,13 @@ on:
     # fails loudly.
     tags: ['v*.*.*']
 
-permissions:
-  contents: write      # make the release
-  actions: read        # find build.yml's run for the tagged commit and download its artifacts
-  id-token: write      # attest the zips: the attestation is signed with this run's identity
-  attestations: write  # store the zips' attestations in the repo
+# Nothing by default: each job names what it needs.
+permissions: {}
+
+# One run a tag at a time: two runs of the same tag would both find no release and both make one.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 # Every `run:` in bash with pipefail. Without a shell named, GitHub runs `bash -e`, where a command that fails before a
 # pipe (mvs-dist into `tee`, say) does not fail its step, and the release would then go ahead anyway.
@@ -50,13 +61,43 @@ defaults:
     shell: bash
 
 jobs:
+  # The first thing that happens: a tag that already has a release, in any state, stops here.
+  tag-free:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    permissions:
+      contents: write  # drafts are listed only to a token that can write
+    steps:
+      - name: The tag must have no release yet
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          tag: ${{ github.ref_name }}
+        run: |
+          found=$(gh api --paginate "repos/$REPO/releases?per_page=100" \
+                    | jq -r --arg t "$tag" '.[] | select(.tag_name == $t)
+                        | (if .draft then "a draft" elif .prerelease then "a prerelease" else "a published release" end)
+                          + " (" + .html_url + ")"')
+          if [ -n "$found" ]; then
+            echo "::error::the tag $tag already has a release: $found. Delete that release (and the tag, if it is to move), then push the tag again"
+            exit 1
+          fi
+          echo "the tag $tag has no release yet"
+
   release:
+    needs: tag-free
     runs-on: ubuntu-26.04
     # Up to 45 minutes waiting for the build, then a few minutes of work.
     timeout-minutes: 75
+    permissions:
+      contents: read  # the checkout
+      actions: read   # find build.yml's run for the tagged commit and download its artifacts
     env:
-      GH_TOKEN: ${{ github.token }}
       REPO: ${{ github.repository }}
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+      version: ${{ steps.version.outputs.version }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
     steps:
       # The whole history: mvs-dist checks that no commit after the one holding self-check.json changed the code
       # (git log and git diff back to that commit). No token is left in the checkout: nothing here pushes.
@@ -77,9 +118,10 @@ jobs:
           if [[ ! "$tag" =~ ^v([0-9]+\.[0-9]+\.[0-9]+)(-[0-9A-Za-z.-]+)?$ ]]; then
             echo "::error::tag $tag is not v<x.y.z> or v<x.y.z>-<suffix> (v0.2.0, v0.2.0-test1)"; exit 1
           fi
-          base="${BASH_REMATCH[1]}"
-          [ "$base" = "$version" ] || {
-            echo "::error::tag $tag is for $base, but Cargo.toml's version is $version: set the version and tag that commit"
+          # The whole version, suffix included: the programs report it, and the zips are named by it.
+          tagged="${tag#v}"
+          [ "$tagged" = "$version" ] || {
+            echo "::error::tag $tag is for $tagged, but Cargo.toml's version is $version: set the version and tag that commit"
             exit 1
           }
           # A suffix makes a prerelease, which the game's updater never offers.
@@ -87,10 +129,10 @@ jobs:
           [ -z "${BASH_REMATCH[2]}" ] || prerelease=true
           {
             echo "tag=$tag"
-            echo "base=$base"
+            echo "version=$version"
             echo "prerelease=$prerelease"
           } >> "$GITHUB_OUTPUT"
-          echo "version $base, prerelease $prerelease"
+          echo "version $version, prerelease $prerelease"
 
       # The build is started by the branch push, not the tag. If both were pushed together it may still be running,
       # so wait for it; if the commit was pushed with [skip ci], or never to a branch, no build exists and never will.
@@ -99,6 +141,8 @@ jobs:
       # its programs), else the newest successful run.
       - name: Find the build for this commit
         id: build
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           deadline_min=45
           grace_min=5
@@ -153,6 +197,7 @@ jobs:
       - name: The artifacts must be present
         id: artifacts
         env:
+          GH_TOKEN: ${{ github.token }}
           run: ${{ steps.build.outputs.run }}
         run: |
           names=$(gh api "repos/$REPO/actions/runs/$run/artifacts?per_page=100" \
@@ -247,7 +292,7 @@ jobs:
       - name: Pack the release
         env:
           MVS_PAK_KEY: ${{ secrets.MVS_PAK_KEY }}
-          version: ${{ steps.version.outputs.base }}
+          version: ${{ steps.version.outputs.version }}
         run: |
           a="$RUNNER_TEMP/artifacts"
           "$a/mvs-dist/mvs-dist" build --version "$version" \
@@ -278,37 +323,87 @@ jobs:
           cat SHA256SUMS
           sha256sum -c ./*.sha256   # each zip verifies before it is published
 
-      # Each zip's attestation: anyone can check that it was made here, from this commit, by this workflow.
-      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
-        with:
-          subject-path: dist/*.zip
-
       # The release's text: where it came from, what each zip is, and how to check them.
       - name: Notes
         env:
           run: ${{ steps.build.outputs.run }}
           branch: ${{ steps.build.outputs.branch }}
           on_default: ${{ steps.build.outputs.on_default }}
-          base: ${{ steps.version.outputs.base }}
+          version: ${{ steps.version.outputs.version }}
+          tag: ${{ steps.version.outputs.tag }}
         run: |
           {
             echo "Built from \`$GITHUB_SHA\` in [build run $run](https://github.com/$REPO/actions/runs/$run)."
             echo
-            echo "- \`MVS-Classic-$base.zip\`: the game for Windows, with its launcher."
-            echo "- \`MVS-Classic-$base-linux.zip\`: the game for Linux (a Steam Deck included), with its launcher."
-            echo "- \`MVS-Classic-Relay-$base.zip\`: the relay, for Windows (\`mvs-relay.exe\`) and Linux servers (\`mvs-relay\`)."
+            echo "- \`MVS-Classic-$version.zip\`: the game for Windows, with its launcher."
+            echo "- \`MVS-Classic-$version-linux.zip\`: the game for Linux (a Steam Deck included), with its launcher."
+            echo "- \`MVS-Classic-Relay-$version.zip\`: the relay, for Windows (\`mvs-relay.exe\`) and Linux servers (\`mvs-relay\`)."
             echo "- \`*.sha256\`, \`SHA256SUMS\`: checksums."
             echo
             echo "To check a download: \`sha256sum -c <file>.sha256\`, and that it was made by this repo's release workflow:"
-            echo "\`gh attestation verify <file> --repo $REPO\`."
+            echo
+            echo '```'
+            echo "gh attestation verify <file> --repo $REPO \\"
+            echo "  --signer-workflow $REPO/.github/workflows/release.yml --source-ref refs/tags/$tag"
+            echo '```'
             echo
             if [ "$on_default" = true ]; then
-              echo "The programs inside are attested too (built for a push to the default branch)."
+              echo "The programs inside are attested too (built for a push to the default branch), by build.yml:"
+              echo
+              echo '```'
+              echo "gh attestation verify <program> --repo $REPO \\"
+              echo "  --signer-workflow $REPO/.github/workflows/build.yml --source-ref refs/heads/$branch"
+              echo '```'
             else
               echo "The programs inside were built on \`$branch\`; not attested."
             fi
-          } > notes.md
-          cat notes.md >> "$GITHUB_STEP_SUMMARY"
+          } > dist/notes.md
+          cat dist/notes.md >> "$GITHUB_STEP_SUMMARY"
+
+      # What the next job publishes: the zips, their checksums and the notes, not the laid-out folders beside them
+      # (each game would cross twice). This job's token cannot write, and
+      # nothing it ran touches the release.
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-files
+          path: |
+            dist/*.zip
+            dist/*.sha256
+            dist/SHA256SUMS
+            dist/notes.md
+          retention-days: 1
+          overwrite: true
+          if-no-files-found: error
+
+  # Runs no code of the build or of the repo: it takes the files the release job made, attests the zips and makes the
+  # draft. This is the one job with a token that writes.
+  publish:
+    needs: release
+    runs-on: ubuntu-26.04
+    timeout-minutes: 15
+    permissions:
+      contents: write      # make the release
+      id-token: write      # attest the zips: the attestation is signed with this run's identity
+      attestations: write  # store the zips' attestations in the repo
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-files
+          path: dist
+      # The files must have crossed the artifact whole.
+      - name: Checksums
+        working-directory: dist
+        run: |
+          shopt -s nullglob
+          zips=(*.zip)
+          [ "${#zips[@]}" -eq 3 ] || { echo "::error::dist holds ${#zips[@]} zips, not three"; exit 1; }
+          sha256sum -c ./*.sha256
+          sha256sum -c SHA256SUMS
+
+      # Each zip's attestation: anyone can check that it was made here, from this commit, by this workflow.
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: dist/*.zip
 
       # A draft, and left one: publishing is by hand. The game's updater reads only published releases, so it never
       # sees this one until then. The release is made for the tag that started this run.
@@ -316,10 +411,11 @@ jobs:
         id: release
         uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3.0.4
         with:
-          name: MVS Classic ${{ steps.version.outputs.tag }}
-          body_path: notes.md
+          tag_name: ${{ needs.release.outputs.tag }}
+          name: MVS Classic ${{ needs.release.outputs.tag }}
+          body_path: dist/notes.md
           draft: true
-          prerelease: ${{ steps.version.outputs.prerelease }}
+          prerelease: ${{ needs.release.outputs.prerelease }}
           fail_on_unmatched_files: true
           files: |
             dist/*.zip
@@ -328,7 +424,7 @@ jobs:
 
       - name: How to publish
         env:
-          tag: ${{ steps.version.outputs.tag }}
+          tag: ${{ needs.release.outputs.tag }}
           url: ${{ steps.release.outputs.url }}
         run: |
           {

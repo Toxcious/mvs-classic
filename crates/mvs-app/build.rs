@@ -56,7 +56,7 @@ fn main() {
     // (the file and product version: `MVS_VERSION`, else the crate's, as `mvs_release::VERSION` takes it)
     let version = std::env::var("MVS_VERSION").unwrap_or_else(|_| std::env::var("CARGO_PKG_VERSION").unwrap());
     let parts = version_parts(&version)
-        .unwrap_or_else(|| panic!("MVS_VERSION {version} is not x.y.z with each part at most 65535"));
+        .unwrap_or_else(|| panic!("MVS_VERSION {version} is not x.y.z or x.y.z-suffix with each number at most 65535"));
     // (one .res a program: each names its own file)
     for (bin, ico, description, file) in PROGRAMS {
         let ico = std::fs::read(ico).unwrap_or_else(|e| panic!("mvs-app/{ico}: {e}"));
@@ -149,7 +149,9 @@ fn string(key: &str, value: &str) -> Vec<u8> {
 
 /// `x.y.z` as three numbers that each fit the version resource's 16 bits; None for anything else.
 fn version_parts(version: &str) -> Option<[u16; 3]> {
-    let mut it = version.split('.');
+    // (a test release's suffix, 0.2.0-test1, is in the text only: the resource's numbers are the core's)
+    let core = version.split_once('-').map_or(version, |(core, _)| core);
+    let mut it = core.split('.');
     let mut out = [0; 3];
     for o in &mut out {
         *o = it.next()?.parse().ok()?;

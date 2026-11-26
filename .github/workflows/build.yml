@@ -60,13 +60,24 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       # DXVK-native (the library that turns the game's Direct3D 11 calls into Vulkan), built by `deps` at the tag
       # the script pins, is kept between runs under that tag: building it takes minutes and gives the same files
       # each time.
-      - name: DXVK tag
+      - name: DXVK and container
         id: dxvk
-        run: echo "tag=$(sed -n 's/^DXVK_TAG=//p' tools/linux-build.sh)" >> "$GITHUB_OUTPUT"
+        run: |
+          tag=$(sed -n 's/^DXVK_TAG=//p' tools/linux-build.sh)
+          commit=$(sed -n 's/^DXVK_COMMIT=//p' tools/linux-build.sh)
+          image=$(sed -n 's/^IMAGE=//p' tools/linux-build.sh)
+          [[ "$commit" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::DXVK_COMMIT in tools/linux-build.sh is not a commit"; exit 1; }
+          [[ "$image" =~ @sha256:([0-9a-f]{64})$ ]] || { echo "::error::IMAGE in tools/linux-build.sh is not pinned by digest"; exit 1; }
+          {
+            echo "tag=$tag"
+            echo "commit=${commit:0:12}"
+            echo "image=${BASH_REMATCH[1]:0:12}"
+          } >> "$GITHUB_OUTPUT"
       - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         id: dxvk-cache
         with:
@@ -75,7 +86,7 @@ jobs:
           path: |
             target/linux-deps/dxvk
             target/linux-deps/src/LICENSE
-          key: dxvk-${{ steps.dxvk.outputs.tag }}
+          key: dxvk-${{ steps.dxvk.outputs.tag }}-${{ steps.dxvk.outputs.commit }}-sniper-${{ steps.dxvk.outputs.image }}
       - name: Build DXVK-native
         if: steps.dxvk-cache.outputs.cache-hit != 'true'
         run: tools/linux-build.sh deps
@@ -90,18 +101,20 @@ jobs:
 
       # The builds (Clippy's and the tests') are kept between runs, the workspace's own crates and test binaries
       # included: compiling those is most of the job. The key names what Cargo cannot see for itself: the toolchain
-      # file (every unit's file name holds rustc's version, so an old toolchain's build is only dead weight) and the
-      # DXVK the game links. Then the lock, then the commit. The newest entry with the same toolchain and DXVK is
-      # restored, whatever its lock, so a dependency's update rebuilds only what it touches.
+      # file (every unit's file name holds rustc's version, so an old toolchain's build is only dead weight), the
+      # container image (its C compiler and libraries; the digest) and the DXVK the game links (its commit). Then the
+      # lock, then the commit. The newest entry with the same toolchain, image and DXVK is restored, whatever its
+      # lock, so a dependency's update rebuilds only what it touches.
       - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         id: target-cache
         with:
           path: target/linux-sniper
           key: >-
-            test-target-${{ hashFiles('rust-toolchain.toml') }}-dxvk-${{ steps.dxvk.outputs.tag }}-${{
-            hashFiles('Cargo.lock') }}-${{ github.sha }}
+            test-target-${{ hashFiles('rust-toolchain.toml') }}-sniper-${{ steps.dxvk.outputs.image }}-dxvk-${{
+            steps.dxvk.outputs.commit }}-${{ hashFiles('Cargo.lock') }}-${{ github.sha }}
           restore-keys: >-
-            test-target-${{ hashFiles('rust-toolchain.toml') }}-dxvk-${{ steps.dxvk.outputs.tag }}-
+            test-target-${{ hashFiles('rust-toolchain.toml') }}-sniper-${{ steps.dxvk.outputs.image }}-dxvk-${{
+            steps.dxvk.outputs.commit }}-
       # The checkout stamped every file with the time of the checkout, newer than every build in the cache;
       # tools/ci-mtimes.sh sets the files back, except those changed since the cache's commit, so Cargo rebuilds only
       # what reads a changed file. Each build below writes Cargo's list of the units it used ("units") to a file in
@@ -113,7 +126,7 @@ jobs:
 
       - name: Format
         run: tools/linux-build.sh cargo fmt --check
-      # The container's image is the sniper SDK's newest (`:latest`), so the summary names the one this run used.
+      # The container's image is pinned by digest in tools/linux-build.sh; the summary names the one this run used.
       - name: Build container's image
         run: |
           engine=$(command -v podman || command -v docker)
@@ -130,7 +143,7 @@ jobs:
       - name: Clippy
         id: clippy
         run: >-
-          tools/linux-build.sh cargo clippy --release --all-targets --message-format=json-render-diagnostics
+          tools/linux-build.sh cargo clippy --release --locked --all-targets --message-format=json-render-diagnostics
           -- -D warnings > "$RUNNER_TEMP/units/clippy.json"
       # Without incremental data and debug info, which a run that starts cold never uses: the test build is about
       # 6 GB, not 40. Built in a step of its own, so the cache is saved only when every build in it succeeded (below);
@@ -138,13 +151,13 @@ jobs:
       - name: Build the tests
         id: test-build
         run: >-
-          tools/linux-build.sh cargo test --profile trace --config profile.trace.incremental=false
+          tools/linux-build.sh cargo test --locked --profile trace --config profile.trace.incremental=false
           --config profile.trace.debug=false --workspace --no-fail-fast --no-run
           --message-format=json-render-diagnostics > "$RUNNER_TEMP/units/test-build.json"
       - name: Tests
         id: tests
         run: >-
-          tools/linux-build.sh cargo test --profile trace --config profile.trace.incremental=false
+          tools/linux-build.sh cargo test --locked --profile trace --config profile.trace.incremental=false
           --config profile.trace.debug=false --workspace --no-fail-fast
 
       # Saved when both builds (Clippy's and the tests') succeeded, failing tests or not: a build that failed or was
@@ -171,7 +184,7 @@ jobs:
       - name: D3D bindings
         run: |
           rustup toolchain install
-          cargo run --manifest-path tools/d3d-bindings/Cargo.toml -- --check
+          cargo run --locked --manifest-path tools/d3d-bindings/Cargo.toml -- --check
       - name: No stubs left
         run: "! grep -rn '// Unverified: stub' crates/"
 
@@ -198,6 +211,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+          persist-credentials: false
       # The commit's short name (12 characters in every job, so the artifacts of one run carry the same one) and the
       # workspace's version, from [workspace.package] in Cargo.toml.
       - name: Names
@@ -209,16 +223,26 @@ jobs:
           echo "short=$(git rev-parse --short=12 HEAD)" >> "$GITHUB_OUTPUT"
 
       # DXVK-native, as in the test job (the same cache).
-      - name: DXVK tag
+      - name: DXVK and container
         id: dxvk
-        run: echo "tag=$(sed -n 's/^DXVK_TAG=//p' tools/linux-build.sh)" >> "$GITHUB_OUTPUT"
+        run: |
+          tag=$(sed -n 's/^DXVK_TAG=//p' tools/linux-build.sh)
+          commit=$(sed -n 's/^DXVK_COMMIT=//p' tools/linux-build.sh)
+          image=$(sed -n 's/^IMAGE=//p' tools/linux-build.sh)
+          [[ "$commit" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::DXVK_COMMIT in tools/linux-build.sh is not a commit"; exit 1; }
+          [[ "$image" =~ @sha256:([0-9a-f]{64})$ ]] || { echo "::error::IMAGE in tools/linux-build.sh is not pinned by digest"; exit 1; }
+          {
+            echo "tag=$tag"
+            echo "commit=${commit:0:12}"
+            echo "image=${BASH_REMATCH[1]:0:12}"
+          } >> "$GITHUB_OUTPUT"
       - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         id: dxvk-cache
         with:
           path: |
             target/linux-deps/dxvk
             target/linux-deps/src/LICENSE
-          key: dxvk-${{ steps.dxvk.outputs.tag }}
+          key: dxvk-${{ steps.dxvk.outputs.tag }}-${{ steps.dxvk.outputs.commit }}-sniper-${{ steps.dxvk.outputs.image }}
       - name: Build DXVK-native
         if: steps.dxvk-cache.outputs.cache-hit != 'true'
         run: tools/linux-build.sh deps
@@ -238,10 +262,11 @@ jobs:
         with:
           path: target/linux-sniper
           key: >-
-            linux-target-${{ hashFiles('rust-toolchain.toml') }}-dxvk-${{ steps.dxvk.outputs.tag }}-${{
-            hashFiles('Cargo.lock') }}-${{ github.sha }}
+            linux-target-${{ hashFiles('rust-toolchain.toml') }}-sniper-${{ steps.dxvk.outputs.image }}-dxvk-${{
+            steps.dxvk.outputs.commit }}-${{ hashFiles('Cargo.lock') }}-${{ github.sha }}
           restore-keys: >-
-            linux-target-${{ hashFiles('rust-toolchain.toml') }}-dxvk-${{ steps.dxvk.outputs.tag }}-
+            linux-target-${{ hashFiles('rust-toolchain.toml') }}-sniper-${{ steps.dxvk.outputs.image }}-dxvk-${{
+            steps.dxvk.outputs.commit }}-
       - name: Cached build's file times
         run: |
           tools/ci-mtimes.sh target/linux-sniper
@@ -254,7 +279,7 @@ jobs:
         run: >-
           tools/linux-build.sh cargo build --release --locked -p mvs-app --bin mvs --bin mvs-launcher
           --message-format=json-render-diagnostics > "$RUNNER_TEMP/units/release.json"
-      # The container's image is the sniper SDK's newest (`:latest`), so the summary names the one this run used.
+      # The container's image is pinned by digest in tools/linux-build.sh; the summary names the one this run used.
       - name: Build container's image
         run: |
           engine=$(command -v podman || command -v docker)
@@ -314,7 +339,8 @@ jobs:
           if-no-files-found: error
       # Attests both programs (where they were built, from which commit, by this workflow), so anyone can check that
       # the programs in a release came from this repo's code:
-      #   gh attestation verify "MVS Classic" --repo <owner>/<repo>
+      #   gh attestation verify "MVS Classic" --repo <owner>/<repo> \
+      #     --signer-workflow <owner>/<repo>/.github/workflows/build.yml --source-ref refs/heads/<default branch>
       # On pushes to the default branch only: a branch's builds are tries, not candidates. One path per line; the
       # spaces in the names need no quotes, since each line is read whole as one path.
       - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
@@ -371,6 +397,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+          persist-credentials: false
       - name: Names
         id: names
         run: echo "short=$(git rev-parse --short=12 HEAD)" >> "$GITHUB_OUTPUT"
@@ -381,6 +408,7 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq --no-install-recommends clang lld llvm
       - name: Preflight
+        id: llvm
         run: |
           set -euo pipefail
           fail() { echo "::error::$*"; exit 1; }
@@ -395,6 +423,11 @@ jobs:
             # (llvm-lib has no --version: it is llvm-ar under another name, from the same package)
             echo "llvm-lib: $(readlink -f "$(command -v llvm-lib)"), $(llvm-ar --version | grep 'LLVM version')"
           } | tee -a "$GITHUB_STEP_SUMMARY"
+          # The compiler's version, for the cache key below: it compiles mvs-freetype's C, which Cargo does not see
+          # (a cache key allows no comma, and nothing but this).
+          clang=$(clang-cl --version | sed -n '1s/.*clang version \([0-9][0-9A-Za-z.+~-]*\).*/\1/p')
+          [ -n "$clang" ] || fail "no version in clang-cl's --version"
+          echo "clang=$clang" >> "$GITHUB_OUTPUT"
       # The compiler rust-toolchain.toml names (rustup reads the file), and the Windows target, which the file does
       # not list.
       - name: Rust
@@ -436,18 +469,19 @@ jobs:
           path: ~/.cache/xwin/splat
           key: ${{ steps.splat-cache.outputs.cache-primary-key }}
 
-      # The builds, kept between runs as the test job keeps its builds (see there). Cargo does not see the splat,
-      # so the key names xwin's, the SDK's and the C runtime's versions.
+      # The builds, kept between runs as the test job keeps its builds (see there). Cargo does not see the splat or
+      # the C compiler, so the key names xwin's, the SDK's, the C runtime's and clang's versions.
       - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         id: target-cache
         with:
           path: target/xwin
           key: >-
             windows-target-${{ hashFiles('rust-toolchain.toml') }}-xwin-${{ env.XWIN_VERSION }}-sdk-${{
-            env.XWIN_SDK }}-crt-${{ env.XWIN_CRT }}-${{ hashFiles('Cargo.lock') }}-${{ github.sha }}
+            env.XWIN_SDK }}-crt-${{ env.XWIN_CRT }}-clang-${{ steps.llvm.outputs.clang }}-${{
+            hashFiles('Cargo.lock') }}-${{ github.sha }}
           restore-keys: >-
             windows-target-${{ hashFiles('rust-toolchain.toml') }}-xwin-${{ env.XWIN_VERSION }}-sdk-${{
-            env.XWIN_SDK }}-crt-${{ env.XWIN_CRT }}-
+            env.XWIN_SDK }}-crt-${{ env.XWIN_CRT }}-clang-${{ steps.llvm.outputs.clang }}-
       - name: Cached build's file times
         run: |
           tools/ci-mtimes.sh target/xwin
@@ -457,7 +491,7 @@ jobs:
       - name: Clippy
         id: clippy
         run: >-
-          tools/windows-cross.sh clippy --release --workspace --all-targets --message-format=json-render-diagnostics
+          tools/windows-cross.sh clippy --release --locked --workspace --all-targets --message-format=json-render-diagnostics
           -- -D warnings > "$RUNNER_TEMP/units/clippy.json"
       # One package a build, as mvs-dist builds them (crates/mvs-dist/src/pack.rs, build_command).
       - name: Build the game and launcher
@@ -534,6 +568,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+          persist-credentials: false
       - name: Names
         id: names
         run: |

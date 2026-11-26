@@ -12,7 +12,7 @@ use std::process::{Command, Stdio};
 use mvs_release::{
     BUILT_GAME_EXE, BUILT_LAUNCHER_EXE, EOS_CREDENTIALS, EOS_DLL, EOS_SO, GAME_EXE, LAUNCHER_EXE, LICENSE,
     LICENSES_DIR, LINUX_GAME_EXE, LINUX_LAUNCHER_EXE, ONLINE_JSON, RELEASE_FILES, SELF_CHECK_JSON, SelfCheckRef,
-    game_zip_name_linux, in_game, parse_version,
+    game_zip_name_linux, in_game, parse_release_version,
 };
 use sha2::{Digest, Sha256};
 
@@ -36,7 +36,7 @@ pub fn relay_zip_name(version: &str) -> String {
 }
 
 pub struct Options {
-    /// `x.y.z`
+    /// `x.y.z`, or `x.y.z-suffix` for a test release
     pub version: String,
     /// The update feed the exe checks (mvs_release::FEED: the GitHub API's latest release); None: a build that never
     /// checks.
@@ -123,9 +123,9 @@ pub fn find_repo(from: &Path) -> Option<PathBuf> {
         .map(Path::to_path_buf)
 }
 
-/// `cargo build --release -p <package> --bin <bin>..` with the version and feed the build takes, through the repo's
-/// build slots (tools/cargo-slot.ps1) when it has them. One package a build: a build naming other packages' binaries
-/// may leave an old `mvs.exe`.
+/// `cargo build --release --locked -p <package> --bin <bin>..` with the version and feed the build takes, through
+/// the repo's build slots (tools/cargo-slot.ps1) when it has them. One package a build: a build naming other
+/// packages' binaries may leave an old `mvs.exe`.
 ///
 /// The C runtime is linked statically (`+crt-static`): Windows 10 and 11 hold the Universal CRT, but not
 /// VCRUNTIME140.dll, which only the Visual C++ Redistributable installs. The guard refuses an exe that still needs
@@ -177,7 +177,7 @@ const LINUX_RELAY: &str = "target/linux-sniper/release/mvs-relay";
 /// [`cargo_build`]'s command: on Windows through the build slots when `slot` (the repo has them) or cargo, on Linux
 /// through [`CROSS_SCRIPT`].
 fn build_command(o: &Options, host: Host, slot: bool, package: &str, bins: &[&str]) -> Command {
-    let mut args = vec!["build", "--release", "-p", package];
+    let mut args = vec!["build", "--release", "--locked", "-p", package];
     for b in bins {
         args.extend(["--bin", b]);
     }
@@ -228,7 +228,8 @@ fn linux_build_command(o: &Options, args: &[&str]) -> Command {
 /// The container's build of the Linux game's folder ([`LINUX_RELEASE`]).
 const LINUX_GAME_BUILD: &[&str] = &["release"];
 /// The container's build of the Linux relay ([`LINUX_RELAY`]).
-const LINUX_RELAY_BUILD: &[&str] = &["cargo", "build", "--release", "-p", "mvs-relay", "--bin", "mvs-relay"];
+const LINUX_RELAY_BUILD: &[&str] =
+    &["cargo", "build", "--release", "--locked", "-p", "mvs-relay", "--bin", "mvs-relay"];
 
 fn linux_build(o: &Options, args: &[&str], what: &str) -> Result<(), String> {
     println!("dist: building {what} {} in the container", o.version);
@@ -665,12 +666,16 @@ fn made_self_check(runner: &Runner, exe: &Path, file: &Path, repo: &Path) -> Res
     Ok(text)
 }
 
+/// Git's empty tree: what a root commit's diff is taken against.
+const EMPTY_TREE: &str = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
+
 /// The paths a self check's hash comes from: the code and what it is built with. The id holds the version, so a
 /// reference of another release is caught by it; this catches one of this version made before a later change.
 const CHECKED_CODE: [&str; 4] = ["crates", "Cargo.toml", "Cargo.lock", "rust-toolchain.toml"];
 
-/// Err unless `file` is the repo's, committed as it is, and no commit after the last one that holds it (nor the
-/// working tree) changed the code it was made from. Needs the history back to that commit (no shallow clone).
+/// Err unless `file` is the repo's, committed as it is, the last commit that holds it did not itself change the
+/// code it was made from (a commit that changes both has no clean tree to make the reference on), and no commit after
+/// it (nor the working tree) changed that code. Needs the history back to that commit (no shallow clone).
 fn code_unchanged_since(repo: &Path, file: &Path) -> Result<(), String> {
     let full = |p: &Path| p.canonicalize().map_err(|e| format!("dist: {}: {e}", p.display()));
     let (repo_full, file_full) = (full(repo)?, full(file)?);
@@ -690,15 +695,28 @@ fn code_unchanged_since(repo: &Path, file: &Path) -> Result<(), String> {
     if !out.status.success() || made.is_empty() {
         return Err(format!("dist: no commit holds {rel} (a shallow clone? fetch the history back to it)"));
     }
+    // Its own diff, against its parent (the empty tree for a root commit).
+    let parent = git(&["rev-parse", "--verify", "-q", &format!("{made}^")])?;
+    let before = if parent.status.success() {
+        String::from_utf8_lossy(&parent.stdout).trim().to_owned()
+    } else {
+        EMPTY_TREE.to_owned()
+    };
+    let own = [&["diff", "--quiet", &before, &made, "--"][..], &CHECKED_CODE[..]].concat();
     let since = [&["diff", "--quiet", &made, "HEAD", "--"][..], &CHECKED_CODE[..]].concat();
     let now = [&["diff", "--quiet", "HEAD", "--"][..], &CHECKED_CODE[..]].concat();
-    for (args, what) in [(since, format!("since {}", &made[..made.len().min(10)])), (now, "in the working tree".into())]
-    {
+    let short = &made[..made.len().min(10)];
+    for (args, what) in [
+        (own, format!("in {short}, the commit that holds {rel}")),
+        (since, format!("since {short}")),
+        (now, "in the working tree".into()),
+    ] {
         match git(&args)?.status.code() {
             Some(0) => {}
             Some(1) => {
                 return Err(format!(
-                    "dist: the code changed {what}, after {rel} was made: make it again (tools/self-check.ps1)"
+                    "dist: the code changed {what}, not before {rel} was made: commit the code first, then make \
+                     it again (tools/self-check.ps1)"
                 ));
             }
             _ => return Err(format!("dist: git diff failed on {}", args.join(" "))),
@@ -707,11 +725,17 @@ fn code_unchanged_since(repo: &Path, file: &Path) -> Result<(), String> {
     Ok(())
 }
 
+/// Err unless `version` is `x.y.z` or `x.y.z-suffix`.
+fn check_release_version(version: &str) -> Result<(), String> {
+    match parse_release_version(version) {
+        Some(_) => Ok(()),
+        None => Err(format!("dist: version {version} is not x.y.z or x.y.z-suffix")),
+    }
+}
+
 /// The whole release; Err names the step that failed.
 pub fn run(o: &Options) -> Result<(), String> {
-    if parse_version(&o.version).is_none() {
-        return Err(format!("dist: version {} is not x.y.z", o.version));
-    }
+    check_release_version(&o.version)?;
     if let Some(f) = &o.feed
         && !(f.starts_with("https://") || f.starts_with("http://"))
     {
@@ -906,7 +930,6 @@ pub fn run(o: &Options) -> Result<(), String> {
         Some(k) => println!("dist: the key from {}", k.source),
         None => println!("dist: {}", guard::NO_KEY),
     }
-    let key = key.map(|k| k.key);
     let mut secrets = eos.as_ref().and_then(|e| guard::eos_secrets(&e.credentials)).unwrap_or_default();
     let mut findings = Vec::new();
     // the game's zips first: the relay's is searched for the credentials of their resources/eos.json too
@@ -1200,7 +1223,7 @@ mod tests {
 
     #[test]
     fn the_windows_build_command_is_unchanged() {
-        let bins = ["build", "--release", "-p", "mvs-app", "--bin", "mvs", "--bin", "mvs-launcher"];
+        let bins = ["build", "--release", "--locked", "-p", "mvs-app", "--bin", "mvs", "--bin", "mvs-launcher"];
         for (slot, feed) in [(true, Some("https://feed")), (false, None)] {
             let c = build_command(&options(feed), Host::Windows, slot, "mvs-app", &["mvs", "mvs-launcher"]);
             if slot {
@@ -1226,7 +1249,7 @@ mod tests {
     fn the_linux_build_goes_through_the_cross_script() {
         let c = build_command(&options(Some("https://feed")), Host::Linux, true, "mvs-relay", &["mvs-relay"]);
         assert_eq!(Path::new(c.get_program()), Path::new("/r/tools/windows-cross.sh"));
-        assert_eq!(args(&c), ["build", "--release", "-p", "mvs-relay", "--bin", "mvs-relay"]);
+        assert_eq!(args(&c), ["build", "--release", "--locked", "-p", "mvs-relay", "--bin", "mvs-relay"]);
         assert_eq!(c.get_current_dir(), Some(Path::new("/r")));
         assert_eq!(env(&c, "MVS_VERSION"), Some(Some("0.1.0".to_owned())));
         // the script adds the splat's paths after this
@@ -1326,7 +1349,10 @@ mod tests {
     fn the_linux_builds_take_the_version_and_no_feed() {
         for (build, want) in [
             (LINUX_GAME_BUILD, vec!["release"]),
-            (LINUX_RELAY_BUILD, vec!["cargo", "build", "--release", "-p", "mvs-relay", "--bin", "mvs-relay"]),
+            (
+                LINUX_RELAY_BUILD,
+                vec!["cargo", "build", "--release", "--locked", "-p", "mvs-relay", "--bin", "mvs-relay"],
+            ),
         ] {
             let c = linux_build_command(&options(Some("https://feed")), build);
             assert_eq!(Path::new(c.get_program()), Path::new("/r/tools/linux-build.sh"));
@@ -1422,6 +1448,14 @@ mod tests {
     }
 
     #[test]
+    fn the_release_version_is_plain_or_suffixed() {
+        assert!(check_release_version("0.2.0").is_ok());
+        assert!(check_release_version("0.2.0-test1").is_ok());
+        assert!(check_release_version("0.2").is_err());
+        assert!(check_release_version("0.2.0-").is_err());
+    }
+
+    #[test]
     fn the_linux_zip_is_never_the_windows_ones_name() {
         assert_eq!(game_zip_name_linux("0.1.0"), "MVS-Classic-0.1.0-linux.zip");
         assert_ne!(game_zip_name_linux("0.1.0"), game_zip_name("0.1.0"));
@@ -1445,8 +1479,9 @@ mod tests {
         git(&dir, &["init", "-q"]);
         let (code, reference) = (dir.join("crates/a.rs"), dir.join("self-check.json"));
         std::fs::write(&code, "1").unwrap();
+        commit(&dir, "the code");
         std::fs::write(&reference, "{}").unwrap();
-        commit(&dir, "code and its reference");
+        commit(&dir, "its reference");
         assert!(code_unchanged_since(&dir, &reference).is_ok());
 
         std::fs::write(&code, "2").unwrap();
@@ -1457,6 +1492,16 @@ mod tests {
         std::fs::write(&reference, "{ }").unwrap();
         assert!(code_unchanged_since(&dir, &reference).is_err(), "a reference not committed as it is");
         commit(&dir, "the reference made again");
+        assert!(code_unchanged_since(&dir, &reference).is_ok());
+
+        // the code and the reference changed in one commit: made on a tree that was not the committed one
+        std::fs::write(&code, "3").unwrap();
+        std::fs::write(&reference, "{  }").unwrap();
+        commit(&dir, "code and reference together");
+        assert!(code_unchanged_since(&dir, &reference).is_err(), "code changed in the reference's own commit");
+        // a reference made after the code was committed on its own passes again
+        std::fs::write(&reference, "{   }").unwrap();
+        commit(&dir, "the reference made again, alone");
         assert!(code_unchanged_since(&dir, &reference).is_ok());
         let _ = std::fs::remove_dir_all(&dir);
     }

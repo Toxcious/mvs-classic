@@ -3,7 +3,7 @@
 # kinds this version would import again and a reference for another id than a fresh import's (`mvs --compat-id`).
 # The release workflow packs the file as it is; mvs-dist holds it to the game's id again and refuses it when the code
 # changed after the commit that holds it. So: commit the version and every code change, run this on that clean tree,
-# commit self-check.json, then tag.
+# commit self-check.json on its own (a commit holding code and it together is refused), then tag.
 #   Windows: powershell -NoProfile -File tools/self-check.ps1 -Version 0.2.0 [-Store <dir>]
 #   Linux:   pwsh -NoProfile -File tools/self-check.ps1 -Version 0.2.0 [-Store <dir>]
 # On Linux it builds mvs with tools/linux-build.sh (into target/linux-sniper; CARGO_TARGET_DIR does not apply) and
@@ -16,7 +16,9 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
-if ($Version -notmatch '^\d+\.\d+\.\d+$') { throw "self-check: version $Version is not x.y.z" }
+if ($Version -notmatch '^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$') {
+    throw "self-check: version $Version is not x.y.z or x.y.z-suffix"
+}
 
 Push-Location $root
 $had = $env:MVS_VERSION

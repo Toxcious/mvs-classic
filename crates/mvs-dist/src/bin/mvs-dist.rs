@@ -1,6 +1,6 @@
 //! mvs-dist: the developer's release tool.
 //!
-//!   mvs-dist build --version <x.y.z> [--feed <url>] [--eos] [--out <dir>] [--relay-linux <file>]
+//!   mvs-dist build --version <x.y.z[-suffix]> [--feed <url>] [--eos] [--out <dir>] [--relay-linux <file>]
 //!       [--game-linux <dir>] [--no-build] [--programs <dir>] [--store <dir> | --self-check <file>]
 //!       builds mvs.exe and mvs-relay.exe for the version (and the feed the exe checks), writes into <dir> (default
 //!       <repo>/target/dist) the release folder, MVS-Classic-<version>.zip and MVS-Classic-Relay-<version>.zip, then
@@ -38,7 +38,7 @@ use mvs_dist::pack::{self, Options};
 use mvs_dist::serve;
 
 const USAGE: &str =
-    "usage: mvs-dist build --version <x.y.z> [--feed <url>] [--eos] [--out <dir>] [--relay-linux <file>]
+    "usage: mvs-dist build --version <x.y.z[-suffix]> [--feed <url>] [--eos] [--out <dir>] [--relay-linux <file>]
            [--game-linux <dir>] [--no-build] [--programs <dir>] [--store <dir> | --self-check <file>]
        mvs-dist guard <game zip> [<relay zip>] [--key <local.json>]
        mvs-dist serve <dir> [--port <n>]
@@ -134,7 +134,6 @@ fn guard_only(args: &[String]) -> Result<(), String> {
         Some(k) => println!("guard: the key from {}", k.source),
         None => println!("guard: {}", guard::NO_KEY),
     }
-    let key = key.map(|k| k.key);
     let mut findings = Vec::new();
     // the build list the exe embeds, when run inside the repo
     match &repo {

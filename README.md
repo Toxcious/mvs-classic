@@ -193,18 +193,21 @@ For day-to-day work, `play.bat` builds both and opens the launcher on your dev s
 
 A release's zips are packed on GitHub's own machines ([release.yml](.github/workflows/release.yml)), which attests
 each one: where it was made and from which commit. With the [GitHub CLI](https://cli.github.com/), check a zip you
-downloaded:
+downloaded. The two options name the workflow that signed it and the tag it ran for, so a file made by another
+workflow of the repo, or for another ref, is refused:
 
 ```
-gh attestation verify MVS-Classic-<version>.zip --repo Toxcious/mvs-classic
+gh attestation verify MVS-Classic-<version>.zip --repo Toxcious/mvs-classic \
+  --signer-workflow Toxcious/mvs-classic/.github/workflows/release.yml --source-ref refs/tags/v<version>
 ```
 
 The programs inside were built and tested on GitHub too ([build.yml](.github/workflows/build.yml)), which attests
 them when it built them for a push to the default branch. The release's notes say whether they were. If they were,
-check a program from the zip the same way:
+check a program from the zip the same way, with build.yml as the signer and the default branch (`main`) as the ref:
 
 ```
-gh attestation verify "game\MVS Classic.exe" --repo Toxcious/mvs-classic
+gh attestation verify "game\MVS Classic.exe" --repo Toxcious/mvs-classic \
+  --signer-workflow Toxcious/mvs-classic/.github/workflows/build.yml --source-ref refs/heads/main
 ```
 
 The same works for `MVSC Launcher.exe`, the Linux game's `MVSC Launcher` and `game/MVS Classic`, and both relays.

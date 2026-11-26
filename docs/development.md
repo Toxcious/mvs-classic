@@ -117,10 +117,14 @@ comments say what each step does and why.
      `tools/linux-build.sh deps` run first.
 
    The script refuses to run while the code has uncommitted changes, because the release checks that the code has
-   not changed since the commit that holds `self-check.json`. Commit `self-check.json` and push; `build.yml` builds
-   that commit.
+   not changed since the commit that holds `self-check.json`, and not in that commit either: commit the code first,
+   then `self-check.json` on its own. Push; `build.yml` builds that commit.
 3. Tag the commit and push the tag: `git tag v0.2.0 && git push origin v0.2.0`. Both can be pushed together:
-   `release.yml` waits for the commit's build if it is still running. A suffix (`v0.2.0-test1`) makes a prerelease.
+   `release.yml` waits for the commit's build if it is still running. A suffix (`v0.2.0-test1`) makes a
+   prerelease: a test tag. For one, `Cargo.toml`'s version must be `0.2.0-test1` exactly (step 1 and
+   `self-check.json` are made for it), and the zips are named by it. The updater never offers it.
+   A tag that already has a release, a draft included, is refused before anything runs: delete that release (and
+   the tag, if it is to move) first.
 4. When `release.yml` has run, the release is a draft on the repo's Releases page: three zips (the Windows game, the
    Linux game, the relay for both), a `.sha256` beside each and `SHA256SUMS`. Check it, then publish it there
    (Edit, then "Publish release") or with `gh release edit v0.2.0 --draft=false`.
@@ -137,9 +141,12 @@ missing stops the release, by name.
   zip that holds it.
 
 An attestation is GitHub's signed record of where a file was made and from which commit; the README's "Check a
-release's programs" shows how anyone checks one. A tag on a commit that was pushed only to another branch (a testing
-branch, say) still makes a release. Its zips are attested, but its programs are not: `build.yml` attests the
-programs only when it builds them for a push to the default branch. The release's notes say which.
+release's programs" shows how anyone checks one (pinning the signing workflow and the ref, as
+`gh attestation verify <file> --repo <owner>/<repo> --signer-workflow <owner>/<repo>/.github/workflows/release.yml
+--source-ref refs/tags/v0.2.0`; for a program, `build.yml` and `refs/heads/<default branch>`). A tag on a commit
+that was pushed only to another branch (a testing branch, say) still makes a release. Its zips are attested, but its
+programs are not: `build.yml` attests the programs only when it builds them for a push to the default branch. The
+release's notes say which.
 
 ### When you change Direct3D code or HLSL
 The Linux build needs two things that Windows makes for itself. Both are files in the repo, made again by a command

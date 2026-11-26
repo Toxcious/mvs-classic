@@ -222,6 +222,11 @@ fn fake_eos_json() -> String {
     )
 }
 
+/// The fake key as the guard takes a key.
+fn fake_guard_key() -> guard::GuardKey {
+    guard::GuardKey { key: FAKE_KEY, source: "the planted key".to_owned() }
+}
+
 /// The guard (with the fake key) refuses `entries` with `plant` in them and quotes no secret: Err says what went
 /// wrong.
 pub fn guard_refuses(entries: &[Entry], plant: &Entry, expect: &str) -> Result<(), String> {
@@ -231,7 +236,7 @@ pub fn guard_refuses(entries: &[Entry], plant: &Entry, expect: &str) -> Result<(
         .map(|e| Entry { name: e.name.clone(), data: e.data.clone(), executable: e.executable })
         .collect();
     planted.push(Entry { name: plant.name.clone(), data: plant.data.clone(), executable: false });
-    let r = guard::check_files("planted.zip", &planted, Zip::Game, Some(&FAKE_KEY), &[]);
+    let r = guard::check_files("planted.zip", &planted, Zip::Game, Some(&fake_guard_key()), &[]);
     let hex: String = FAKE_KEY.iter().map(|b| format!("{b:02x}")).collect();
     let all = r.findings.join("; ");
     if all.to_ascii_lowercase().contains(&hex[..16]) || all.contains(FAKE_SECRET) {
@@ -245,9 +250,9 @@ pub fn guard_refuses(entries: &[Entry], plant: &Entry, expect: &str) -> Result<(
 
 /// The developer's key (MVS_PAK_KEY or content/local.json), when there is one: the guard's real search over the
 /// builds.
-fn real_key(repo: &Path) -> Result<Option<[u8; 32]>, String> {
+fn real_key(repo: &Path) -> Result<Option<guard::GuardKey>, String> {
     let f = repo.join("content/local.json");
-    Ok(guard::key_here(Some(f.as_path()).filter(|f| f.is_file()))?.map(|k| k.key))
+    guard::key_here(Some(f.as_path()).filter(|f| f.is_file()))
 }
 
 fn read(p: &Path) -> Result<Vec<u8>, String> {
@@ -593,7 +598,7 @@ mod tests {
         .iter()
         .map(|(n, d)| Entry { name: n.clone(), data: d.to_vec(), executable: false })
         .collect();
-        assert!(guard::check_files("t", &release, Zip::Game, Some(&FAKE_KEY), &[]).findings.is_empty());
+        assert!(guard::check_files("t", &release, Zip::Game, Some(&fake_guard_key()), &[]).findings.is_empty());
         for (what, plant, expect) in plants() {
             guard_refuses(&release, &plant, expect).unwrap_or_else(|e| panic!("{what}: {e}"));
         }

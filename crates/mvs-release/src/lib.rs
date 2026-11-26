@@ -252,6 +252,20 @@ pub fn parse_version(v: &str) -> Option<[u32; 3]> {
     it.next().is_none().then_some(out)
 }
 
+/// A release's version as a tag and the programs carry it: `x.y.z`, or `x.y.z-suffix` for a test release (the suffix
+/// letters, digits, dots and hyphens). The numbers, and the suffix when there is one. The updater never reads a
+/// suffixed version (see [`parse_version`], [`newer`]): a test release is a prerelease, which it is never offered.
+pub fn parse_release_version(v: &str) -> Option<([u32; 3], Option<&str>)> {
+    let (core, suffix) = match v.split_once('-') {
+        Some((core, suffix)) => (core, Some(suffix)),
+        None => (v, None),
+    };
+    if suffix.is_some_and(|s| s.is_empty() || !s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'.' || b == b'-')) {
+        return None;
+    }
+    Some((parse_version(core)?, suffix))
+}
+
 /// `a` is a later version than `b`; a version that does not read is never later.
 pub fn newer(a: &str, b: &str) -> bool {
     match (parse_version(a), parse_version(b)) {
@@ -451,6 +465,19 @@ mod tests {
         assert_eq!(parse_version("+0.1.0"), None);
         assert_eq!(parse_version("0.01.0"), None);
         assert_eq!(parse_version("10.0.3"), Some([10, 0, 3]));
+        // the updater never reads a suffixed version
+        assert_eq!(parse_version("0.2.0-test1"), None);
+        assert!(!newer("0.2.0-test1", "0.1.0"));
+    }
+
+    #[test]
+    fn a_release_version_has_an_optional_suffix() {
+        assert_eq!(parse_release_version("0.2.0"), Some(([0, 2, 0], None)));
+        assert_eq!(parse_release_version("0.2.0-test1"), Some(([0, 2, 0], Some("test1"))));
+        assert_eq!(parse_release_version("0.2.0-rc.1-x"), Some(([0, 2, 0], Some("rc.1-x"))));
+        for bad in ["0.2.0-", "0.2-test", "v0.2.0", "0.2.0-a b", "0.2.0-ä", "0.02.0-x", "-x"] {
+            assert_eq!(parse_release_version(bad), None, "{bad}");
+        }
     }
 
     #[test]
