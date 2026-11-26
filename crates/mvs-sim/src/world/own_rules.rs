@@ -42,10 +42,15 @@ pub enum Rule {
     /// Black Hole (key `Chaos_Magnet`): a hole over the stage's middle (`hole_at`) pulls every live player in,
     /// harder the nearer; its core deals `HOLE_DAMAGE` and throws the fighter out.
     BlackHole,
+    /// Flood: clear tropical water rises from the blast box's bottom over the main floor and drains again
+    /// (`water_at`); fighters in it float, swim and move against its drag.
+    Flood,
+    /// Storm Flood: Flood's water as a storm sea (rain, lightning, swells): the same rules, its own look and sound.
+    StormFlood,
 }
 
 impl Rule {
-    pub const ALL: [Rule; 12] = [
+    pub const ALL: [Rule; 14] = [
         Rule::MoonJump,
         Rule::Featherweight,
         Rule::Heavyweight,
@@ -58,6 +63,8 @@ impl Rule {
         Rule::IceRink,
         Rule::Wind,
         Rule::BlackHole,
+        Rule::Flood,
+        Rule::StormFlood,
     ];
 
     /// The rule's key in `mvs_mutators::ALL` and a set-up's mutators.
@@ -75,6 +82,8 @@ impl Rule {
             Rule::IceRink => "Chaos_IceRink",
             Rule::Wind => "Chaos_Wind",
             Rule::BlackHole => "Chaos_Magnet",
+            Rule::Flood => "Chaos_Flood",
+            Rule::StormFlood => "Chaos_StormFlood",
         }
     }
 
@@ -167,6 +176,16 @@ pub const HOLE_HIT_SOUND: &str = "sfx_shared_combat_charge_hit_large";
 
 /// The items each spawner rule keeps of Random Items' list (a class the list lacks is never spawned: its effects
 /// and sounds are the list's).
+/// Flood: how far over the main floor's top the water settles (units), the ticks it takes to rise from the blast
+/// box's bottom and to drain at its window's end.
+pub const WATER_OVER: Real = 230.0;
+pub const WATER_RISE_TICKS: i32 = 210;
+pub const WATER_DRAIN_TICKS: i32 = 180;
+/// Flood listed in the set-up's mutators (on all match): a rise and drain over `WATER_ROW_WINDOW` ticks, then
+/// `WATER_ROW_REST` ticks dry, from the match's start.
+pub const WATER_ROW_WINDOW: i32 = 1200;
+pub const WATER_ROW_REST: i32 = 600;
+
 const BOMBS: [&str; 2] = ["Item_Dynamite_C", "Item_ProximityMine_C"];
 const THROWN: [&str; 8] = [
     "Item_Snowball_C",
@@ -400,6 +419,66 @@ pub fn lava_level_at(w: &World, part: Real) -> Option<Real> {
     } else {
         high - (high - low) * ((t - (len - sink)) / sink)
     })
+}
+
+/// Which water a flood is: the same rules, its own look and sound.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WaterStyle {
+    /// Flood: clear tropical water.
+    Tropical,
+    /// Storm Flood: a dark storm sea.
+    Storm,
+}
+
+/// A flood's water: its surface, its kind and how far through its window it is.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Water {
+    /// The surface (sim y).
+    pub level: Real,
+    pub style: WaterStyle,
+    /// Ticks since the water started rising.
+    pub age: Real,
+    /// How far risen: 0 at the blast box's bottom, 1 settled over the main floor.
+    pub risen: Real,
+}
+
+/// A flood's water `part` of a tick after this one (the view's, between two ticks: `alpha - 1`), None while no
+/// flood is on. It rises from the blast box's bottom to `WATER_OVER` over the main floor's top, eased in and out,
+/// stays there, and drains by the end of its window.
+pub fn water_at(w: &World, part: Real) -> Option<Water> {
+    let (style, (t, len, _)) = [(Rule::Flood, WaterStyle::Tropical), (Rule::StormFlood, WaterStyle::Storm)]
+        .into_iter()
+        .find_map(|(r, style)| Some((style, clock(w, r.key(), Some((WATER_ROW_WINDOW, WATER_ROW_REST)))?)))?;
+    let len = len?;
+    let low = w.stage.blast.bottom;
+    let high = crate::math::narrow(w.stage.ground.top) + WATER_OVER;
+    let rise = WATER_RISE_TICKS.min(len / 2).max(1);
+    let drain = WATER_DRAIN_TICKS.min(len / 4).max(1);
+    let (t, len, rise, drain) = (t as Real + part, len as Real, rise as Real, drain as Real);
+    let ease = |x: Real| x * x * (3.0 - 2.0 * x);
+    let risen = if t < 0.0 || t >= len {
+        0.0
+    } else if t < rise {
+        ease(t / rise)
+    } else if t < len - drain {
+        1.0
+    } else {
+        1.0 - ease((t - (len - drain)) / drain)
+    };
+    Some(Water { level: low + (high - low) * risen, style, age: crate::math::max(t, 0.0), risen })
+}
+
+/// A flood's water this tick, None while no flood is on or it is down at the blast box's bottom.
+pub fn water(w: &World) -> Option<Water> {
+    water_at(w, 0.0).filter(|wa| wa.risen > 0.0)
+}
+
+/// How deep `f` is in a flood's water `wa`: 0 with its feet at or over the surface, 1 with its middle under it
+/// (clamped), its feet `body.y - cap_half`, its middle `body.y`.
+pub fn submerged(w: &World, f: FighterId, wa: &Water) -> Real {
+    let half = crate::fighter::body::cap_half(w, f);
+    let feet = w.fighter(f).body.y - half;
+    if half <= 0.0 { 0.0 } else { crate::math::max(0.0, crate::math::min((wa.level - feet) / half, 1.0)) }
 }
 
 /// Rising Lava's touch: each live player whose feet are under the surface, not in a hit's pause or launch and not

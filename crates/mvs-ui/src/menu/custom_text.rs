@@ -120,6 +120,8 @@ pub fn wheel_name(key: &str) -> &'static str {
         "Chaos_IceRink" => "Ice Rink",
         "Chaos_Wind" => "Wind",
         "Chaos_Magnet" => "Black Hole",
+        "Chaos_Flood" => "Flood",
+        "Chaos_StormFlood" => "Storm Flood",
         "Chaos_DamageSwap" => "Damage Swap",
         "Chaos_Shuffle" => "Shuffle",
         "Chaos_FreshStart" => "Fresh Start",

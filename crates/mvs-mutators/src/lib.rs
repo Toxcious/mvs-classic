@@ -65,6 +65,8 @@ pub const ALL: &[Mutator] = &[
     m("Chaos_IceRink", Tier::Wild),
     m("Chaos_Wind", Tier::Wild),
     m("Chaos_Magnet", Tier::Mild),
+    m("Chaos_Flood", Tier::Wild),
+    m("Chaos_StormFlood", Tier::Wild),
     // the events: at a window's start (and end), the wheel's alone (`mvs_sim::world::wheel_events`)
     wheel_only("Chaos_DamageSwap", Tier::Chaos),
     wheel_only("Chaos_Shuffle", Tier::Chaos),

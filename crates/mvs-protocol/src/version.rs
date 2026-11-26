@@ -16,7 +16,8 @@
 /// (`match_wire::input_header`), and the referee's ref.go and start carry the match's slot count; a custom lobby takes
 /// eight (four a Versus team, `lobby_rules::MAX_LOBBY_PLAYERS`), its start's `lobby.startMatch` names the `maps` that
 /// hold a lobby of more than four, and a set-up player's `team` is sent where it is not the slot's own.
-pub const PROTOCOL: u32 = 31;
+/// 32: the Chaos rules Flood and Storm Flood (`Chaos_Flood`, `Chaos_StormFlood`) in a lobby's mutators.
+pub const PROTOCOL: u32 = 32;
 
 /// The origin of the app's game window (`mvs://game/`): the raw `Origin` header the server lets in by default.
 pub const APP_ORIGIN: &str = "mvs://game";

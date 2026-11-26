@@ -197,7 +197,7 @@ impl WheelOptions {
 }
 
 /// The count of `LOBBY_MUTATORS`' entries, the empty one at 0 with them.
-pub const MUTATOR_CHOICES: usize = 28;
+pub const MUTATOR_CHOICES: usize = 30;
 
 /// A set of `LOBBY_MUTATORS`, by index: bit n is entry n (bit 0, the empty entry, never set). On the wire, the
 /// number.
@@ -317,6 +317,8 @@ pub const LOBBY_MUTATORS: [&str; MUTATOR_CHOICES] = [
     "Chaos_IceRink",
     "Chaos_Wind",
     "Chaos_Magnet",
+    "Chaos_Flood",
+    "Chaos_StormFlood",
 ];
 
 /// The Chaos Wheel's window by default, seconds: the match plays one plain, then each has one mutator.
