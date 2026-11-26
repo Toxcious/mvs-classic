@@ -226,9 +226,21 @@ pub fn pick_bots(pool: &[String], humans: &[String], n: usize, rand: &mut dyn Fn
 /// streak.
 pub const QUEUE_BOT_DIFFICULTY: i32 = 3;
 
-/// Deviation: a queue match is won at 3 ring-outs, in 1v1, 2v2 and Chaos alike: the build's queue rules are the
-/// backend's match config, not in its files. An FFA match has none (0): it ends by time.
+/// Deviation: a 1v1 queue match is won at 3 ring-outs, a 2v2 or Chaos one at 4 (the custom lobby's
+/// SetNumRingoutsForWin(4)): the build's queue rules are the backend's match config, not in its files. An FFA match
+/// has none (0): it ends by time.
 pub const QUEUE_RINGOUTS: i32 = 3;
+/// The team queues' ring-outs (2v2 and Chaos).
+pub const QUEUE_TEAM_RINGOUTS: i32 = 4;
+
+/// The ring-outs that win a queued match of `mode`.
+pub fn queue_ringouts(mode: QueueMode) -> i32 {
+    match mode {
+        QueueMode::OneVOne => QUEUE_RINGOUTS,
+        QueueMode::TwoVTwo | QueueMode::Chaos => QUEUE_TEAM_RINGOUTS,
+        QueueMode::Ffa => 0,
+    }
+}
 
 /// The match's set-up in slot order, with the mode's ring-outs and `duration` (queueSetup). Deviation: a queued
 /// match's time is the backend's match config, not in the build's files.
@@ -256,11 +268,7 @@ pub fn queue_setup(mode: QueueMode, players: &[QueuePlayer], duration: u32) -> M
                 }
             })
             .collect(),
-        rules: Some(MatchRulesWire {
-            knockouts_to_win: if mode == QueueMode::Ffa { 0 } else { QUEUE_RINGOUTS },
-            duration,
-            stocks: None,
-        }),
+        rules: Some(MatchRulesWire { knockouts_to_win: queue_ringouts(mode), duration, stocks: None }),
         flow: Some(true),
         ..MatchSetupWire::default()
     }
