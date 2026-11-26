@@ -5,7 +5,7 @@
 //! SceneColor after the translucency and before the post chain, so bloom, tonemapping and outlines treat them as the
 //! scene. The preview binary adds the look's lights, meshes, particles and camera to the frame itself.
 //!
-//! Nothing here draws in a match: the renderer holds no look unless a caller sets one.
+//! In a match the renderer draws no look but an approved one built as a feature: Rising Lava's (`lava.rs`).
 
 use std::path::Path;
 use std::sync::Arc;
@@ -255,11 +255,29 @@ impl Look {
     /// The look in `dir`: `look.json` read, its shader file compiled against the prelude, its textures loaded.
     pub fn load(gpu: &Gpu, assets: &crate::assets::Assets, dir: &Path) -> Result<Look> {
         let file = LookFile::read(&dir.join("look.json"))?;
+        let shader = match &file.shader {
+            Some(name) => {
+                let path = dir.join(name);
+                Some((name.clone(), std::fs::read_to_string(&path).map_err(|e| bad(&path, e))?))
+            }
+            None => None,
+        };
+        Look::build(gpu, assets, file, shader.as_ref().map(|(n, s)| (n.as_str(), s.as_str())), dir)
+    }
+
+    /// The look of `file` with its shader's name and source: compiled against the prelude, its textures loaded.
+    /// `dir` names it in an error.
+    pub fn build(
+        gpu: &Gpu,
+        assets: &crate::assets::Assets,
+        file: LookFile,
+        shader: Option<(&str, &str)>,
+        dir: &Path,
+    ) -> Result<Look> {
         let mut src = PRELUDE.to_string();
-        if let Some(name) = &file.shader {
-            let path = dir.join(name);
+        if let Some((name, text)) = shader {
             src.push_str(&format!("#line 1 \"{name}\"\n"));
-            src.push_str(&std::fs::read_to_string(&path).map_err(|e| bad(&path, e))?);
+            src.push_str(text);
         }
         // Each shape's entry behind a test of the scene's depth: hidden where the scene stands in front.
         let mut wrapped = String::new();

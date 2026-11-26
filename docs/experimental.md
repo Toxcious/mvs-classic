@@ -42,7 +42,7 @@ team style and with Stock Mode.
   Grow, Giant, Miniature, Low Gravity, Instant Kill, Shields Up, Unlimited Jumps, Ability Frenzy, Heavy Hitters,
   Air Show, Double Damage, Ice Charge, Freeze Touch) and two world ones (Random Items, Final Point Shrink). Seven of
   them are the port's reworks of the build's (below), here as on the wheel. Then the port's own rules (Moon Jump,
-  Featherweight, Heavyweight, Vampire, Dodge Frenzy, Lava Floor, Ghosts: see the Chaos Wheel's pool). Mutators
+  Featherweight, Heavyweight, Vampire, Dodge Frenzy, Rising Lava, Ghosts: see the Chaos Wheel's pool). Mutators
   the port does not run yet (Chicken, Heart, Snowball Fight, Exploding Egg, Reindog Buddy, Fast Charge: no asset
   in the build) are not offered.
 - The row is a checklist: a click ticks or unticks a mutator and the list stays up for the next; Off clears it.
@@ -85,7 +85,7 @@ builds the rule itself, as it builds a queue match's tables).
 - The pool (`mvs-mutators`, each with its tier): Mild (sky blue): Giant, Miniature, Low Gravity, Air Show,
   Shields Up, Moon Jump, Heavyweight, Vampire, Magnet; Wild (violet): Big Head, Unlimited Jumps, Ability Frenzy, Heavy
   Hitters, Double Damage, Ice Charge, Freeze Touch, Random Items, Grow, Featherweight, Dodge Frenzy, Projectile
-  Party, Lava Floor, Ghosts, Ice Rink, Wind; Chaos (hot orange): Sudden Death (Instant Kill), Shrinking Arena (Final Point
+  Party, Rising Lava, Ghosts, Ice Rink, Wind; Chaos (hot orange): Sudden Death (Instant Kill), Shrinking Arena (Final Point
   Shrink), Bomb Rain, and the events Damage Swap, Shuffle, Fresh Start, Underdog, Hot Potato, Body Swap. The reel and the card show a mutator in its tier's colour. Not on the wheel: Silly (a
   whole-match rule).
 - On the wheel, two of the build's mutators end with their window: Sudden Death's 200 damage is taken back off a
@@ -95,8 +95,11 @@ builds the rule itself, as it builds a queue match's tables).
 - The port's own rules (`mvs-sim` `world/own_rules.rs`, keys `Chaos_*`; no buff of the build's, the sim checks
   whether one is on where it counts, on the wheel or ticked in the Mutators row): Moon Jump (jumps twice as high),
   Featherweight and Heavyweight (every fighter takes x1.5 or x0.6 knockback), Vampire (damage a fighter deals heals
-  half of it off its own), Dodge Frenzy (a dodge spends no dodge meter, air dodges never run out), Lava Floor (1
-  damage every half second on the ground), Ghosts (a fighter is not drawn but while it attacks, is in hitstun, or
+  half of it off its own), Dodge Frenzy (a dodge spends no dodge meter, air dodges never run out), Rising Lava (lava
+  rises from the blast box's bottom over 10 seconds to 60 units over the main floor, stays, and sinks in the
+  window's last 3 seconds; a fighter whose feet touch it, not already rising, takes 10 damage and a launch straight
+  up; ticked in the Mutators row it rises and sinks every 30 seconds from the match's start; the lava is drawn by
+  the look approved in `tools/looks/rising-lava`), Ghosts (a fighter is not drawn but while it attacks, is in hitstun, or
   for a flash of 8 ticks each second), Ice Rink (the ground keeps a tenth of its friction and braking: walks slide and turns are
   slow), Wind (every live player drifts 300 units a second, left for 10 seconds, then right, and so on) and Magnet
   (every live player drifts 200 units a second toward the stage's middle). Bomb Rain (dynamite and mines) and Projectile Party (thrown items) run the

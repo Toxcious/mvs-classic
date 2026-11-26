@@ -102,6 +102,19 @@ impl Default for MatchOptions {
 /// The match's set-up when no trace gives one: 1v1, Shaggy against Shaggy, two ring-outs or 60 s, its flow on (the
 /// trace match m4-flow's).
 // Deviation: no menus pick the match; the second player has no bot (no AI is ported), so it stands.
+/// The port's own Rising Lava as drawn this frame: its surface between the last two ticks, None while it is off or
+/// at rest on the blast box's bottom.
+fn lava_at(w: &World, alpha: f32, time: f32) -> Option<mvs_render::lava::LavaAt> {
+    let level = mvs_sim::world::own_rules::lava_level_at(w, alpha - 1.0)?;
+    let b = &w.stage.blast;
+    (level > b.bottom + 1.0).then(|| mvs_render::lava::LavaAt {
+        level: f64::from(level),
+        // (sim x is UE -Y)
+        middle: -f64::from(b.left + b.right) / 2.0,
+        time,
+    })
+}
+
 pub fn default_setup() -> MatchSetup {
     let p = || MatchPlayer { character: Some("shaggy".to_owned()), ..MatchPlayer::default() };
     MatchSetup {
@@ -778,6 +791,13 @@ impl MatchLoop {
         // The warm-up (the characters' mesh and actor warm-up, one empty draw): what the match may draw made
         // before its first frame, so no first spawn makes it in play.
         laps.lap("stage");
+        // (the port's own Rising Lava: its look compiled before the match, not at its first rise)
+        let lava = mvs_sim::world::own_rules::Rule::LavaFloor.key();
+        if world.setup.mutators.iter().any(|m| m == lava)
+            || world.setup.wheel.as_ref().is_some_and(|w| w.pool.iter().any(|m| m == lava))
+        {
+            renderer.load_lava()?;
+        }
         match parts.as_mut().and_then(|p| p.warm.take()) {
             Some((lists, made)) => {
                 // (a level that goes on: the lists of the player it resumed, which the job's could not read)
@@ -2136,6 +2156,7 @@ impl MatchLoop {
             // it moves smoothly between ticks.
             (self.fx.player.game_time() + self.acc, self.real)
         };
+        renderer.lava_at = lava_at(&self.world, alpha, game as f32);
         let input = FrameInput {
             #[allow(clippy::cast_sign_loss)]
             tick: self.world.flow.tick.max(0) as u32,

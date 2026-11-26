@@ -4,12 +4,11 @@
 //! list its key (the Mutators row), or for a window while the wheel has it on (`wheel::window_has`). The wheel runs
 //! Bomb Rain and Projectile Party itself, on the item area's spawner (`wheel::start_items`).
 //!
-//! None of them keeps state of its own: what is on is read off the set-up and the wheel's state, and Lava Floor's
-//! and Wind's beats off the match's tick.
+//! None of them keeps state of its own: what is on is read off the set-up and the wheel's state, Wind's beat and
+//! Rising Lava's height off the match's tick.
 
 use crate::Real;
 use crate::combat::buffs;
-use crate::combat::hit::apply_direct_damage;
 use crate::fighter::FighterId;
 use crate::world::World;
 
@@ -30,7 +29,8 @@ pub enum Rule {
     BombRain,
     /// The item spawner drops thrown items only (the wheel's).
     ProjectileParty,
-    /// Standing on the ground adds `LAVA_DAMAGE` every `LAVA_TICKS`.
+    /// Rising Lava: lava rises from the blast box's bottom over the main floor and sinks again (`lava_level`);
+    /// a fighter that touches it takes `LAVA_DAMAGE` and is bounced up.
     LavaFloor,
     /// Fighters are hidden but while they attack or are hit, and at a short flash each second (the view's).
     Ghosts,
@@ -100,9 +100,19 @@ pub const FEATHERWEIGHT: Real = 1.5;
 pub const HEAVYWEIGHT: Real = 0.6;
 /// Vampire's share of the damage dealt healed.
 pub const VAMPIRE: Real = 0.5;
-/// Lava Floor: the damage and the ticks between two (2 a second).
-pub const LAVA_DAMAGE: Real = 1.0;
-pub const LAVA_TICKS: i32 = 30;
+/// Rising Lava: the damage a touch deals and its bounce (a launch straight up).
+pub const LAVA_DAMAGE: Real = 10.0;
+pub const LAVA_KNOCK_BACK: Real = 2000.0;
+pub const LAVA_SCALING: Real = 4.0;
+/// Rising Lava: how far over the main floor's top it rises (units), the ticks it takes to rise from the blast box's
+/// bottom (at most half a window) and to sink back (at most a quarter of one, the window's last).
+pub const LAVA_OVER: Real = 60.0;
+pub const LAVA_RISE_TICKS: i32 = 600;
+pub const LAVA_SINK_TICKS: i32 = 180;
+/// Rising Lava listed in the set-up's mutators (on all match): a rise and sink over `LAVA_ROW_WINDOW` ticks, then
+/// `LAVA_ROW_REST` ticks down, from the match's start.
+pub const LAVA_ROW_WINDOW: i32 = 1200;
+pub const LAVA_ROW_REST: i32 = 600;
 /// Bomb Rain's and Projectile Party's spawner: the next item, seconds after the one before.
 pub const ITEMS_EVERY: Real = 2.0;
 /// Ghosts: a hidden fighter shows for `GHOST_FLASH` ticks of every `GHOST_BEAT`.
@@ -212,6 +222,92 @@ fn drift(w: &mut World) {
     }
 }
 
+/// Rising Lava's surface (sim y) this tick, None while it is off. It rises from the blast box's bottom to
+/// `LAVA_OVER` over the main floor's top, stays there, and sinks back by the end of its window.
+pub fn lava_level(w: &World) -> Option<Real> {
+    lava_level_at(w, 0.0)
+}
+
+/// Rising Lava's surface `part` of a tick after this one (the view's, between two ticks: `alpha - 1`).
+pub fn lava_level_at(w: &World, part: Real) -> Option<Real> {
+    let key = Rule::LavaFloor.key();
+    let (t, len) = if w.setup.mutators.iter().any(|m| m == key) {
+        if w.setup.flow && !w.flow.match_started {
+            return None;
+        }
+        let start = if w.setup.flow { w.flow.match_start_tick } else { 0 };
+        ((w.flow.tick - start).rem_euclid(LAVA_ROW_WINDOW + LAVA_ROW_REST), LAVA_ROW_WINDOW)
+    } else {
+        let (start, len) = crate::world::wheel::window_of(w, key)?;
+        (w.flow.tick - start, len)
+    };
+    let low = w.stage.blast.bottom;
+    let high = crate::math::narrow(w.stage.ground.top) + LAVA_OVER;
+    let rise = LAVA_RISE_TICKS.min(len / 2).max(1);
+    let sink = LAVA_SINK_TICKS.min(len / 4).max(1);
+    let (t, len, rise, sink) = (t as Real + part, len as Real, rise as Real, sink as Real);
+    Some(if t < 0.0 || t >= len {
+        low
+    } else if t < rise {
+        low + (high - low) * (t / rise)
+    } else if t < len - sink {
+        high
+    } else {
+        high - (high - low) * ((t - (len - sink)) / sink)
+    })
+}
+
+/// Rising Lava's touch: each live player whose feet are under the surface, not in a hit's pause or launch and not
+/// already rising out of it, takes
+/// `LAVA_DAMAGE` and a launch straight up. The lava at rest on the blast box's bottom touches no one.
+fn lava(w: &mut World) {
+    let Some(level) = lava_level(w).filter(|&l| l > w.stage.blast.bottom) else { return };
+    for f in w.players.clone() {
+        let fr = w.fighter(f);
+        let held = fr.hit.hitpause > 0.0 || fr.hit.launch.is_some();
+        if fr.life.dead > 0.0 || held || fr.body.vy > 0.0 || fr.body.y - crate::fighter::body::cap_half(w, f) >= level {
+            continue;
+        }
+        bounce(w, f);
+    }
+}
+
+/// The lava's bounce: a level hit of `LAVA_DAMAGE` launching `f` straight up, dealt by itself (no one's knockout).
+fn bounce(w: &mut World, f: FighterId) {
+    use crate::combat::HitPacket;
+    use crate::combat::packet::DataEnum;
+    use crate::fighter::moves::V2;
+    let p = HitPacket {
+        damage: Some(LAVA_DAMAGE),
+        base_knock_back: Some(LAVA_KNOCK_BACK),
+        knock_back_scaling: Some(LAVA_SCALING),
+        hit_reaction: Some(DataEnum::Value(2)),
+        hit_pause_time: Some(0.1),
+        hit_stun_mult: Some(0.5),
+        ignore_facing: Some(true),
+        attack_id: Some(0),
+        play_on_hit_effects: Some(true),
+        additive_kb_mode: Some(DataEnum::Value(0)),
+        kb_scaling_starting_dmg: Some(0.0),
+        armor_pierce: Some(true),
+        kbi_multiplier: Some(1.0),
+        ..HitPacket::default()
+    };
+    let b = &w.fighter(f).body;
+    let at = V2 { x: b.x, y: b.y };
+    let dealer = crate::actors::ActorRef::Fighter(f);
+    crate::combat::hits::apply_level_hit(
+        w,
+        dealer,
+        crate::name!("Chaos_LavaFloor"),
+        f,
+        &p,
+        at,
+        V2 { x: 0.0, y: 1.0 },
+        &[],
+    );
+}
+
 /// Ghosts on `f` this tick: hidden but while it attacks, is in hitstun, or flashes.
 pub fn ghost_hidden(w: &World, f: FighterId) -> bool {
     on(w, Rule::Ghosts)
@@ -221,19 +317,11 @@ pub fn ghost_hidden(w: &World, f: FighterId) -> bool {
 }
 
 /// `ownRulesLatent`: the rules' tick, behind the wheel's in the world's latent pass: Wind's and Magnet's drift,
-/// then Lava Floor's damage on every live player standing on the ground, once each `LAVA_TICKS`.
+/// then Rising Lava's touch.
 pub fn own_rules_latent(w: &mut World) {
     if w.flow.match_over || (w.setup.flow && !w.flow.match_started) {
         return;
     }
     drift(w);
-    if w.flow.tick.rem_euclid(LAVA_TICKS) != 0 || !on(w, Rule::LavaFloor) {
-        return;
-    }
-    for f in w.players.clone() {
-        let fr = w.fighter(f);
-        if fr.life.dead <= 0.0 && fr.body.on_floor {
-            apply_direct_damage(w, f, LAVA_DAMAGE, None);
-        }
-    }
+    lava(w);
 }

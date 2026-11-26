@@ -243,6 +243,12 @@ pub struct Renderer {
     pub passes: Passes,
     /// A look drawn before the post chain (the preview binary's; never set in a match).
     pub look: Option<crate::look::Look>,
+    /// Rising Lava's look (`load_lava`, a match whose rules may raise it) and where it is this frame (None: not
+    /// drawn).
+    lava: Option<crate::lava::Lava>,
+    pub lava_at: Option<crate::lava::LavaAt>,
+    /// The stage's radial lights before the lava's were added to them (the next frame takes them back off).
+    lava_base: Option<usize>,
     /// The frame's size (the output's); the scene targets and the post chain run at the view's size inside it.
     pub(crate) output: [u32; 2],
     scalability: Scalability,
@@ -481,6 +487,9 @@ impl Renderer {
             lights: LightSet::default(),
             passes: Passes::default(),
             look: None,
+            lava: None,
+            lava_at: None,
+            lava_base: None,
             captures,
             decals,
             lighting,
@@ -1292,6 +1301,15 @@ impl Renderer {
         // FogStruct's rows of the stage's height fog for this camera (the translucent passes' and the particles'); the
         // menus' levels have no fog actor.
         let fog = if menu { None } else { self.post.fog_rows(f.camera.origin[2]) };
+        // (Rising Lava's lights, this frame's alone)
+        if let Some(n) = self.lava_base.take() {
+            self.lights.radial.truncate(n);
+        }
+        let lava_at = self.lava_at.filter(|_| !menu && self.lava.is_some());
+        if let Some(at) = lava_at {
+            self.lava_base = Some(self.lights.radial.len());
+            self.lights.radial.extend(crate::lava::Lava::lights(at));
+        }
         let lights = if menu { &self.menu.lights } else { &self.lights };
         let mut fr = Frame {
             gpu,
@@ -1410,6 +1428,10 @@ impl Renderer {
         if !menu && let Some(look) = &mut self.look {
             look.draw(&fr)?;
         }
+        if let (Some(at), Some(lava)) = (lava_at, &mut self.lava) {
+            lava.place(at);
+            lava.look.draw(&fr)?;
+        }
         if passes.post {
             let view = if menu { self.menu.post_view() } else { crate::post::PostView::STAGE };
             self.post.draw(&mut fr, out, &view)?;
@@ -1432,6 +1454,14 @@ impl Renderer {
     }
 
     /// The items of the last frame drawn.
+    /// Compiles Rising Lava's look for a match whose rules may raise it (before its first frame, not at the rise).
+    pub fn load_lava(&mut self) -> Result<()> {
+        if self.lava.is_none() {
+            self.lava = Some(crate::lava::Lava::load(&self.gpu, &self.assets)?);
+        }
+        Ok(())
+    }
+
     pub fn draw_list(&self) -> &DrawList {
         &self.list
     }

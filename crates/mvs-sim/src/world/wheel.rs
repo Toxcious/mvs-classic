@@ -255,6 +255,15 @@ pub fn window_has(w: &World, key: &str) -> bool {
     [st.current, st.also].into_iter().filter_map(index).any(|i| pool.get(i).is_some_and(|k| k == key))
 }
 
+/// The window `key` is on in: its start tick and its length in ticks, None while the wheel does not have it on.
+pub fn window_of(w: &World, key: &str) -> Option<(i32, i32)> {
+    if !window_has(w, key) || state(w).change_at < 0 {
+        return None;
+    }
+    let len = window_ticks(w);
+    Some((state(w).change_at - len, len))
+}
+
 /// The most draws held back from the next ones: a third of the pool, at most 3.
 const HELD_BACK: usize = 3;
 

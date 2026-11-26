@@ -22,6 +22,7 @@ pub mod gpu;
 pub mod image;
 pub mod ism;
 pub mod landscape;
+pub mod lava;
 pub mod lighting;
 pub mod look;
 pub mod material;

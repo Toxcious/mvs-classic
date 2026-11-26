@@ -27,10 +27,10 @@ pub fn whole_pool() -> Wheel {
     Wheel::of(mvs_mutators::keys().map(str::to_owned).collect())
 }
 
-/// `--wheel`'s rule: the whole pool, with `--wheel-seconds`' window when it names one (the warning a third of a
-/// window shorter than the rule's own).
-pub fn switch_rule(seconds: Option<f64>) -> Wheel {
-    let mut w = whole_pool();
+/// `--wheel`'s rule: the whole pool or `--wheel-pool`'s, with `--wheel-seconds`' window when it names one (the
+/// warning a third of a window shorter than the rule's own).
+pub fn switch_rule(seconds: Option<f64>, pool: Option<Vec<String>>) -> Wheel {
+    let mut w = pool.map_or_else(whole_pool, Wheel::of);
     if let Some(s) = seconds {
         w.seconds = mvs_sim::math::narrow(s);
         w.warn = w.warn.min(mvs_sim::math::narrow(s / 3.0));
@@ -94,7 +94,7 @@ mod tests {
         assert_eq!(hud_pool(&setup).map(|p| p.len()), Some(mvs_mutators::ALL.len()));
         assert_eq!(hud_pool(&MatchSetup::default()), None);
         // a window shorter than the warning: the draw comes at the window's start
-        let short = MatchSetup { wheel: Some(switch_rule(Some(0.5))), ..MatchSetup::default() };
+        let short = MatchSetup { wheel: Some(switch_rule(Some(0.5), None)), ..MatchSetup::default() };
         let s = WheelStatus {
             current: None,
             next: None,

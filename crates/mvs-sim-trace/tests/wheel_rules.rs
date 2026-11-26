@@ -124,21 +124,29 @@ fn dodge_frenzy_spends_no_meter_and_never_runs_out_of_air_dodges() {
 }
 
 #[test]
-fn lava_floor_burns_those_on_the_ground_two_a_second() {
+fn rising_lava_floods_the_floor_and_bounces_those_it_touches() {
     let Some(mut h) = landed() else { return };
     let fs = [h.fighter(0), h.fighter(1)];
-    assert!(fs.iter().all(|&f| h.w.fighter(f).body.on_floor), "landed");
     let before: Vec<Real> = fs.iter().map(|&f| damage(&h.w, f)).collect();
+    assert_eq!(own_rules::lava_level(&h.w), None);
     change_to(&mut h.w, Some(at("Chaos_LavaFloor")));
-    idle(&mut h, 60);
-    for (n, &f) in fs.iter().enumerate() {
-        assert_eq!(damage(&h.w, f), before[n] + 2.0, "fighter {n}");
+    let low = own_rules::lava_level(&h.w).expect("on");
+    let floor = h.w.fighter(fs[0]).body.y;
+    let mut top = floor;
+    for _ in 0..own_rules::LAVA_RISE_TICKS + 120 {
+        h.step_recorded();
+        top = top.max(h.w.fighter(fs[0]).body.y);
     }
+    let high = own_rules::lava_level(&h.w).expect("on");
+    assert!(high > low + 500.0, "the lava rises from {low} to {high}");
+    for (n, &f) in fs.iter().enumerate() {
+        let d = damage(&h.w, f) - before[n];
+        assert!(d >= own_rules::LAVA_DAMAGE, "fighter {n} took {d}");
+        assert_eq!(d % own_rules::LAVA_DAMAGE, 0.0, "fighter {n} took {d}");
+    }
+    assert!(top - floor > 200.0, "a bounce rises {}", top - floor);
     change_to(&mut h.w, None);
-    idle(&mut h, 60);
-    for (n, &f) in fs.iter().enumerate() {
-        assert_eq!(damage(&h.w, f), before[n] + 2.0, "fighter {n} after the window");
-    }
+    assert_eq!(own_rules::lava_level(&h.w), None);
 }
 
 #[test]

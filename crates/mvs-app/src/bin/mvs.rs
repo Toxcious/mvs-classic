@@ -11,7 +11,7 @@
 //!   [--bench <secs>] [--stage <key>] [--stage-layout <file>] [--bots <level>] [--shot-results <secs>] [--press-results <secs>] [--no-audio] [--input-script <jsonl>] [--menu-tape <out>]
 //!   [--shot-frames <frame>[,..]] [--live-loads] [--audio-tape <file>]
 //!   [--waves endless|100 [--character <key>] [--waves-bot <level>]]   (a Waves run on `--stage`, cast from `--seed`)
-//!   [--wheel [--wheel-seconds <n>]]   (with `--play` too: the Chaos Wheel rule in the command line's match, a Lab and Local Play;
+//!   [--wheel [--wheel-seconds <n>] [--wheel-pool <key>[,..]]]   (with `--play` too: the Chaos Wheel rule in the command line's match, a Lab and Local Play;
 //!   with `--relay`, on both players' lines)
 //!   [--relay <addr> (--host | --join <lobby>) [--key <file>] [--feed <trace match>]]
 //!   [--online-config <file> [--direct-loopback] [--online-open host|join:<code>|queue:<mode>[,..]] [--online-lag <ms>]
@@ -61,7 +61,7 @@ mvs --play --store <dir> [--data <dir>] [--size 1920x1080] [--full-screen] [--ad
 mvs [--data <dir>] [--store <dir>] [--size 1920x1080] [--full-screen] [--adapter <text>] [--seed <n>] [--no-ui] \
 [--replay <trace match> [--trace-out <file>]] [--real-pace] [--shot <tick>[,..]] [--out <dir>] [--throttle <rate>] \
 [--bench <secs>] [--stage <key>] [--stage-layout <file>] [--bots <level>] [--shot-results <secs>] [--no-audio] [--input-script <jsonl>] [--menu-tape <out>] [--shot-frames <frame>[,..]] \
-[--live-loads] [--audio-tape <file>] [--waves endless|100 [--character <key>] [--waves-bot <level>]] [--wheel [--wheel-seconds <n>]]\n[--relay <addr> (--host | --join <lobby>) [--key <file>] [--feed <trace match>]]\n\
+[--live-loads] [--audio-tape <file>] [--waves endless|100 [--character <key>] [--waves-bot <level>]] [--wheel [--wheel-seconds <n>] [--wheel-pool <key>[,..]]]\n[--relay <addr> (--host | --join <lobby>) [--key <file>] [--feed <trace match>]]\n\
 [--online-config <file> [--direct-loopback] [--online-open host|join:<code>|queue:<mode>[,..]] [--online-lag <ms>] \
 [--online-desync-at <tick>] [--feed <trace match>]]
 \n[--queue-fake [--queue-bots <s>] [--queue-start <s>] [--queue-vote-no] [--queue-path <pm.path json>]]\n\
@@ -136,6 +136,8 @@ struct Args {
     /// (dev) `--wheel-seconds <n>`: `--wheel` with a window of that many seconds (a picture of a change needs no
     /// 20 seconds' wait).
     wheel_seconds: Option<f64>,
+    /// (dev) `--wheel-pool <key>[,..]`: `--wheel` drawing these mutators alone (one to see a rule every window).
+    wheel_pool: Option<Vec<String>>,
 }
 
 /// The flags of a test or scripted run: one of them mutes the device unless `--sound` is given, so a run the agents
@@ -250,6 +252,7 @@ fn parse(mut it: impl Iterator<Item = String>) -> Result<Args, String> {
         bots: None,
         wheel: false,
         wheel_seconds: None,
+        wheel_pool: None,
     };
     let (mut mute, mut sound, mut test, mut back, mut front) = (false, false, false, false, false);
     let (mut audio_tape, mut results_press) = (None, None);
@@ -331,6 +334,15 @@ fn parse(mut it: impl Iterator<Item = String>) -> Result<Args, String> {
             "--wheel-seconds" => {
                 a.wheel = true;
                 a.wheel_seconds = Some(secs(it.next(), "--wheel-seconds")?);
+            }
+            "--wheel-pool" => {
+                a.wheel = true;
+                let v = it.next().ok_or("--wheel-pool: no value")?;
+                let keys: Vec<String> = v.split(',').map(str::to_owned).collect();
+                if let Some(k) = keys.iter().find(|k| mvs_mutators::find(k).is_none()) {
+                    return Err(format!("--wheel-pool: {k} is no mutator of the wheel's list"));
+                }
+                a.wheel_pool = Some(keys);
             }
             "--shot" => {
                 for t in it.next().ok_or("--shot: no value")?.split(',') {
@@ -553,7 +565,7 @@ fn run(a: Args) -> mvs_app::Result<()> {
         None => None,
     };
     let mut shell = Shell::new(&a.shell)?;
-    shell.wheel = a.wheel.then(|| mvs_app::wheel::switch_rule(a.wheel_seconds));
+    shell.wheel = a.wheel.then(|| mvs_app::wheel::switch_rule(a.wheel_seconds, a.wheel_pool.clone()));
     if a.load_bench {
         return mvs_app::load_bench::run(&mut shell);
     }
