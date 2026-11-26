@@ -778,6 +778,11 @@ impl Devices {
         if down { d.mouse_down(&ks) } else { d.mouse_up(&ks) }
     }
 
+    /// (the port's own, dev) A keyboard key (its FKey name) is held.
+    pub fn key_held(&self, name: &str) -> bool {
+        self.keys_down.contains(&name)
+    }
+
     /// The mouse moved `dist` pixels. False: a pad's stick made it through a pointer
     /// layer of the OS or Steam, no mouse move for the window (it moves no pointer and
     /// reaches no screen). Else the mouse is the keyboard device's last interaction and the window's touch, unless the

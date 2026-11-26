@@ -793,6 +793,17 @@ struct KoAnchor {
     ticks: i64,
 }
 
+/// (the port's own, dev) The 3D feel test's plane for the camera (`mvs_sim::world::depth3d`): its angle at the two
+/// last steps (radians), O's sim x and the fighters' mean depth at the two last steps (cm).
+#[derive(Clone, Copy, Debug)]
+struct DepthCam {
+    prev_theta: f64,
+    theta: f64,
+    origin: f64,
+    prev_d: f64,
+    d: f64,
+}
+
 /// The match's camera: the rig, what it follows each tick from the World (PFGCamera's onscreen actors and the pawns'
 /// tracker spheres, in their registration order) and the step's camera events.
 #[derive(Clone, Debug)]
@@ -804,6 +815,8 @@ pub struct MatchCamera {
     pub game_pov: Pov,
     /// Wind's hold on the lens (the port's own rule).
     wind: WindCam,
+    /// (the port's own, dev) The 3D feel test's plane as the last step left it; None: off.
+    depth: Option<DepthCam>,
     /// RegisteredOnscreenActors in its order, with each one's point of the tick.
     order: IndexMap<Onscreen, CameraTarget>,
     anchors: Vec<KoAnchor>,
@@ -827,6 +840,7 @@ impl MatchCamera {
             free: None,
             rig,
             wind: WindCam::default(),
+            depth: None,
             order: IndexMap::new(),
             anchors: Vec::new(),
             next_anchor: 0,
@@ -860,6 +874,17 @@ impl MatchCamera {
         }
         self.feed(w);
         self.wind.step(w);
+        self.depth = w.depth3d.as_ref().map(|s| {
+            let ds: Vec<f64> = w.players.iter().map(|&f| f64::from(w.fighter(f).body.d)).collect();
+            let d = if ds.is_empty() { 0.0 } else { ds.iter().sum::<f64>() / ds.len() as f64 };
+            DepthCam {
+                prev_theta: f64::from(s.prev_theta),
+                theta: f64::from(s.theta),
+                origin: f64::from(s.origin),
+                prev_d: self.depth.map_or(d, |c| c.d),
+                d,
+            }
+        });
     }
 
     /// The Lab's reset: the shakes end and the wind lets go.
@@ -870,7 +895,25 @@ impl MatchCamera {
 
     /// The frame's camera at `alpha` between the last tick (0) and the latest (1).
     pub fn camera(&mut self, alpha: f32) -> Camera {
-        let game = self.rig.place(f64::from(alpha), self.wind.at(f64::from(alpha)));
+        let mut game = self.rig.place(f64::from(alpha), self.wind.at(f64::from(alpha)));
+        if let Some(c) = &self.depth {
+            // (the port's own 3D feel test: the rig's view turned about O with the plane and moved out along its
+            // normal by the fighters' mean depth)
+            let a = f64::from(alpha);
+            let pi = std::f64::consts::PI;
+            let step = (c.theta - c.prev_theta + pi).rem_euclid(2.0 * pi) - pi;
+            let t = crate::depth_view::Turn::of(
+                c.prev_theta + step * a,
+                c.origin,
+                c.origin,
+                c.prev_d + (c.d - c.prev_d) * a,
+            );
+            let pov = t.pov(&self.rig.pov);
+            self.rig.pov = pov;
+            self.rig.root = t.point(self.rig.root);
+            let target = [0, 1, 2].map(|k| pov.pos[k] + pov.front[k] * 1000.0);
+            game = Camera { origin: pov.pos, translated_world_to_view: look_at(pov.pos, target), ..game };
+        }
         self.game_pov = self.rig.pov;
         let Some(free) = &self.free else { return game };
         // the poser and the listener read the rig's pov and root: they follow the drawn view

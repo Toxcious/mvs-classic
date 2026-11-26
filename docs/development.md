@@ -49,6 +49,14 @@ and tests find the dev store by themselves; `CONTENT_STORE=<dir>` points them at
   `0,0,1`, the default, is the game's own). Mouse: right-drag orbits, middle-drag or Shift + right-drag pans, the wheel
   zooms. F8 turns the keys on and off; while on, the keyboard drives the camera and no fighter: WASD or the arrows
   orbit and tilt, Q / E zoom, R back to the game's view, F follows the fighters or holds the pivot where it is.
+- `mvs --test-3d` (dev, a local match: the Lab, Local Play, the command line's match; `play.bat --play --test-3d`
+  passes it through the launcher) is a feel test of 3D movement (`mvs_sim::world::depth3d`). The 2D fight runs in a
+  vertical plane through the stage's middle that turns toward the line through the first two fighters (at most 240
+  degrees a second), and the camera turns with it. Each fighter steps off the plane: E toward the camera, Q away
+  from it, or on a pad L3 held with the left stick up (away) and down (toward); a fighter with its hit boxes out does
+  not step. A hit needs the two depths within 110 cm (a projectile keeps its owner's depth at its spawn), so a
+  sidestep dodges. The bot does not strafe; the stage's edges and blast box stay the 2D plane's, the depth is held
+  within 700 cm of the middle. Effects placed from the sim's x (not on a fighter's bones) stay on the 2D plane.
 
 It builds the `trace` profile: release code built incrementally, so a rebuild after a small change takes seconds,
 not minutes. `--release` is for timings and what ships.

@@ -149,6 +149,54 @@ pub fn default_setup() -> MatchSetup {
     }
 }
 
+/// (the port's own, dev) The 3D feel test's keyboard strafe: E toward the camera (+1), Q away from it (-1). Neither
+/// key has an action in the build's default bindings.
+fn strafe_keys(devices: &Devices) -> f64 {
+    let on = |k: &str| if devices.key_held(k) { 1.0 } else { 0.0 };
+    on("E") - on("Q")
+}
+
+/// (the port's own, dev) The 3D feel test's pad strafe: with L3 (Gamepad_LeftThumbstick, no action in the build's
+/// default bindings) held the left stick's up and down strafe (up away from the camera) and are taken from the
+/// fighter: no jump, crouch or fast fall.
+fn pad_strafe(d: &mut crate::input::InputDevice) -> f64 {
+    const L3: u16 = 1 << 10;
+    let Some(p) = d.pad.as_mut().filter(|p| p.buttons & L3 != 0) else { return 0.0 };
+    let strafe = -p.ly;
+    p.ly = 0.0;
+    p.stick_up = false;
+    strafe
+}
+
+/// (the port's own, dev) The 3D feel test's strafe axis of player `slot` for the coming step.
+fn set_strafe(w: &mut World, slot: usize, strafe: f64) {
+    let Some(s) = &mut w.depth3d else { return };
+    if s.strafe.len() <= slot {
+        s.strafe.resize(slot + 1, 0.0);
+    }
+    s.strafe[slot] = mvs_sim::math::narrow(strafe.clamp(-1.0, 1.0));
+}
+
+/// (the port's own, dev) The 3D feel test's drawing of the spawned actors: each on the turned plane, a projectile
+/// off it by its depth, a minion by its own. A held item rides its holder's bones (already turned); the stage's
+/// actors and the buffs' are left where the 2D plane has them.
+fn turn_actors(w: &World, actors: &mut [ActorPose]) {
+    use mvs_sim::actors::ActorRef;
+    for a in actors {
+        let d = match a.actor {
+            Some(ActorRef::Projectile(pr)) => mvs_sim::world::depth3d::shot_depth(w, pr).unwrap_or(0.0),
+            Some(ActorRef::Fighter(f)) => w.fighters.get(f).map_or(0.0, |fi| fi.body.d),
+            Some(ActorRef::Item(i)) if w.actors.items.get(i).is_some_and(|it| it.held) => continue,
+            Some(ActorRef::Stage(_) | ActorRef::Buff(_)) | None => continue,
+            Some(_) => 0.0,
+        };
+        let Some(t) = mvs_view::depth_view::plane_turn(w, d) else { return };
+        for m in &mut a.meshes {
+            t.rows(&mut m.to_world);
+        }
+    }
+}
+
 /// The match's own parts drawn by the UI crate (the shared ones are the shell's).
 struct MatchUi {
     hud: Hud,
@@ -707,6 +755,10 @@ impl MatchLoop {
             &mut laps,
         )?;
         laps.lap("world");
+        // (the port's own, dev) `--test-3d`: a local match's fight plane turns and its fighters strafe
+        if sh.test_3d && !playing_online && replay.is_none() {
+            mvs_sim::world::depth3d::enable(&mut world);
+        }
         let (poser, mut parts) = match ready {
             Some((poser, parts)) => (poser, Some(parts)),
             None => (ViewPoser::new_local(store, &world, me, playing_online, &prefs)?, None),
@@ -1251,13 +1303,22 @@ impl MatchLoop {
                         }
                     }
                 }
+                // (the port's own 3D feel test's strafe: Q / E, or L3 held with the left stick's up and down)
+                let test_3d = self.world.depth3d.is_some();
+                let keys = if test_3d { strafe_keys(&sh.devices) } else { 0.0 };
                 for slot in 0..n {
+                    let mut strafe = 0.0;
                     if self.bots.get(slot).is_some_and(Option::is_some) {
+                        set_strafe(&mut self.world, slot, strafe);
                         continue;
                     }
                     if let Some(d) = sh.devices.device(slot) {
+                        if test_3d {
+                            strafe = pad_strafe(d) + if d.keyboard() { keys } else { 0.0 };
+                        }
                         self.inputs[slot] = d.read();
                     }
+                    set_strafe(&mut self.world, slot, strafe);
                 }
                 // A mode's match has no fighters at the start: its one input is the local player's, which a 'player'
                 // pawn controller reads. Game input off (a tutorial widget holding the UI's): what the
@@ -1321,6 +1382,9 @@ impl MatchLoop {
         // camera as the last frame placed it)
         self.poser.set_camera(self.cam.rig.root, self.cam.rig.pov.up);
         self.poser.present(&self.world, 1.0, &mut self.fighters, &mut self.actors);
+        if self.world.depth3d.is_some() {
+            turn_actors(&self.world, &mut self.actors);
+        }
         // (the scenery's tick before the particles': what a block spawns first ticks with them)
         let renderer = sh.renderer.as_mut().expect(NO_STORE);
         // (the World goes to the scenery when its stage is the one drawn: the match's stage is loaded from
@@ -1996,6 +2060,10 @@ impl MatchLoop {
             self.world.fighter_mut(f).stats.starting_damage = mvs_sim::math::narrow(d);
         }
         mvs_sim::world::reset::reset(&mut self.world);
+        // (the port's own 3D feel test: back to the 2D plane)
+        if self.world.depth3d.is_some() {
+            mvs_sim::world::depth3d::enable(&mut self.world);
+        }
         // (the controllers are kept and possess the new pawns: BtBot.respawned)
         for bot in self.bots.iter_mut().flatten() {
             bot.respawned();

@@ -1269,13 +1269,17 @@ impl ViewPoser {
         let r = self.recs.iter().find(|r| r.id == id)?;
         let s = r.shown_at?;
         let a = f64::from(alpha);
-        Some(HudPoint {
-            x: s.px + (s.x - s.px) * a,
-            y: s.py + (s.y - s.py) * a,
-            d: s.d,
-            mesh_z: r.view.mesh_z,
-            mesh_scale: r.view.mesh_scale,
-        })
+        let x = s.px + (s.x - s.px) * a;
+        // (the port's own 3D feel test: the point on the turned plane, off it by the fighter's depth)
+        #[allow(clippy::cast_possible_truncation, reason = "the sim's own float32 place")]
+        let (x, d) = match crate::depth_view::fighter_turn(w, x as f32, w.fighter(f).body.d) {
+            Some(t) => {
+                let p = t.point([0.0, -x, 0.0]);
+                (-p[1], s.d + p[0])
+            }
+            None => (x, s.d),
+        };
+        Some(HudPoint { x, y: s.py + (s.y - s.py) * a, d, mesh_z: r.view.mesh_z, mesh_scale: r.view.mesh_scale })
     }
 
     /// The skins' own intros' sounds whose times the views' clocks passed since the last call (skin_intro.rs
@@ -1786,6 +1790,8 @@ fn place_view(r: &mut Rec, clips: &mut Clips, w: &World, ghost: Ghost) {
     // Mesh RelativeLocation.X (hit wobble) runs along the actor's forward; Z carries the bounce offset.
     let hud = (x + facing * fi.hit.mesh_x, y + fi.hit.mesh_z);
     v.place(f64::from(hud.0), f64::from(hud.1), f64::from(facing));
+    // (the port's own 3D feel test: the view on the turned plane, off it by the fighter's depth)
+    v.depth_turn = crate::depth_view::fighter_turn(w, x, fi.body.d).map(|t| t.three());
     let sh = mvs_sim::chars::shaggy::state::shaggy_of(w, f);
     v.set_prop("RockMesh", sh.is_some() && mvs_sim::chars::shaggy::state::rock(w, f));
     let held =

@@ -133,6 +133,9 @@ pub struct Shell {
     /// (the port's own, dev) `--free-cam`: the matches draw through a free camera that starts this far from the
     /// game's view: yaw and pitch (degrees) and the distance factor.
     pub free_cam: Option<[f64; 3]>,
+    /// (the port's own, dev) `--test-3d`: the local matches run the 3D feel test (`mvs_sim::world::depth3d`), Q / E
+    /// or L3 with the left stick's up and down to strafe.
+    pub test_3d: bool,
     want_ui: bool,
     want_audio: bool,
     audio_backend: Backend,
@@ -191,6 +194,7 @@ impl Shell {
             online_feed: None,
             wheel: None,
             free_cam: None,
+            test_3d: false,
             want_ui: o.ui,
             want_audio: o.audio,
             audio_backend: if o.audio_offline { Backend::Offline } else { Backend::Wasapi },

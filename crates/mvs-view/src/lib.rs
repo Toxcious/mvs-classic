@@ -23,6 +23,7 @@ pub mod camera;
 mod chars;
 pub mod court_ball;
 pub mod curves;
+pub mod depth_view;
 pub mod frame;
 pub mod free_cam;
 pub mod ghost;

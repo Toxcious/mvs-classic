@@ -14,6 +14,7 @@
 //!   [--wheel [--wheel-seconds <n>] [--wheel-pool <key>[,..]]]   (with `--play` too: the Chaos Wheel rule in the command line's match, a Lab and Local Play;
 //!   with `--relay`, on both players' lines)
 //!   [--free-cam [<yaw>,<pitch>,<zoom>]]   (dev: the free camera, see docs/development.md)
+//!   [--test-3d]   (dev: with `--play` too: the 3D movement feel test, see docs/development.md)
 //!   [--relay <addr> (--host | --join <lobby>) [--key <file>] [--feed <trace match>]]
 //!   [--online-config <file> [--direct-loopback] [--online-open host|join:<code>|queue:<mode>[,..]] [--online-lag <ms>]
 //!   [--online-desync-at <tick>] [--feed <trace match>]]
@@ -62,7 +63,7 @@ mvs --play --store <dir> [--data <dir>] [--size 1920x1080] [--full-screen] [--ad
 mvs [--data <dir>] [--store <dir>] [--size 1920x1080] [--full-screen] [--adapter <text>] [--seed <n>] [--no-ui] \
 [--replay <trace match> [--trace-out <file>]] [--real-pace] [--shot <tick>[,..]] [--out <dir>] [--throttle <rate>] \
 [--bench <secs>] [--stage <key>] [--stage-layout <file>] [--bots <level>] [--shot-results <secs>] [--no-audio] [--input-script <jsonl>] [--menu-tape <out>] [--shot-frames <frame>[,..]] \
-[--live-loads] [--audio-tape <file>] [--waves endless|100 [--character <key>] [--waves-bot <level>]] [--wheel [--wheel-seconds <n>] [--wheel-pool <key>[,..]]] [--free-cam [<yaw>,<pitch>,<zoom>]]\n[--relay <addr> (--host | --join <lobby>) [--key <file>] [--feed <trace match>]]\n\
+[--live-loads] [--audio-tape <file>] [--waves endless|100 [--character <key>] [--waves-bot <level>]] [--wheel [--wheel-seconds <n>] [--wheel-pool <key>[,..]]] [--free-cam [<yaw>,<pitch>,<zoom>]] [--test-3d]\n[--relay <addr> (--host | --join <lobby>) [--key <file>] [--feed <trace match>]]\n\
 [--online-config <file> [--direct-loopback] [--online-open host|join:<code>|queue:<mode>[,..]] [--online-lag <ms>] \
 [--online-desync-at <tick>] [--feed <trace match>]]
 \n[--queue-fake [--queue-bots <s>] [--queue-start <s>] [--queue-vote-no] [--queue-path <pm.path json>]]\n\
@@ -141,6 +142,8 @@ struct Args {
     wheel_pool: Option<Vec<String>>,
     /// (the port's own, dev) `--free-cam [<yaw>,<pitch>,<zoom>]`: the free camera, from that orbit.
     free_cam: Option<[f64; 3]>,
+    /// (the port's own, dev) `--test-3d`: the local matches run the 3D feel test.
+    test_3d: bool,
 }
 
 /// The flags of a test or scripted run: one of them mutes the device unless `--sound` is given, so a run the agents
@@ -258,6 +261,7 @@ fn parse(it: impl Iterator<Item = String>) -> Result<Args, String> {
         wheel_seconds: None,
         wheel_pool: None,
         free_cam: None,
+        test_3d: false,
     };
     let (mut mute, mut sound, mut test, mut back, mut front) = (false, false, false, false, false);
     let (mut audio_tape, mut results_press) = (None, None);
@@ -349,6 +353,7 @@ fn parse(it: impl Iterator<Item = String>) -> Result<Args, String> {
                 }
                 a.wheel_pool = Some(keys);
             }
+            "--test-3d" => a.test_3d = true,
             "--free-cam" => {
                 // (a start orbit follows when the next word is numbers)
                 let orbit = it.next_if(|v| v.starts_with(|c: char| c.is_ascii_digit() || c == '-' || c == '.'));
@@ -582,6 +587,7 @@ fn run(a: Args) -> mvs_app::Result<()> {
     };
     let mut shell = Shell::new(&a.shell)?;
     shell.free_cam = a.free_cam;
+    shell.test_3d = a.test_3d;
     shell.wheel = a.wheel.then(|| mvs_app::wheel::switch_rule(a.wheel_seconds, a.wheel_pool.clone()));
     if a.load_bench {
         return mvs_app::load_bench::run(&mut shell);

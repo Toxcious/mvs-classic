@@ -57,6 +57,9 @@ pub struct Body {
     pub actor_scale: Option<[Real; 2]>,
     /// `weightSet`.
     pub weight_set: Option<Real>,
+    /// (the port's own, dev) The depth off the fight plane of the 3D feel test (`world::depth3d`), cm; 0 with the
+    /// test off.
+    pub d: Real,
 }
 
 /// `MOVE_START`: his place after `base_update` and the intended delta of his walk's last

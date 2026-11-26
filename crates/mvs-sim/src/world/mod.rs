@@ -12,6 +12,7 @@
 pub mod bind;
 pub mod blast;
 pub mod catch_up;
+pub mod depth3d;
 pub mod flow;
 pub mod items;
 pub mod mutators;
@@ -347,6 +348,8 @@ pub struct World {
     pub waves: Option<Box<crate::modes::waves::WavesRun>>,
     /// The port's own Chaos Wheel rule (`world/wheel.rs`), in a match whose set-up has a wheel.
     pub wheel: Option<wheel::WheelState>,
+    /// (the port's own, dev) The 3D feel test (`world/depth3d.rs`), switched on by `depth3d::enable`; None: off.
+    pub depth3d: Option<depth3d::Depth3d>,
     /// `mode`: the set-up mode's hooks. Skipped from the state: they
     /// are `fn` pointers bound from the set-up's mode at `World::new` and never changed, so a save would copy the
     /// same value.
@@ -451,6 +454,7 @@ impl World {
             tutorial: None,
             waves: None,
             wheel: None,
+            depth3d: None,
             mode: None,
             predicted: false,
             bot_trees: None,
@@ -485,6 +489,7 @@ impl World {
         }
         w.flow.tick += 1;
         w.time_seconds += crate::consts::DELTA_SECONDS;
+        depth3d::tick(w); // the port's own 3D feel test, when on
         blast::shrink_tick(w);
         items::destroy_pooled(w);
         spawning::ship_ticks(w);

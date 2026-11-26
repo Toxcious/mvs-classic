@@ -289,6 +289,8 @@ pub struct CharView {
     pub facing_left: bool,
     /// The view root's place (root.position, three space).
     root_pos: [f64; 3],
+    /// (the port's own, dev) The 3D feel test's move of the view (`depth_view`), three space; None: off.
+    pub depth_turn: Option<crate::math::Mat4>,
     /// `fadeFromShown` (PoseCx::fade_from_shown).
     pub fade_from_shown: bool,
     /// Per part (skin sub-mesh) whether it shows (`partOn`, setPartVisible).
@@ -372,6 +374,7 @@ impl CharView {
             size_scale: 1.0,
             facing_left: false,
             root_pos: [0.0; 3],
+            depth_turn: None,
             fade_from_shown: false,
             part_on: Vec::new(),
             parts_only: false,
@@ -412,7 +415,11 @@ impl CharView {
         let h = std::f64::consts::FRAC_PI_2 / 2.0;
         let k = self.mesh_scale * self.size_scale;
         let model = math::compose([0.0; 3], [0.0, h.sin(), 0.0, h.cos()], [k, k, k]);
-        math::mul(&root, &model)
+        let m = math::mul(&root, &model);
+        match &self.depth_turn {
+            Some(t) => math::mul(t, &m),
+            None => m,
+        }
     }
 
     /// `slotUnder`: the montage of the coming pose() is drawn at weight w over this source pose.

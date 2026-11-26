@@ -822,6 +822,10 @@ fn melee_test(
     if w.fighter(att).montages.active_hits.is_empty() || w.frame_hits.contains(&hit_key(aid, vid)) {
         return;
     }
+    // (the port's own 3D feel test: the two out of reach in depth meet nothing)
+    if !crate::world::depth3d::reach(w, att, vic) {
+        return;
+    }
     let Some(vp) = victim_pose(w, vic) else { return };
     let pose = sample(w, att);
     let hs = take_actives(w, att);
@@ -1286,7 +1290,8 @@ fn projectile_box_test(
         }
         return;
     }
-    if !box_met(w, pr, bx, vic) {
+    // (the port's own 3D feel test: a projectile out of reach in depth meets nothing)
+    if !crate::world::depth3d::shot_reach(w, pr, vic) || !box_met(w, pr, bx, vic) {
         return;
     }
     let p = w.actors.projectiles.get(pr).expect("a live projectile");
