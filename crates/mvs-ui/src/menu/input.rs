@@ -314,9 +314,24 @@ pub fn mouse_button_key(button: u8) -> &'static str {
     }
 }
 
+/// The mouse button of an FKey name, the inverse of [`mouse_button_key`] ('None' for a key that is
+/// not a mouse button).
+pub fn button_of_key(key: &str) -> Option<u8> {
+    (0..=4).find(|&b| mouse_button_key(b) == key)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn every_mouse_button_key_maps_back_to_its_button() {
+        for b in 0..=4 {
+            assert_eq!(button_of_key(mouse_button_key(b)), Some(b));
+        }
+        assert_eq!(button_of_key("None"), None);
+        assert_eq!(button_of_key("SpaceBar"), None);
+    }
 
     fn run(p: &mut PadPoller, pad: MenuPad, first: bool, now: f64) -> Vec<PadEvent> {
         let mut v = Vec::new();

@@ -401,13 +401,8 @@ impl DeviceInput {
         fed.iter().filter_map(|f| match *f {
             Fed::Input(MenuInput::Key { key, down, .. }) => Some(DeviceInput::Key(key, down)),
             Fed::Input(MenuInput::MouseButton { button, down }) => {
-                let name = match button {
-                    0 => "LeftMouseButton",
-                    1 => "MiddleMouseButton",
-                    2 => "RightMouseButton",
-                    _ => return None,
-                };
-                Some(DeviceInput::Mouse(name, down))
+                let name = mvs_ui::menu::input::mouse_button_key(button);
+                (name != "None").then_some(DeviceInput::Mouse(name, down))
             }
             Fed::Pad(p) => Some(DeviceInput::Pad(p)),
             Fed::Input(_) => None,

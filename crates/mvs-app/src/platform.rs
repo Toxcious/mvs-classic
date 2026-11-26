@@ -375,13 +375,7 @@ impl Window {
                     } else {
                         self.keys.held.remove(k);
                     }
-                    let button = match k {
-                        "LeftMouseButton" => Some(0),
-                        "MiddleMouseButton" => Some(1),
-                        "RightMouseButton" => Some(2),
-                        _ => None,
-                    };
-                    if let Some(button) = button {
+                    if let Some(button) = mvs_ui::menu::input::button_of_key(k) {
                         self.menu_input.push(MenuInput::MouseButton { button, down });
                     }
                 }
