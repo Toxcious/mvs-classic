@@ -83,8 +83,8 @@ The port also has a few features of its own. None of them change the characters 
 ## What you need
 
 - **Windows 10 or 11, 64-bit**, with a graphics card that supports Direct3D 11
-- **Or Linux, 64-bit** (a Steam Deck, or a desktop distribution with glibc 2.31 or newer), with a Vulkan driver for
-  your graphics card
+- **Or Linux, 64-bit** (experimental: a Steam Deck, or a desktop distribution with glibc 2.31 or newer), with a
+  Vulkan driver for your graphics card
 - **MultiVersus in your Steam library.** The open beta is downloaded through Steam, which only works for accounts
   that have MultiVersus.
 - **About 16 GB of disk space:** about 8 GB for the open beta and 8 GB for the game the launcher builds from it
