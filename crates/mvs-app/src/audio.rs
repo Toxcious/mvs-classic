@@ -15,6 +15,7 @@ mod jake;
 mod lava;
 pub mod posted;
 pub(crate) mod scopes;
+mod water;
 mod wind;
 
 use std::collections::{HashMap, HashSet};
@@ -259,6 +260,7 @@ pub struct MatchAudio {
     lava: lava::Roar,
     wind: wind::Gusts,
     hole: hole::Hum,
+    water: water::Flood,
     /// `BeginOpts::podium`.
     podium: Vec<(String, PodiumMontages)>,
 }
@@ -405,6 +407,7 @@ impl MatchAudio {
             lava: lava::Roar::default(),
             wind: wind::Gusts::default(),
             hole: hole::Hum::default(),
+            water: water::Flood::default(),
             podium: podium.unwrap_or_default(),
         };
         if let Some(k) = kept {
@@ -547,6 +550,8 @@ impl MatchAudio {
         c.scope("wind", wind, Vec::new());
         let hole = hole::scope(world).into_iter().filter(|e| self.known.has(e)).collect();
         c.scope("hole", hole, Vec::new());
+        let water = water::scope(world).into_iter().filter(|e| self.known.has(e)).collect();
+        c.scope("water", water, Vec::new());
         if self.kept {
             let items = self.item_events(world);
             c.scope("items", items, Vec::new());
@@ -980,6 +985,7 @@ impl MatchAudio {
         self.lava.tick(world, &mut c);
         self.wind.tick(world, &mut c);
         self.hole.tick(world, &mut c);
+        self.water.tick(world, &mut c);
         // (presentTick: the modules' place posts their sounds after handleEvents, then the scenery's tick)
         for (ev, at) in views.take_sounds() {
             c.post(&ev, Some(-1), None, None, Some(at));
@@ -1381,6 +1387,7 @@ impl MatchAudio {
         self.lava.place(pov.pos, &mut c);
         self.wind.place(pov.pos, &mut c);
         self.hole.place(pov.pos, &mut c);
+        self.water.place(pov.pos, &mut c);
         c.push(Call::SetListener { pos: pov.pos, right: pov.right, up: pov.up, front: pov.front });
     }
 

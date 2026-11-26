@@ -5,6 +5,11 @@
 // (the "glass" its waterline is seen across, edge-on from the side camera).
 // Params[0]: settled level Z (cm), start Z (cm), rise seconds, wave scale.
 // Params[1]: front plane X (cm), first lightning (s), second lightning (s), rain strength.
+// The game's water (`flood.rs`) sets a rise time under 0: the level is then Params[0].x, Params[2] is how far risen
+// (0..1), the seconds since the rise began, the stage's middle (UE Y, cm) and the storm's strength (0..1, its fade in
+// and out), Params[3].x the rise's length (s); Params[4..7] are the splashes where fighters cross the surface (UE Y,
+// seconds since, strength, seed; none while the seconds are under 0). After the first two, lightning strikes at
+// hashed moments of the clock.
 
 static const float PI = 3.14159265;
 static const float3 DEEP = float3(0.001, 0.008, 0.016);
@@ -15,17 +20,42 @@ static const float3 STORM_SKY = float3(0.06, 0.085, 0.11);
 // Absorption per cm of the water's optical length: red goes first, then green; blue-green stays.
 static const float3 SIGMA = float3(1.0 / 240, 1.0 / 560, 1.0 / 700);
 
+// Whether the game drives the water (else the preview's rise from Time).
+bool Game() {
+    return Params[0].z < 0;
+}
+
+// Seconds since the rise began, and the rise's length.
+float Age() {
+    return Game() ? Params[2].y : Time;
+}
+
+float RiseTime() {
+    return max(Game() ? Params[3].x : Params[0].z, 0.01);
+}
+
+// The storm's strength: the game's fades it in and out with the water.
+float StormOn() {
+    return Game() ? Params[2].w : 1;
+}
+
+// The stage's middle (UE Y): where the rogue sets pass.
+float Middle() {
+    return Game() ? Params[2].z : 0;
+}
+
 float Level() {
-    float x = saturate(Time / max(Params[0].z, 0.01));
+    float x = saturate(Age() / RiseTime());
     float e = 1 - (1 - x) * (1 - x) * (1 - x);
-    // The surge overshoots a little as it arrives, then swells slowly.
+    float base = Game() ? Params[0].x : lerp(Params[0].y, Params[0].x, e);
+    // The surge overshoots a little as it arrives, then swells slowly (two swells of unrelated periods).
     float surge = sin(x * PI) * 38 * x * x;
-    return lerp(Params[0].y, Params[0].x, e) + surge + 5 * sin(Time * 0.8) * x;
+    return base + surge + 5 * (0.6 * sin(Time * 0.8) + 0.4 * sin(Time * 0.53 + 1.7)) * x;
 }
 
 // Wilder while it surges, settling to the wave scale.
 float Amp() {
-    float settle = saturate((Time - Params[0].z) / 2.0);
+    float settle = saturate((Age() - RiseTime()) / 2.0);
     return Params[0].w * lerp(1.7, 1.0, settle);
 }
 
@@ -48,12 +78,34 @@ float Rough(float2 p) {
 }
 
 // A rogue set: a short train of big swells travelling through along `dir`, its middle at `at` (cm along dir).
-float Rogue(float2 p, float2 dir, float at, float width, float len) {
+float Rogue(float2 p, float2 dir, float at, float width, float len, float seed) {
     float x = dot(p, dir) - at;
     // The train's crests bend a little across it, so it is not a straight ridge.
-    float bend = 260 * (Noise(float2(dot(p, float2(-dir.y, dir.x)) / 1400, 3.7)) - 0.5);
+    float bend = 260 * (Noise(float2(dot(p, float2(-dir.y, dir.x)) / 1400, seed)) - 0.5);
     float env = exp(-(x + bend) * (x + bend) / (width * width));
     return env * Swell((x + bend) * (2 * PI / len));
+}
+
+// One kind of rogue set: a slot of `period` s each (the clock shifted by `shift`) holds one set or none, starting
+// `start` cm before the middle and moving at `speed` cm/s. Each slot's set has its own size, delay, speed and bend
+// (hashed by the slot and `seed`), so they never come round alike; the first slot's is the look's own. A set is
+// thousands of cm off at its slot's ends, so a new slot changes nothing seen.
+float RogueSet(float2 p, float2 dir, float period, float shift, float speed, float start, float width, float len,
+    float seed) {
+    float tt = Time + shift;
+    float n = floor(tt / period);
+    float ph = tt - n * period;
+    float amp = 1, delay = 0, v = speed, bend = 3.7;
+    if (n > 0) {
+        float2 id = float2(n, seed);
+        amp = Hash(id) < 0.25 ? 0 : lerp(0.6, 1.3, Hash(id + 3.1));
+        delay = 2 * Hash(id + 5.7);
+        v = speed * lerp(1.1, 1.3, Hash(id + 8.3));
+        bend = 3.7 + 11.3 * Hash(id + 9.9);
+    }
+    // (none far from the middle, where a slot's end could be seen to drop a set)
+    float near = saturate((10000 - length(p)) / 4000);
+    return amp * near * Rogue(p, dir, (ph - delay) * v - start, width, len, bend);
 }
 
 // The waves' height (cm) at world `p`, before Amp: three swells of incommensurate lengths and turns, their phases
@@ -70,9 +122,11 @@ float Waves(float2 p) {
     float chop = 3 * Crest(dot(p, float2(-0.86, 0.51)) * (2 * PI / 331) - t * 3.4 + warp.y * 2);
     chop += 2 * Crest(dot(p, float2(0.39, 0.92)) * (2 * PI / 219) - t * 4.3 + 1.9);
     h += chop * r * r + 7 * (Noise(p / 430 + float2(t * 0.30, -t * 0.22)) - 0.5);
-    // Two sets, every 23 s and 31 s, moving across the arena (one passes the camera about 4 s in).
-    h += 36 * Rogue(p, float2(0.12, -0.993), fmod(t + 13.0, 23.0) * 420 - 5200, 1500, 1500);
-    h += 26 * Rogue(p, float2(-0.30, 0.954), fmod(t + 4.0, 31.0) * 360 - 6100, 1200, 1250);
+    // Two kinds of set moving across the arena, one at most every 23 s and 31 s (one passes the camera about 4 s
+    // in).
+    float2 m = p - float2(0, Middle());
+    h += 36 * RogueSet(m, float2(0.12, -0.993), 23.0, 13.0, 420, 5200, 1500, 1500, 1.3);
+    h += 26 * RogueSet(m, float2(-0.30, 0.954), 31.0, 4.0, 360, 6100, 1200, 1250, 7.9);
     return h;
 }
 
@@ -95,19 +149,35 @@ float Foam(float2 q, float on) {
 }
 
 // Above water: the storm. The sky darkens toward the top, everything cools and dims, lightning flashes.
+// One strike `dt` s ago: a double flicker, then a fade.
+float Strike(float dt) {
+    return dt >= 0 ? (exp(-dt * 7) + 0.7 * exp(-abs(dt - 0.12) * 30)) : 0;
+}
+
+// The first two strikes at their set seconds of the rise; after them, one strike or none in each 6 s of the clock at
+// a hashed moment and strength, now and then a second close behind it, so strikes never fall into a rhythm.
 float Lightning() {
-    float f = 0;
-    for (int k = 0; k < 2; k++) {
-        float at = k == 0 ? Params[1].y : Params[1].z;
-        float dt = Time - at;
-        // A double flicker, then a fade.
-        f += dt >= 0 ? (exp(-dt * 7) + 0.7 * exp(-abs(dt - 0.12) * 30)) : 0;
+    float age = Age();
+    float f = Strike(age - Params[1].y) + Strike(age - Params[1].z);
+    float slot = floor(Time / 6.0);
+    for (int k = -1; k <= 0; k++) {
+        float2 id = float2(slot + k, 41.7);
+        if (Hash(id) < 0.7) {
+            float at = (slot + k + 0.05 + 0.9 * Hash(id + 2.3)) * 6.0;
+            // (none before the set two have passed: the strike's moment on the rise's clock)
+            float on = step(Params[1].z + 1.5, age - (Time - at)) * lerp(0.45, 1.0, Hash(id + 4.1));
+            f += on * Strike(Time - at);
+            if (Hash(id + 6.7) < 0.35) {
+                f += on * 0.8 * Strike(Time - at - 0.35 - 1.3 * Hash(id + 8.9));
+            }
+        }
     }
-    return f;
+    return f * StormOn();
 }
 
 float4 Storm(ScreenIn i) : SV_Target {
-    float3 col = SceneColor(i.uv);
+    float3 seen = SceneColor(i.uv);
+    float3 col = seen;
     float3 P = SceneWorld(i.pos.xy, i.uv);
     float far = saturate((length(P - CameraOrigin.xyz) - 18000) / 10000);
     // Overall: cooler, dimmer, a little desaturated.
@@ -122,11 +192,13 @@ float4 Storm(ScreenIn i) : SV_Target {
     col *= lerp(1.0, 0.65 + 0.6 * cloud, far);
     float flash = Lightning();
     col = col * (1 + 1.1 * flash) + float3(0.5, 0.6, 0.75) * flash * (0.15 + 0.6 * far);
-    return float4(col, 1);
+    return float4(lerp(seen, col, StormOn()), 1);
 }
 
 // The water, seen along the ray from the camera to the scene's point.
 float Ripples(float2 p, float thick);
+float Splashes(float3 C, float3 dn, float dist);
+float SplashFoam(float2 p, float fp);
 
 float4 Flood(ScreenIn i) : SV_Target {
     float3 C = CameraOrigin.xyz;
@@ -319,8 +391,9 @@ float4 Flood(ScreenIn i) : SV_Target {
         float f = max(crest * smoothstep(0.35, 0.6, Fbm(E.xy / float2(160, 45) + Time * 0.2, 3)), streak * rough * 0.45);
         col = lerp(col, FOAM * (0.55 + 0.5 * Lightning()), f * 0.9);
         // Rain rings on the surface (thicker far off, where they are packed into a fine shimmer).
-        float rip = Ripples(E.xy, 2.0 + enter * 0.0006) * Params[1].w;
+        float rip = Ripples(E.xy, 2.0 + enter * 0.0006) * Params[1].w * StormOn();
         col = lerp(col, FOAM * 0.6, saturate(rip * 0.5));
+        col = lerp(col, FOAM * (0.75 + 0.5 * Lightning()), SplashFoam(E.xy, enter * 0.0011) * 0.85);
     }
     // The waterline: where the water meets a thing (the scene's point just under the surface), a foamy lip.
     float lip = surface ? saturate(1 - below / 30) * saturate(1 - path / 500) : 0;
@@ -418,9 +491,65 @@ float4 Rain(ScreenIn i) : SV_Target {
         }
     }
     float3 tint = float3(0.55, 0.62, 0.70) * (1 + 2 * Lightning());
-    col += tint * rain * 0.45 * Params[1].w;
-    col = lerp(col, FOAM * 0.7 * (1 + Lightning()), saturate(splash * 0.75 * Params[1].w));
+    col += tint * rain * 0.45 * Params[1].w * StormOn();
+    col = lerp(col, FOAM * 0.7 * (1 + Lightning()), saturate(splash * 0.75 * Params[1].w * StormOn()));
+    // Splashes where fighters cross the surface.
+    col = lerp(col, FOAM * (0.75 + 0.5 * Lightning()), Splashes(C, dn, dist));
     return float4(col, 1);
+}
+
+// The splashes' white (0..1) on the ray from C along dn to the scene at dist: each a crown of drops thrown up from
+// the fighters' plane (UE X 0) and falling back, and a mound of white water bursting up and collapsing, on the waves
+// there (the foam on the top is SplashFoam's). Drops are hashed afresh per splash (its seed), so no two look alike.
+float Splashes(float3 C, float3 dn, float dist) {
+    float s = -C.x / min(dn.x, -1e-5);
+    if (!Game() || s <= 0 || s > dist + 60) {
+        return 0;
+    }
+    float3 Q = C + dn * s;
+    float px = s * 0.00055;
+    // (from the waves there, so the white sits on them)
+    float up = Q.z - Height(Q.xy);
+    float white = 0;
+    for (int k = 0; k < 4; k++) {
+        float4 sp = Params[4 + k];
+        float age = sp.y;
+        float dy = Q.y - sp.x;
+        if (age < 0 || age > 1.6 || abs(dy) > 520 || up < -30 || up > 460) {
+            continue;
+        }
+        float str = sp.z;
+        // The mound: up then down in about 0.6 s, its top broken by noise.
+        float wid = 28 + 40 * str + 160 * age;
+        float hgt = (40 + 120 * str) * sin(saturate(age / 0.65) * PI) * saturate(1 - dy * dy / (wid * wid));
+        hgt *= 0.7 + 0.5 * Noise(float2(dy / 14 + sp.w * 31, age * 6));
+        // (none where it is only a few cm high: its sides and its end are no line along the surface)
+        float mound = smoothstep(max(px, 2), -max(px, 2), up - hgt) * smoothstep(-12, 0, up)
+            * smoothstep(4, 14, hgt);
+        // Frothy, not solid: clots of white over a thinner body, torn more toward its top.
+        float froth = Fbm(float2(dy / 22 + sp.w * 13, (up - age * 90) / 22), 3);
+        mound *= lerp(0.35, 1, smoothstep(0.35 + 0.25 * saturate(up / max(hgt, 1)), 0.7, froth));
+        // The crown's drops.
+        float drops = 0;
+        for (int j = 0; j < 14; j++) {
+            float2 id = float2(j * 1.37 + k * 9.1, sp.w * 57.3);
+            float2 h = Hash2(id);
+            float vy = (h.x - 0.5) * 2 * (110 + 260 * str);
+            float vz = (240 + 420 * h.y) * (0.55 + 0.55 * str) * (1 - 0.6 * abs(h.x - 0.5));
+            float t = age * (0.85 + 0.3 * Hash(id + 3.3)) - 0.05 * Hash(id + 4.4);
+            float2 at = float2(vy * t, vz * t - 490 * t * t);
+            if (t <= 0 || at.y < -2) {
+                continue;
+            }
+            float r = (2.5 + 4 * Hash(id + 5.1)) * (1 - 0.35 * age);
+            float rr = max(r, px * 0.9);
+            float dd = length(float2(dy, up) - at);
+            drops = max(drops, saturate(1.5 - dd / rr) * min(r / rr, 1));
+        }
+        float fade = saturate((1.6 - age) / 0.5);
+        white = max(white, max(mound * 0.9, drops) * fade);
+    }
+    return white;
 }
 
 // Rings where drops land on the surface seen from above (the Flood pass's), random in place and time.
@@ -443,4 +572,31 @@ float Ripples(float2 p, float thick) {
         }
     }
     return sum;
+}
+
+// A splash's foam on the top seen from above at world (x, y) (UE): a broken ring spreading from where the fighter
+// crossed, and white water inside it early on. fp: a pixel's size there (cm).
+float SplashFoam(float2 p, float fp) {
+    float foam = 0;
+    for (int k = 0; k < 4; k++) {
+        float4 sp = Params[4 + k];
+        float age = sp.y;
+        if (!Game() || age < 0 || age > 1.6) {
+            continue;
+        }
+        float2 o = p - float2(0, sp.x);
+        float r = length(o);
+        float rad = (25 + 30 * sp.z) + 230 * sqrt(age);
+        if (r > rad + 60) {
+            continue;
+        }
+        float thick = max(6 + 10 * age, fp);
+        float a = atan2(o.y, o.x);
+        float torn = step(0.42, Noise(float2(a * 4 + sp.w * 23, age * 2)));
+        float edge = saturate(1 - abs(r - rad) / thick) * torn;
+        float inner = smoothstep(rad, rad * 0.4, r) * saturate(1 - age * 1.6)
+            * smoothstep(0.4, 0.7, Fbm(o / 18 + sp.w * 7, 2));
+        foam = max(foam, max(edge, inner) * saturate((1.6 - age) / 0.6) * lerp(0.6, 1, sp.z));
+    }
+    return saturate(foam);
 }

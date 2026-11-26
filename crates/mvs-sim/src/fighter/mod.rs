@@ -602,7 +602,8 @@ pub fn max_walk(w: &World, f: FighterId) -> Real {
         }
         gliding = crate::chars::iron_giant::giant_gliding(w, f);
     }
-    if gliding { v * crate::math::narrow(def.hover_speed_mult) } else { v }
+    let v = if gliding { v * crate::math::narrow(def.hover_speed_mult) } else { v };
+    v * crate::world::own_rules::water_speed(w, f) // (the port's own Flood)
 }
 
 /// `inHitstun` (CheckHitstunActive): hitstun, a hit's pause with its launch pending, a pull or a buff stun.

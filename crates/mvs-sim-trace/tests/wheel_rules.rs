@@ -10,7 +10,7 @@ use mvs_sim::{Event, InputState, Real, World};
 use mvs_sim_trace::harness::{self, Harness};
 
 /// The wheel's own rules and the pool's joins, in `mvs_mutators::ALL`'s order.
-const POOL: [&str; 12] = [
+const POOL: [&str; 14] = [
     "Mutator_GrowWithDamage",
     "Mutator_InstantKill",
     "Mutator_ShrinkBlastBoxLastPoint",
@@ -23,6 +23,8 @@ const POOL: [&str; 12] = [
     "Chaos_ProjectileParty",
     "Chaos_LavaFloor",
     "Chaos_Ghosts",
+    "Chaos_Flood",
+    "Chaos_StormFlood",
 ];
 
 fn at(key: &str) -> usize {
@@ -235,4 +237,25 @@ fn grow_joins_the_pool_and_leaves_a_fighter_as_found() {
     change_to(&mut h.w, None);
     idle(&mut h, 10);
     assert_eq!(h.w.fighter(f).body.size_scale, size);
+}
+
+#[test]
+fn flood_and_storm_flood_raise_their_water_and_drain_it_with_the_window() {
+    use own_rules::WaterStyle;
+    for (key, style) in [("Chaos_Flood", WaterStyle::Tropical), ("Chaos_StormFlood", WaterStyle::Storm)] {
+        let Some(mut h) = landed() else { return };
+        let f = h.fighter(0);
+        assert_eq!(own_rules::water_at(&h.w, 0.0), None);
+        change_to(&mut h.w, Some(at(key)));
+        idle(&mut h, usize::try_from(own_rules::WATER_RISE_TICKS).expect("ticks") + 10);
+        let wa = own_rules::water(&h.w).expect("on");
+        assert_eq!(wa.style, style, "{key}");
+        assert_eq!(wa.risen, 1.0, "{key}: settled");
+        assert!(own_rules::water_depth(&h.w, f) > 0.0, "{key}: a standing fighter is in it");
+        assert!(own_rules::water_speed(&h.w, f) < 1.0, "{key}: and slowed");
+        change_to(&mut h.w, None);
+        idle(&mut h, 2);
+        assert_eq!(own_rules::water_at(&h.w, 0.0), None, "{key}: gone with its window");
+        assert_eq!(own_rules::water_speed(&h.w, f), 1.0, "{key}");
+    }
 }

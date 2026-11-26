@@ -1788,7 +1788,12 @@ fn place_view(r: &mut Rec, clips: &mut Clips, w: &World, ghost: Ghost) {
     let v = &mut r.view;
     let (x, y, facing) = (fi.body.x, fi.body.y, fi.body.facing_dir);
     // Mesh RelativeLocation.X (hit wobble) runs along the actor's forward; Z carries the bounce offset.
-    let hud = (x + facing * fi.hit.mesh_x, y + fi.hit.mesh_z);
+    let mut hud = (x + facing * fi.hit.mesh_x, y + fi.hit.mesh_z);
+    // (the port's own Flood: a fighter floating in the water bobs on it, the view's alone)
+    #[allow(clippy::cast_possible_truncation)]
+    {
+        hud.1 += v.swim.tick(w, f, usize::try_from(r.id).unwrap_or(0)) as f32;
+    }
     v.place(f64::from(hud.0), f64::from(hud.1), f64::from(facing));
     // (the port's own 3D feel test: the view on the turned plane, off it by the fighter's depth)
     v.depth_turn = crate::depth_view::fighter_turn(w, x, fi.body.d).map(|t| t.three());

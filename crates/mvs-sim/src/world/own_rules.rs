@@ -4,8 +4,8 @@
 //! list its key (the Mutators row), or for a window while the wheel has it on (`wheel::window_has`). The wheel runs
 //! Bomb Rain and Projectile Party itself, on the item area's spawner (`wheel::start_items`).
 //!
-//! None of them keeps state of its own: what is on is read off the set-up and the wheel's state, Wind's gusts,
-//! Black Hole's opening and Rising Lava's height off the match's tick.
+//! What is on is read off the set-up and the wheel's state, Wind's gusts, Black Hole's opening, Rising Lava's and
+//! Flood's height off the match's tick. The one state of their own is a fighter's `body.wet` (Flood's splash).
 
 use crate::Real;
 use crate::combat::buffs;
@@ -174,8 +174,6 @@ pub const HOLE_ROW_REST: i32 = 600;
 // Unverified: the beta has no such rule and so no sound for it; the shared large charge hit is picked by its name.
 pub const HOLE_HIT_SOUND: &str = "sfx_shared_combat_charge_hit_large";
 
-/// The items each spawner rule keeps of Random Items' list (a class the list lacks is never spawned: its effects
-/// and sounds are the list's).
 /// Flood: how far over the main floor's top the water settles (units), the ticks it takes to rise from the blast
 /// box's bottom and to drain at its window's end.
 pub const WATER_OVER: Real = 230.0;
@@ -185,7 +183,45 @@ pub const WATER_DRAIN_TICKS: i32 = 180;
 /// `WATER_ROW_REST` ticks dry, from the match's start.
 pub const WATER_ROW_WINDOW: i32 = 1200;
 pub const WATER_ROW_REST: i32 = 600;
+/// Flood: a fighter's top speed in the water (its walk, run, dash and air drift) as a share of its own, at full depth
+/// (`submerged` 1; a shallower fighter keeps more). It still reaches it at once: the water lowers the top speed, not
+/// the acceleration.
+pub const WATER_SPEED: Real = 0.65;
+/// Flood: the fastest a fighter sinks at full depth (units a second), against its own terminal speed out of it.
+pub const WATER_FALL: Real = 700.0;
+/// Flood: the water's lift on a fighter off the ground, a share of its gravity at full depth. Over 1, a fighter whose
+/// middle is under the surface floats up and rests where the lift meets the gravity (`1 / WATER_LIFT` deep: head
+/// and shoulders out), bobbing there.
+pub const WATER_LIFT: Real = 1.25;
+/// Flood: the fastest the lift raises a fighter (units a second); a jump or a stroke rises faster on its own, the lift
+/// then only bearing its gravity.
+pub const WATER_RISE: Real = 400.0;
+/// Flood: the water's drag on a fighter's rise and fall, the share of the speed lost a second at full depth.
+pub const WATER_DRAG: Real = 3.0;
+/// Flood: the drag on a launch in the water (`launch::phys_knockback`), the share of its speed lost a second at full
+/// depth on top of the knockback's own friction: a hit sends a fighter as far, then the water stops it sooner.
+pub const WATER_KNOCK_DRAG: Real = 2.5;
+/// Flood: the stick held down past this (below 0) dives: the lift lets go and the fighter sinks at `WATER_FALL`.
+pub const WATER_DIVE: Real = -0.5;
+/// Flood: the depth from which a jump off the ground is a swim stroke, and the stroke's speed as a share of the air
+/// jump's (its height that share squared). A jump nearer the surface leaps out as high as one out of the water.
+pub const WATER_DEEP: Real = 0.95;
+pub const WATER_STROKE: Real = 0.6;
+/// Flood: the fall speed (units a second) from which a fighter's entry is the big splash.
+pub const WATER_SPLASH_FAST: Real = 1200.0;
+/// Flood: a projectile's speed lost a second under the surface, and the ticks it lasts there at most before its own
+/// lifetime's end comes (it fizzles; one without a lifetime of its own is only slowed).
+pub const WATER_PROJECTILE_DRAG: Real = 2.0;
+pub const WATER_FIZZLE_TICKS: i32 = 30;
+/// Flood: the sounds posted on a fighter (the `name!`s in `water_sound`'s callers): its entry at `WATER_SPLASH_FAST`
+/// or faster, a slower entry or its way out, and a swim stroke.
+// Unverified: the beta has no such rule and so no sound for it; the splashes and the stroke are picked by name.
+pub const WATER_SPLASH_BIG_SOUND: &str = "sfx_map_batcave_batmobile_splash";
+pub const WATER_SPLASH_SOUND: &str = "sfx_map_batcave_batmobile_splash_start";
+pub const WATER_STROKE_SOUND: &str = "sfx_cha_c018_bubblegun_bubble_small_death";
 
+/// The items each spawner rule keeps of Random Items' list (a class the list lacks is never spawned: its effects
+/// and sounds are the list's).
 const BOMBS: [&str; 2] = ["Item_Dynamite_C", "Item_ProximityMine_C"];
 const THROWN: [&str; 8] = [
     "Item_Snowball_C",
@@ -481,6 +517,135 @@ pub fn submerged(w: &World, f: FighterId, wa: &Water) -> Real {
     if half <= 0.0 { 0.0 } else { crate::math::max(0.0, crate::math::min((wa.level - feet) / half, 1.0)) }
 }
 
+/// How deep `f` is in a flood's water now (`submerged`), 0 with no flood on and for a dead fighter.
+pub fn water_depth(w: &World, f: FighterId) -> Real {
+    match water(w) {
+        Some(wa) if w.fighter(f).life.dead <= 0.0 => submerged(w, f, &wa),
+        _ => 0.0,
+    }
+}
+
+/// Flood's share of `f`'s top speed (`fighter::max_walk`, the dash's push): 1 out of the water, down to
+/// `WATER_SPEED` at full depth.
+pub fn water_speed(w: &World, f: FighterId) -> Real {
+    let d = water_depth(w, f);
+    if d <= 0.0 { 1.0 } else { 1.0 - (1.0 - WATER_SPEED) * d }
+}
+
+/// Flood's cap on `f`'s fall (`moves::cap_fall`): its terminal speed `t`, down to `WATER_FALL` at full depth.
+pub fn water_terminal(w: &World, f: FighterId, t: Real) -> Real {
+    let d = water_depth(w, f);
+    if d <= 0.0 { t } else { t + (crate::math::min(t, WATER_FALL) - t) * d }
+}
+
+/// Flood's drag on a launch (`launch::phys_knockback`): the share of the velocity kept over a substep of `h` seconds,
+/// 1 out of the water.
+pub fn water_knock_keep(w: &World, f: FighterId, h: Real) -> Real {
+    let d = water_depth(w, f);
+    if d <= 0.0 { 1.0 } else { 1.0 - crate::math::min(WATER_KNOCK_DRAG * d * h, 1.0) }
+}
+
+/// Whether `f` swims: off the ground in a flood's water, where a jump is a stroke and any number of them may be made
+/// (`moves::try_jump`).
+pub fn swimming(w: &World, f: FighterId) -> bool {
+    !crate::fighter::grounded(w, f) && water_depth(w, f) > 0.0
+}
+
+/// Flood's share of an air jump's speed (`moves::do_jump`): `WATER_STROKE` for a stroke, `WATER_DEEP` or deeper,
+/// else 1.
+pub fn stroke_share(w: &World, f: FighterId, air: bool) -> Real {
+    if air && !crate::fighter::grounded(w, f) && water_depth(w, f) >= WATER_DEEP { WATER_STROKE } else { 1.0 }
+}
+
+/// A swim stroke's sound on `f`, behind `moves::try_jump`'s jump in the water (a leap out of it has the splash).
+pub fn stroke(w: &mut World, f: FighterId) {
+    if stroke_share(w, f, true) < 1.0 {
+        let b = &w.fighter(f).body;
+        let (x, y) = (b.x, b.y);
+        water_sound(w, f, crate::name!("sfx_cha_c018_bubblegun_bubble_small_death"), x, y);
+    }
+}
+
+/// `ev` posted on `f` at (`x`, `y`).
+fn water_sound(w: &mut World, f: FighterId, ev: crate::names::Name, x: Real, y: Real) {
+    let fighter = w.fighter(f).id;
+    w.events.push(crate::Event::Sound { fighter, ev, x: Some(x), y: Some(y), hit: None, pooled: false, key: None });
+}
+
+/// Flood's water on each live player and projectile, behind the tick's moves: a fighter crossing the surface splashes
+/// (its feet in or out; out, its spent air jumps come back); off the ground and not in a hit's pause, flying or held,
+/// the water drags its rise and fall (a launch's is the knockback's, `water_knock_keep`) and lifts it toward
+/// `WATER_RISE` unless it dives. Its top speed and fall are the movement's (`water_speed`, `water_terminal`). A
+/// projectile under the surface slows and fizzles.
+fn flood(w: &mut World) {
+    use crate::math::min;
+    let Some(wa) = water(w) else {
+        for i in 0..w.players.len() {
+            let f = w.players[i];
+            w.fighter_mut(f).body.wet = false;
+        }
+        return;
+    };
+    let dt = crate::consts::DT;
+    for i in 0..w.players.len() {
+        let f = w.players[i];
+        if w.fighter(f).life.dead > 0.0 {
+            w.fighter_mut(f).body.wet = false;
+            continue;
+        }
+        let d = submerged(w, f, &wa);
+        let fr = w.fighter(f);
+        let (x, vy, wet) = (fr.body.x, fr.body.vy, fr.body.wet);
+        if (d > 0.0) != wet {
+            let ev = if wet {
+                let j = &mut w.fighter_mut(f).jump;
+                j.jumps = j.jumps.min(1); // the air jumps back
+                crate::name!("sfx_map_batcave_batmobile_splash_start")
+            } else if vy <= -WATER_SPLASH_FAST {
+                crate::name!("sfx_map_batcave_batmobile_splash")
+            } else {
+                crate::name!("sfx_map_batcave_batmobile_splash_start")
+            };
+            w.fighter_mut(f).body.wet = d > 0.0;
+            water_sound(w, f, ev, x, wa.level);
+        }
+        let fr = w.fighter(f);
+        let held = fr.hit.hitpause > 0.0 || fr.moves.move_none || crate::fighter::moves::is_flying(w, f);
+        if d <= 0.0 || held || crate::fighter::grounded(w, f) || crate::fighter::body::no_collision(w, f) {
+            continue;
+        }
+        let kb = fr.hit.kb_mode;
+        let dive = fr.controls.inp.y < WATER_DIVE;
+        let g = crate::consts::GRAVITY_Z * fr.moves.gravity_scale;
+        let mut vy = if kb { vy } else { vy * (1.0 - min(WATER_DRAG * d * dt, 1.0)) };
+        if !dive && g > 0.0 {
+            let up = g * WATER_LIFT * d * dt;
+            vy = if vy >= WATER_RISE { vy + min(up, g * dt) } else { min(vy + up, WATER_RISE) };
+        }
+        w.fighter_mut(f).body.vy = vy;
+    }
+    projectiles_in_water(w, wa.level);
+}
+
+/// Flood on the projectiles: each live one moving free under the surface `level` slows by `WATER_PROJECTILE_DRAG`,
+/// and one with a lifetime of its own running ends `WATER_FIZZLE_TICKS` after it went in at the latest.
+fn projectiles_in_water(w: &mut World, level: Real) {
+    let keep = 1.0 - crate::math::min(WATER_PROJECTILE_DRAG * crate::consts::DT, 1.0);
+    let ids: Vec<_> = w.actors.projectiles.ids().collect();
+    for id in ids {
+        let Some(p) = w.actors.projectiles.get_mut(id) else { continue };
+        if p.dead || p.attached || !p.moving || p.y >= level {
+            continue;
+        }
+        p.vx *= keep;
+        p.vy *= keep;
+        let paused = p.lifetime_pause.as_ref().is_some_and(|x| x.count > 0);
+        if p.life_ticks > 0 && !paused {
+            p.life_ticks = p.life_ticks.min(p.age + WATER_FIZZLE_TICKS);
+        }
+    }
+}
+
 /// Rising Lava's touch: each live player whose feet are under the surface, not in a hit's pause or launch and not
 /// already rising out of it, takes
 /// `LAVA_DAMAGE` and a launch straight up. The lava at rest on the blast box's bottom touches no one.
@@ -568,7 +733,7 @@ pub fn ghost_hidden(w: &World, f: FighterId) -> bool {
 }
 
 /// `ownRulesLatent`: the rules' tick, behind the wheel's in the world's latent pass: Wind's gusts, Black Hole's pull
-/// and core, then Rising Lava's touch.
+/// and core, Rising Lava's touch, then Flood's water.
 pub fn own_rules_latent(w: &mut World) {
     if w.flow.match_over || (w.setup.flow && !w.flow.match_started) {
         return;
@@ -576,4 +741,5 @@ pub fn own_rules_latent(w: &mut World) {
     gusts(w);
     hole(w);
     lava(w);
+    flood(w);
 }

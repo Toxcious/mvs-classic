@@ -5,6 +5,9 @@
 // streams, and a foam line runs along the waterline.
 // Params[0]: surface Z at the start (cm), settled Z (cm), rise time (s; 0 = already settled), front face X (cm).
 // Params[1]: wave amplitude (cm), wave speed scale, clarity (absorption length along the view, cm), depth haze (cm).
+// The game's water (`flood.rs`) sets a rise time under 0: the surface is then Params[0].x, and Params[2] is how far
+// risen (0..1), the seconds since the rise began, the stage's middle (UE Y, cm); Params[4..7] are the splashes where
+// fighters cross the surface (UE Y, seconds since, strength, seed; none while the seconds are under 0).
 
 static const float3 SHALLOW = float3(0.01, 0.38, 0.52);
 static const float3 DEEP = float3(0.003, 0.10, 0.22);
@@ -33,14 +36,22 @@ float Keep(float2 lam, float2 fp) {
     return 1 - smoothstep(0.2, 0.5, max(fp.x / lam.x, fp.y / lam.y));
 }
 
+// Whether the game drives the water (else the preview's rise from Time).
+bool Game() {
+    return Params[0].z < 0;
+}
+
 // How far the rise is, 0..1, eased in and out.
 float Risen() {
+    if (Game()) {
+        return Params[2].x;
+    }
     float k = Params[0].z <= 0 ? 1 : saturate(Time / Params[0].z);
     return k * k * (3 - 2 * k);
 }
 
 float Level() {
-    return lerp(Params[0].x, Params[0].y, Risen());
+    return Game() ? Params[0].x : lerp(Params[0].x, Params[0].y, Risen());
 }
 
 // A wave with sharp crests and round troughs.
@@ -146,6 +157,9 @@ float3 Streams(float2 b, float seed, float span, float dens, float4 k) {
     }
     return saturate(acc);
 }
+
+float Splashes(float3 C, float3 d, float tP, float level, float px);
+float SplashFoam(float2 p, float fp);
 
 float4 Water(ScreenIn i) : SV_Target {
     float level = Level();
@@ -270,6 +284,7 @@ float4 Water(ScreenIn i) : SV_Target {
             float path = exp(-across * across) * exp(-up * up);
             float sheenLine = 0.6 + 0.4 * swell;
             col += SUN * path * sheenLine * far * 0.45;
+            col = lerp(col, FOAM, SplashFoam(E.xy, fpE.y) * 0.85);
         }
     }
 
@@ -312,5 +327,89 @@ float4 Water(ScreenIn i) : SV_Target {
             }
         }
     }
+
+    // Splashes where fighters cross the surface.
+    col = lerp(col, FOAM, Splashes(C, d, tP, level, FootAt(max(-C.x / min(d.x, -1e-5), 1)).x));
     return float4(col, 1);
+}
+
+// The splashes' white (0..1) on the ray from C along d to the scene at tP: each a crown of drops thrown up from the
+// fighters' plane (UE X 0) and falling back, and a mound of white water bursting up and collapsing, on the waves
+// there (the foam on the top is SplashFoam's). Drops are hashed afresh per splash (its seed), so no two look alike.
+// px: a pixel's size (cm) on the plane.
+float Splashes(float3 C, float3 d, float tP, float level, float px) {
+    float s = -C.x / min(d.x, -1e-5);
+    if (!Game() || s <= 0 || s > tP + 60) {
+        return 0;
+    }
+    float3 Q = C + d * s;
+    // (from the waves there, so the white sits on them)
+    float up = Q.z - level - Wave(Q.yx, FootAt(s));
+    float white = 0;
+    for (int k = 0; k < 4; k++) {
+        float4 sp = Params[4 + k];
+        float age = sp.y;
+        float dy = Q.y - sp.x;
+        if (age < 0 || age > 1.6 || abs(dy) > 520 || up < -30 || up > 460) {
+            continue;
+        }
+        float str = sp.z;
+        // The mound: up then down in about 0.6 s, its top broken by noise.
+        float wid = 28 + 40 * str + 160 * age;
+        float hgt = (40 + 120 * str) * sin(saturate(age / 0.65) * 3.14159) * saturate(1 - dy * dy / (wid * wid));
+        hgt *= 0.7 + 0.5 * Noise(float2(dy / 14 + sp.w * 31, age * 6));
+        // (none where it is only a few cm high: its sides and its end are no line along the surface)
+        float mound = smoothstep(max(px, 2), -max(px, 2), up - hgt) * smoothstep(-12, 0, up)
+            * smoothstep(4, 14, hgt);
+        // Frothy, not solid: clots of white over a thinner body, torn more toward its top.
+        float froth = Fbm(float2(dy / 22 + sp.w * 13, (up - age * 90) / 22), 3);
+        mound *= lerp(0.35, 1, smoothstep(0.35 + 0.25 * saturate(up / max(hgt, 1)), 0.7, froth));
+        // The crown's drops.
+        float drops = 0;
+        for (int j = 0; j < 14; j++) {
+            float2 id = float2(j * 1.37 + k * 9.1, sp.w * 57.3);
+            float2 h = Hash2(id);
+            float vy = (h.x - 0.5) * 2 * (110 + 260 * str);
+            float vz = (240 + 420 * h.y) * (0.55 + 0.55 * str) * (1 - 0.6 * abs(h.x - 0.5));
+            float t = age * (0.85 + 0.3 * Hash(id + 3.3)) - 0.05 * Hash(id + 4.4);
+            float2 at = float2(vy * t, vz * t - 490 * t * t);
+            if (t <= 0 || at.y < -2) {
+                continue;
+            }
+            float r = (2.5 + 4 * Hash(id + 5.1)) * (1 - 0.35 * age);
+            float rr = max(r, px * 0.9);
+            float dd = length(float2(dy, up) - at);
+            drops = max(drops, saturate(1.5 - dd / rr) * min(r / rr, 1));
+        }
+        float fade = saturate((1.6 - age) / 0.5);
+        white = max(white, max(mound * 0.9, drops) * fade);
+    }
+    return white;
+}
+
+// A splash's foam on the top seen from above at world (x, y) (UE): a broken ring spreading from where the fighter
+// crossed, and white water inside it early on. fp: a pixel's size there (cm).
+float SplashFoam(float2 p, float fp) {
+    float foam = 0;
+    for (int k = 0; k < 4; k++) {
+        float4 sp = Params[4 + k];
+        float age = sp.y;
+        if (!Game() || age < 0 || age > 1.6) {
+            continue;
+        }
+        float2 o = p - float2(0, sp.x);
+        float r = length(o);
+        float rad = (25 + 30 * sp.z) + 230 * sqrt(age);
+        if (r > rad + 60) {
+            continue;
+        }
+        float thick = max(6 + 10 * age, fp);
+        float a = atan2(o.y, o.x);
+        float torn = step(0.42, Noise(float2(a * 4 + sp.w * 23, age * 2)));
+        float edge = saturate(1 - abs(r - rad) / thick) * torn;
+        float inner = smoothstep(rad, rad * 0.4, r) * saturate(1 - age * 1.6)
+            * smoothstep(0.4, 0.7, Fbm(o / 18 + sp.w * 7, 2));
+        foam = max(foam, max(edge, inner) * saturate((1.6 - age) / 0.6) * lerp(0.6, 1, sp.z));
+    }
+    return saturate(foam);
 }

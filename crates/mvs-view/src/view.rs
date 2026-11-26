@@ -291,6 +291,8 @@ pub struct CharView {
     root_pos: [f64; 3],
     /// (the port's own, dev) The 3D feel test's move of the view (`depth_view`), three space; None: off.
     pub depth_turn: Option<crate::math::Mat4>,
+    /// (the port's own) Flood's swim pose (`swim.rs`): its lean turns the view about the body's middle.
+    pub swim: crate::swim::Swim,
     /// `fadeFromShown` (PoseCx::fade_from_shown).
     pub fade_from_shown: bool,
     /// Per part (skin sub-mesh) whether it shows (`partOn`, setPartVisible).
@@ -375,6 +377,7 @@ impl CharView {
             facing_left: false,
             root_pos: [0.0; 3],
             depth_turn: None,
+            swim: crate::swim::Swim::default(),
             fade_from_shown: false,
             part_on: Vec::new(),
             parts_only: false,
@@ -415,7 +418,18 @@ impl CharView {
         let h = std::f64::consts::FRAC_PI_2 / 2.0;
         let k = self.mesh_scale * self.size_scale;
         let model = math::compose([0.0; 3], [0.0, h.sin(), 0.0, h.cos()], [k, k, k]);
-        let m = math::mul(&root, &model);
+        let mut m = math::mul(&root, &model);
+        let lean = self.swim.lean();
+        if lean != 0.0 {
+            // About three's X (UE X, the depth) through the body's middle (sim y, the root's place less the mesh's
+            // offset under it).
+            let mid = [0.0, self.root_pos[1] - self.mesh_z * self.size_scale / 100.0, self.root_pos[2]];
+            let h = lean / 2.0;
+            let turn = math::compose([0.0; 3], [h.sin(), 0.0, 0.0, h.cos()], [1.0; 3]);
+            let to = math::compose(mid, [0.0, 0.0, 0.0, 1.0], [1.0; 3]);
+            let back = math::compose(mid.map(|v| -v), [0.0, 0.0, 0.0, 1.0], [1.0; 3]);
+            m = math::mul(&to, &math::mul(&turn, &math::mul(&back, &m)));
+        }
         match &self.depth_turn {
             Some(t) => math::mul(t, &m),
             None => m,

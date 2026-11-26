@@ -14,7 +14,7 @@ cbuffer Look : register(b0) {
     float4 AxisU;
     float4 AxisV;
     // The look file's `params`.
-    float4 Params[4];
+    float4 Params[8];
     // Clip to translated world, WorldToClip's inverse.
     row_major float4x4 ClipToWorld;
 };

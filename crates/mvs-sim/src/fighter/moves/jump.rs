@@ -144,6 +144,15 @@ pub fn try_jump(w: &mut World, f: FighterId) -> bool {
     if try_wall_jump(w, f) {
         return true;
     }
+    // (the port's own Flood: off the ground in the water a jump is a swim stroke, the air jump's, as many as pressed;
+    // the spent air jumps come back as the fighter leaves the water, `own_rules::flood`)
+    if crate::world::own_rules::swimming(w, f) {
+        w.fighter_mut(f).jump.jumps = 1; // the air jump's count, for its animation
+        jump_stop_montage(w, f);
+        do_jump(w, f, true);
+        crate::world::own_rules::stroke(w, f);
+        return true;
+    }
     // Walking off keeps the ground jump, so the first jump in the air is a ground jump.
     let fi = w.fighter(f);
     if fi.body.on_floor || fi.jump.jumps == 0 {
@@ -210,7 +219,8 @@ pub fn dash_dance(w: &mut World, f: FighterId, skip_anim: bool) {
     }
     let fi = w.fighter_mut(f);
     fi.air.dash_game_time = fi.clock.time; // @174041, after HandleDashAnim
-    net_impulse(w, f, dir * DASH_IMPULSE, 0.0, true, false, 1.0, false, 0.0); // DashDanceLogic
+    let push = DASH_IMPULSE * crate::world::own_rules::water_speed(w, f); // (the port's own Flood)
+    net_impulse(w, f, dir * push, 0.0, true, false, 1.0, false, 0.0); // DashDanceLogic
     let fi = w.fighter_mut(f);
     fi.air.dash_tick = crate::real(fi.clock.tick);
     sfx(w, f, Some(crate::name!("sfx_shared_combat_runtrail"))); // SFX_RunTrail, after DashDanceMulticast
@@ -275,9 +285,11 @@ pub fn do_jump(w: &mut World, f: FighterId, air: bool) {
     fi.jump.last_jump_time = fi.clock.time;
     // (the port's own Moon Jump: the speed and the height, `own_rules`)
     let moon = crate::world::own_rules::on(w, crate::world::own_rules::Rule::MoonJump);
+    let stroke = crate::world::own_rules::stroke_share(w, f, air); // (the port's own Flood: a swim stroke)
     let v = jump_velocity(w, f)
         * (if ff { 1.05 } else { 1.0 })
-        * (if moon { crate::world::own_rules::MOON_JUMP_SPEED } else { 1.0 });
+        * (if moon { crate::world::own_rules::MOON_JUMP_SPEED } else { 1.0 })
+        * stroke;
     if air {
         if ff {
             tutorial_event_of(w, f, crate::fighter::match_side::TutorialEvent::FastFallJump); // @6888
@@ -305,7 +317,8 @@ pub fn do_jump(w: &mut World, f: FighterId, air: bool) {
     // CalcJumpStopTime; with FastfallMult the height x FastFallJumpBoostMult.
     let h = (if air { double_jump_height(w, f) } else { jump_height(w, f) })
         * (if ff { FAST_FALL_JUMP_BOOST } else { 1.0 })
-        * (if moon { crate::world::own_rules::MOON_JUMP_HEIGHT } else { 1.0 });
+        * (if moon { crate::world::own_rules::MOON_JUMP_HEIGHT } else { 1.0 })
+        * (stroke * stroke);
     let t = calc_jump_stop_time(w, f, v, h);
     w.fighter_mut(f).jump.jump_cut_at = latent(t);
     if let Some(h) = w.fighter(f).hooks.char.end_jump {
@@ -648,7 +661,7 @@ pub fn trigger_fast_fall(w: &mut World, f: FighterId, block: bool, late: bool) {
 pub fn cap_fall(w: &World, f: FighterId, vy: Real) -> Real {
     let fi = w.fighter(f);
     let s = fi.moves.gravity_scale;
-    let t = fi.hit.terminal_v;
+    let t = crate::world::own_rules::water_terminal(w, f, fi.hit.terminal_v); // (the port's own Flood)
     if s > 0.0 {
         return if vy < -t { -t } else { vy };
     }

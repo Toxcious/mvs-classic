@@ -253,6 +253,9 @@ pub struct Renderer {
     pub wind_at: Option<crate::wind::WindAt>,
     hole: Option<crate::hole::Hole>,
     pub hole_at: Option<crate::hole::HoleAt>,
+    /// Flood's and Storm Flood's looks (`load_flood`) and the water this frame (None: not drawn).
+    flood: crate::flood::Flood,
+    pub flood_at: Option<crate::flood::FloodAt>,
     /// The stage's radial lights before the lava's were added to them (the next frame takes them back off).
     lava_base: Option<usize>,
     /// The frame's size (the output's); the scene targets and the post chain run at the view's size inside it.
@@ -499,6 +502,8 @@ impl Renderer {
             wind_at: None,
             hole: None,
             hole_at: None,
+            flood: crate::flood::Flood::default(),
+            flood_at: None,
             lava_base: None,
             captures,
             decals,
@@ -1442,6 +1447,11 @@ impl Renderer {
             lava.place(at);
             lava.look.draw(&fr)?;
         }
+        if let (false, Some(at)) = (menu, self.flood_at)
+            && let Some(look) = self.flood.place(&at)
+        {
+            look.draw(&fr)?;
+        }
         if let (false, Some(at), Some(hole)) = (menu, self.hole_at, &mut self.hole) {
             hole.place(at);
             hole.look.draw(&fr)?;
@@ -1478,6 +1488,11 @@ impl Renderer {
             self.lava = Some(crate::lava::Lava::load(&self.gpu, &self.assets)?);
         }
         Ok(())
+    }
+
+    /// Compiles the look of a flood of `style` for a match whose rules may turn it on.
+    pub fn load_flood(&mut self, style: crate::flood::FloodStyle) -> Result<()> {
+        self.flood.load(&self.gpu, &self.assets, style)
     }
 
     /// Compiles Wind's look for a match whose rules may turn it on.

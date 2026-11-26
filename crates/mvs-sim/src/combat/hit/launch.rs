@@ -480,6 +480,7 @@ pub fn phys_knockback(w: &mut World, f: FighterId, dt: Real, ax: Real, hitstun: 
     let a = ax * max_accel(w, f);
     let maxv = crate::math::narrow(def_of(w, x.ch).max_custom_speed) * min(ax.abs(), 1.0);
     let exceeds = |x: Real, y: Real| ue::is_exceeding_max_speed([x, y, 0.0], maxv);
+    let water = crate::world::own_rules::water_knock_keep(w, f, h); // (the port's own Flood)
     let mut slide = 0.0;
     for s in 0..2 {
         let x = w.fighter(f);
@@ -508,6 +509,10 @@ pub fn phys_knockback(w: &mut World, f: FighterId, dt: Real, ax: Real, hitstun: 
         }
         vx *= fr;
         vy *= if vy > 0.0 { fr } else { fr_down };
+        if water < 1.0 {
+            vx *= water;
+            vy *= water;
+        }
         vy -= g * h;
         let x = w.fighter_mut(f);
         x.body.vx = vx;

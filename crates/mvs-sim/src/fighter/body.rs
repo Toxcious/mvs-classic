@@ -60,6 +60,9 @@ pub struct Body {
     /// (the port's own, dev) The depth off the fight plane of the 3D feel test (`world::depth3d`), cm; 0 with the
     /// test off.
     pub d: Real,
+    /// (the port's own Flood) Its feet were under a flood's surface at the last tick's own rules
+    /// (`world::own_rules`): a change is a splash.
+    pub wet: bool,
 }
 
 /// `MOVE_START`: his place after `base_update` and the intended delta of his walk's last

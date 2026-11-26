@@ -28,7 +28,7 @@ const PRELUDE: &str = include_str!("look/prelude.hlsl");
 /// The store textures a look binds (Tex0..Tex7).
 const TEXTURES: usize = 8;
 /// The `params` rows the shaders read.
-const PARAMS: usize = 4;
+const PARAMS: usize = 8;
 
 /// `look.json`.
 #[derive(Clone, Debug, Default, Deserialize)]
@@ -39,7 +39,7 @@ pub struct LookFile {
     /// Store texture paths, bound as Tex0.. in order.
     #[serde(default)]
     pub textures: Vec<String>,
-    /// Rows the shaders read as Params[0..4].
+    /// Rows the shaders read as Params[0..8].
     #[serde(default)]
     pub params: Vec<[f32; 4]>,
     #[serde(default)]
@@ -395,7 +395,7 @@ impl Look {
             rows[10 + k] = *r;
         }
         for (i, row) in crate::view::inverse(&m).iter().enumerate() {
-            rows[14 + i] = row.map(|v| v as f32);
+            rows[10 + PARAMS + i] = row.map(|v| v as f32);
         }
         // t0 SceneColor's copy, t1 depth, t2..t9 the look's textures, t10 GBufferA (the world normal).
         let mut srvs: Vec<Option<ID3D11ShaderResourceView>> = vec![copy.srv.clone(), t.depth.srv.clone()];
@@ -460,8 +460,8 @@ impl Look {
 }
 
 /// The Look buffer's rows (prelude.hlsl): WorldToClip 4, CameraOrigin, Screen, TimeDepth, Center, AxisU, AxisV,
-/// Params 4, ClipToWorld 4.
-const ROWS: usize = 18;
+/// Params 8, ClipToWorld 4.
+const ROWS: usize = 22;
 
 #[cfg(test)]
 mod tests {

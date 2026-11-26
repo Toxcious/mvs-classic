@@ -41,6 +41,7 @@ mod second;
 mod shared;
 pub mod skin_intro;
 pub mod skins;
+pub mod swim;
 /// The Iron Giant's missile turn, his timelines' cubic and his turret's bolt ring, which his effects read (mvs-render
 /// fx/chars/iron_giant.rs).
 pub use chars::iron_giant::{

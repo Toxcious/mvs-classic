@@ -17,6 +17,7 @@ pub mod cmesh;
 pub mod decal;
 pub mod draw;
 pub mod fighters;
+pub mod flood;
 pub mod fx;
 pub mod gpu;
 pub mod hole;

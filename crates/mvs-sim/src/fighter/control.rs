@@ -1845,7 +1845,9 @@ pub fn execute_branch(
             // BPI_StartJump (BaseFighter): StartJump only with CurrentJumpNumber < MaxJumpNumber, so a branch cannot
             // reach StartJump's wall traces with the jumps spent, where the free press (JumpPressedLocal) can. The
             // jump stops the montage itself, and only when it starts.
-            return crate::real(w.fighter(f).jump.jumps) < max_jumps(w, f) && try_jump(w, f);
+            // (the port's own Flood: a swimmer's strokes are not counted)
+            let free = crate::world::own_rules::swimming(w, f);
+            return (free || crate::real(w.fighter(f).jump.jumps) < max_jumps(w, f)) && try_jump(w, f);
         }
         ExecuteKind::Dodge => {
             let neutral = force.is_some_and(|p| p.dir == dir_num(Dir::Neutral));

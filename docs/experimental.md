@@ -110,7 +110,13 @@ builds the rule itself, as it builds a queue match's tables).
   it, 150 units a second at 3200 units and up to 800 near it, along the ground while on it; a fighter whose middle
   reaches its 150 unit core takes 12 damage and is thrown out the way it came, lifted; ticked in the Mutators row it
   is open 20 seconds of every 30; drawn by the look approved in `tools/looks/black-hole`, with a burst, a hum and a
-  fall as it opens and closes). Bomb Rain (dynamite and mines) and Projectile Party (thrown items) run the
+  fall as it opens and closes), Flood and Storm Flood (water rises over 3.5 seconds to 230 units over the main
+  floor and drains in the window's last 3 seconds; a fighter in it moves at up to two thirds of its speed, sinks
+  slowly, floats up to the surface unless it holds down, and swims a stroke at each jump press, as many as it likes;
+  a launch in it carries about two thirds as far, projectiles slow and fizzle, and crossing the surface splashes;
+  animations and frame data keep their speed; Flood is clear tropical water with a stream's sound, Storm Flood a
+  storm sea with rain, lightning and a waterfall's roar, drawn by the looks approved in `tools/looks/flood-tropical`
+  and `tools/looks/flood-storm`; ticked in the Mutators row it is up 20 seconds of every 30). Bomb Rain (dynamite and mines) and Projectile Party (thrown items) run the
   item spawner as Random Items' window does, with that share of its list and one item every 2 seconds; they are
   the wheel's only, and never on at once with Random Items or each other.
 - The wheel's events (`mvs-sim` `world/wheel_events.rs`, the wheel's only) act at a window's start, some also at
