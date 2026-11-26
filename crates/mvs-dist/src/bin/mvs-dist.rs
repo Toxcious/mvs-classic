@@ -10,10 +10,10 @@
 //!       (tools/linux-build.sh release's folder, its stamp naming the version) into MVS-Classic-<version>-linux.zip,
 //!       with the self check of the Windows run; with --eos, its EOS library is the repo's third_party/eos one (or
 //!       MVS_EOS_SO's). --no-build packs the last build again (built for the same version and feed). --programs
-//!       packs the programs in <dir> instead of building them (the release workflow's, fetched by
-//!       tools/release-fetch.ps1). The built mvs.exe runs the self check's match on --store (default: the store it
-//!       finds itself) for the release's self-check.json; --self-check packs one made beforehand instead (the
-//!       repo's, made on a fresh import's store), held to the exe's `--compat-id`.
+//!       packs the programs in <dir> instead of building them (the release workflow's, downloaded from the build
+//!       workflow's run: .github/workflows/release.yml). The built mvs.exe runs the self check's match on --store
+//!       (default: the store it finds itself) for the release's self-check.json; --self-check packs one made
+//!       beforehand instead (the repo's, made on a fresh import's store), held to the exe's `--compat-id`.
 //!       On a Linux host the Windows programs are cross-built (tools/windows-cross.sh, target/xwin) unless --programs
 //!       names them, and run under Wine in a prefix made for the run beside <dir> (<dir>.wine, removed at the end),
 //!       and the Linux game and relay are built in the container (tools/linux-build.sh) unless --game-linux and

@@ -1,183 +1,338 @@
-# Builds a release's programs from its tag on GitHub's own machines and attests each one (where it was built, from
-# which commit, by this workflow), so anyone can check that the programs in a release zip came from this repo's code:
-#   gh attestation verify "MVS Classic.exe" --repo <owner>/<repo>
-# Three jobs, run side by side: `windows` (the Windows game, its launcher and the relay), `relay-linux` (the relay
-# for Linux servers) and `game-linux` (the Linux game and its launcher, with the libraries they load).
-# The zip itself is packed on the maintainer's machine by tools/release-fetch.ps1, which downloads these programs,
-# verifies their attestations and adds what only that machine has (the self check's reference, made by playing the
-# check match on an imported store, and Epic's SDK). Started only by a version tag; it holds no secrets.
+# Makes a draft release when a version tag is pushed. Publishing it is done by hand.
+#
+# Nothing is built here. The release is packed from the programs that build.yml already built and tested for the
+# tagged commit (that run's "Artifacts"), not from a second build of them. mvs-dist, the packer, comes from the same
+# run. It checks every program's version, the Windows programs' update feed, the self check's reference
+# (self-check.json, committed with the code it was made from) and runs the guard, which searches the zips for the
+# paks' key and the EOS secrets before anything is handed out.
+#
+# To make a release:
+#   1. Set the version in Cargo.toml ([workspace.package] version, 0.2.0 say) and commit it. On that clean tree make
+#      self-check.json for that code (tools/self-check.ps1, which refuses uncommitted code), commit it and push.
+#      build.yml builds the commit.
+#   2. Tag that commit v0.2.0 and push the tag: git tag v0.2.0 && git push origin v0.2.0
+#      This workflow waits for the build if it is still running. A suffix (v0.2.0-test1) makes a prerelease.
+#   3. When this has run, the release is a draft on the repo's Releases page. Check it, then publish it there (Edit,
+#      then "Publish release") or with: gh release edit v0.2.0 --draft=false
+# The game's updater reads the newest published release that is not a prerelease, so a draft or a prerelease is
+# never offered to players.
+#
+# The release holds three zips (the Windows game, the Linux game, the relay for both), a .sha256 beside each, and
+# SHA256SUMS of the three. Each zip is attested (where it was made, from which commit, by this workflow):
+#   gh attestation verify MVS-Classic-0.2.0.zip --repo <owner>/<repo>
+# The programs inside are attested by build.yml only when it built them for a push to the default branch. A tag on
+# another branch (a testing branch, say) still makes a release; its notes say that the programs are not attested.
+#
+# The secrets (the repo's Settings, then "Secrets and variables", then "Actions"):
+#   - EOS_CREDENTIALS: the text of eos.json, as it is. The game reads it to sign in to Epic's online services; it
+#     goes into both game zips as resources/eos.json. Its clientId and clientSecret are hidden in the logs.
+#   - MVS_PAK_KEY: the paks' AES key, 64 hex digits. It is not packed: the guard searches every zip for it, and a
+#     zip that holds it in any form is refused.
+# Either one missing stops the release, by name.
 name: release
 
 on:
   push:
+    # A version tag: v0.2.0, or v0.2.0-test1 for a prerelease. The exact form is checked below, where a bad tag
+    # fails loudly.
     tags: ['v*.*.*']
 
 permissions:
-  contents: read
+  contents: write      # make the release
+  actions: read        # find build.yml's run for the tagged commit and download its artifacts
+  id-token: write      # attest the zips: the attestation is signed with this run's identity
+  attestations: write  # store the zips' attestations in the repo
 
-env:
-  CARGO_INCREMENTAL: '0'
-  CARGO_TERM_COLOR: always
-  SCCACHE_GHA_ENABLED: 'true'
-  RUSTC_WRAPPER: sccache
+# Every `run:` in bash with pipefail. Without a shell named, GitHub runs `bash -e`, where a command that fails before a
+# pipe (mvs-dist into `tee`, say) does not fail its step, and the release would then go ahead anyway.
+defaults:
+  run:
+    shell: bash
 
 jobs:
-  windows:
-    runs-on: windows-latest
-    timeout-minutes: 150
-    permissions:
-      contents: read
-      id-token: write
-      attestations: write
+  release:
+    runs-on: ubuntu-26.04
+    # Up to 45 minutes waiting for the build, then a few minutes of work.
+    timeout-minutes: 75
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
     steps:
+      # The whole history: mvs-dist checks that no commit after the one holding self-check.json changed the code
+      # (git log and git diff back to that commit). No token is left in the checkout: nothing here pushes.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          fetch-depth: 0
           persist-credentials: false
-      - uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
-      - name: Build
-        shell: bash
+
+      # The programs report the workspace's version and the updater compares versions, so a release whose tag
+      # disagrees with the programs is worse than no release.
+      - name: Tag must match the version
+        id: version
         run: |
-          export MVS_VERSION="${GITHUB_REF_NAME#v}"
-          export MVS_UPDATE_FEED="https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/latest"
-          # the C runtime linked in, as mvs-dist builds it (no Visual C++ Redistributable needed)
-          export CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS="-C target-feature=+crt-static"
-          cargo build --release --locked -p mvs-app --bin mvs --bin mvs-launcher
-          cargo build --release --locked -p mvs-relay --bin mvs-relay
-          mkdir programs
-          cp target/release/mvs.exe target/release/mvs-launcher.exe target/release/mvs-relay.exe programs/
-          for p in mvs mvs-launcher mvs-relay; do
-            line=$("programs/$p.exe" --version | head -n 1)
-            case "$line" in
-              "$p $MVS_VERSION" | "$p $MVS_VERSION "*) echo "$line" ;;
-              *) echo "$p.exe says \"$line\", not \"$p $MVS_VERSION\"" >&2; exit 1 ;;
-            esac
+          tag="$GITHUB_REF_NAME"
+          version=$(sed -n '/^\[workspace\.package\]/,/^\[/s/^version *= *"\(.*\)"$/\1/p' Cargo.toml)
+          echo "tag $tag   workspace version $version"
+          [ -n "$version" ] || { echo "::error::no version in Cargo.toml's [workspace.package]"; exit 1; }
+          if [[ ! "$tag" =~ ^v([0-9]+\.[0-9]+\.[0-9]+)(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::tag $tag is not v<x.y.z> or v<x.y.z>-<suffix> (v0.2.0, v0.2.0-test1)"; exit 1
+          fi
+          base="${BASH_REMATCH[1]}"
+          [ "$base" = "$version" ] || {
+            echo "::error::tag $tag is for $base, but Cargo.toml's version is $version: set the version and tag that commit"
+            exit 1
+          }
+          # A suffix makes a prerelease, which the game's updater never offers.
+          prerelease=false
+          [ -z "${BASH_REMATCH[2]}" ] || prerelease=true
+          {
+            echo "tag=$tag"
+            echo "base=$base"
+            echo "prerelease=$prerelease"
+          } >> "$GITHUB_OUTPUT"
+          echo "version $base, prerelease $prerelease"
+
+      # The build is started by the branch push, not the tag. If both were pushed together it may still be running,
+      # so wait for it; if the commit was pushed with [skip ci], or never to a branch, no build exists and never will.
+      # Only runs started by a push or by hand count: a pull request's run carries the same commit but built the
+      # merge of it into the target branch, which is other code. A push to the default branch wins (build.yml attests
+      # its programs), else the newest successful run.
+      - name: Find the build for this commit
+        id: build
+        run: |
+          deadline_min=45
+          grace_min=5
+          poll_s=30
+          default=$(gh api "repos/$REPO" --jq .default_branch)
+          deadline=$(( $(date +%s) + deadline_min*60 ))
+          grace=$(( $(date +%s) + grace_min*60 ))
+          while :; do
+            runs=$(gh run list --repo "$REPO" --workflow build.yml --commit "$GITHUB_SHA" \
+                     --json databaseId,status,conclusion,event,headBranch --limit 50 \
+                   | jq '[.[] | select(.event == "push" or .event == "workflow_dispatch")]')
+            ok=$(jq -c --arg d "$default" '[.[] | select(.conclusion == "success")] | sort_by(.databaseId)
+                  | ([.[] | select(.event == "push" and .headBranch == $d)] | last) // last // empty' <<<"$runs")
+            # A push to the default branch that is still running is waited for, even when another run of this commit
+            # has already succeeded: its programs are the attested ones.
+            default_running=$(jq --arg d "$default" \
+              '[.[] | select(.event == "push" and .headBranch == $d and .status != "completed")] | length' <<<"$runs")
+            if [ -n "$ok" ] && [ "$default_running" -gt 0 ] \
+               && ! jq -e --arg d "$default" '.event == "push" and .headBranch == $d' <<<"$ok" > /dev/null; then
+              ok=
+            fi
+            if [ -n "$ok" ]; then
+              run=$(jq -r .databaseId <<<"$ok")
+              branch=$(jq -r .headBranch <<<"$ok")
+              event=$(jq -r .event <<<"$ok")
+              on_default=false
+              [ "$event" = push ] && [ "$branch" = "$default" ] && on_default=true
+              {
+                echo "run=$run"
+                echo "branch=$branch"
+                echo "on_default=$on_default"
+              } >> "$GITHUB_OUTPUT"
+              echo "using build run $run ($event on $branch; programs attested: $on_default)"
+              break
+            fi
+            total=$(jq 'length' <<<"$runs")
+            pending=$(jq '[.[] | select(.status != "completed")] | length' <<<"$runs")
+            now=$(date +%s)
+            if [ "$total" -eq 0 ] && [ "$now" -ge "$grace" ]; then
+              echo "::error::no build exists for $GITHUB_SHA -- was it pushed with [skip ci], or never pushed to a branch?"; exit 1
+            fi
+            if [ "$total" -gt 0 ] && [ "$pending" -eq 0 ]; then
+              echo "::error::every build for $GITHUB_SHA finished without succeeding (a failed or canceled build); rerun it, then rerun this"; exit 1
+            fi
+            [ "$now" -lt "$deadline" ] || { echo "::error::timed out waiting for the build of $GITHUB_SHA"; exit 1; }
+            echo "waiting for the build of $GITHUB_SHA ($total found, $pending still running)"
+            sleep "$poll_s"
           done
-          sha256sum programs/*
+
+      # One artifact of each kind, each matched as a whole name: a match on the end alone would take -linux for
+      # -relay-linux, or the testers' mvs-classic-linux.
+      - name: The artifacts must be present
+        id: artifacts
+        env:
+          run: ${{ steps.build.outputs.run }}
+        run: |
+          names=$(gh api "repos/$REPO/actions/runs/$run/artifacts?per_page=100" \
+                    --jq '.artifacts[] | select(.expired == false) | .name')
+          echo "$names"
+          for kind in windows game-linux relay-linux mvs-dist; do
+            name=$(grep -E -- "^mvs-classic-[0-9a-f]{12}-$kind\$" <<<"$names" || true)
+            [ -n "$name" ] || { echo "::error::build run $run has no unexpired $kind artifact"; exit 1; }
+            [ "$(wc -l <<<"$name")" -eq 1 ] || { echo "::error::build run $run has more than one $kind artifact"; exit 1; }
+            echo "$kind=$name" >> "$GITHUB_OUTPUT"
+          done
+
+      # By name, each into a directory of its own: download-artifact extracts a named artifact straight into path.
+      # Downloading "all" does not reliably add a directory per artifact (v8 said it would and then extracted into
+      # path anyway, which broke a release of another project).
+      - name: Download the Windows programs
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ${{ steps.artifacts.outputs.windows }}
+          run-id: ${{ steps.build.outputs.run }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/artifacts/windows
+      - name: Download the Linux game
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ${{ steps.artifacts.outputs.game-linux }}
+          run-id: ${{ steps.build.outputs.run }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/artifacts/game-linux
+      - name: Download the Linux relay
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ${{ steps.artifacts.outputs.relay-linux }}
+          run-id: ${{ steps.build.outputs.run }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/artifacts/relay-linux
+      - name: Download mvs-dist
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ${{ steps.artifacts.outputs.mvs-dist }}
+          run-id: ${{ steps.build.outputs.run }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/artifacts/mvs-dist
+
+      # mvs-dist runs the Windows mvs.exe under Wine for its version, its update feed and its self check id. Wine's
+      # wineserver is not on PATH in Ubuntu's package, and mvs-dist stops its Wine prefix with it, so its folder is
+      # added to PATH. The Linux game came as a .tar.gz (which keeps its programs marked executable); GitHub's
+      # artifact download drops that mark on the two programs that came bare, so it is set again.
+      - name: Wine, and the downloads made ready
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends wine
+          echo /usr/lib/x86_64-linux-gnu/wine >> "$GITHUB_PATH"
+          a="$RUNNER_TEMP/artifacts"
+          shopt -s nullglob
+          tars=("$a"/game-linux/*.tar.gz)
+          [ "${#tars[@]}" -eq 1 ] || { echo "::error::the game-linux artifact holds ${#tars[@]} .tar.gz files, not one"; exit 1; }
+          mkdir -p "$RUNNER_TEMP/linux-release"
+          tar -xzf "${tars[0]}" -C "$RUNNER_TEMP/linux-release"
+          chmod +x "$a/mvs-dist/mvs-dist" "$a/relay-linux/mvs-relay"
+          ls -l "$a"/windows "$a"/relay-linux "$a"/mvs-dist "$RUNNER_TEMP/linux-release"
+
+      # The secrets reach a script only through env, never written into it, and nothing here traces commands
+      # (set -x would print them). A secret that is not set reaches the step as an empty string, so it is refused by
+      # name here rather than skipped. eos.json is written where only this user can read it. GitHub hides a secret's
+      # whole text in the logs, but not the values inside it, so its client id and secret are hidden one by one
+      # before anything else reads the file.
+      - name: The secrets
+        env:
+          EOS_CREDENTIALS: ${{ secrets.EOS_CREDENTIALS }}
+          MVS_PAK_KEY: ${{ secrets.MVS_PAK_KEY }}
+        run: |
+          [ -n "$EOS_CREDENTIALS" ] || { echo "::error::the secret EOS_CREDENTIALS is empty or not set (the text of eos.json)"; exit 1; }
+          [ -n "$MVS_PAK_KEY" ] || { echo "::error::the secret MVS_PAK_KEY is empty or not set (the paks' key, 64 hex digits)"; exit 1; }
+          umask 077
+          file="$RUNNER_TEMP/eos/eos.json"
+          mkdir -p "$RUNNER_TEMP/eos"
+          printf '%s' "$EOS_CREDENTIALS" > "$file"
+          for k in clientId clientSecret; do
+            v=$(jq -r --arg k "$k" '.[$k] // empty' "$file" 2>/dev/null) \
+              || { echo "::error::the secret EOS_CREDENTIALS is not JSON (the text of eos.json)"; exit 1; }
+            [ -n "$v" ] || { echo "::error::the secret EOS_CREDENTIALS has no $k"; exit 1; }
+            echo "::add-mask::$v"
+          done
+          echo "MVS_EOS_CREDENTIALS=$file" >> "$GITHUB_ENV"
+
+      # The packing, run from the checkout (mvs-dist finds the repo from there: the EOS libraries in third_party/eos,
+      # the licenses, online.json). It checks every program's version against the tag's, that mvs.exe and
+      # mvs-launcher.exe hold this repo's update feed, that self-check.json is for this mvs.exe's id and that the
+      # code has not changed since it was committed, and it ends with the guard. Its zips' lines and the guard's go
+      # into the run's summary.
+      - name: Pack the release
+        env:
+          MVS_PAK_KEY: ${{ secrets.MVS_PAK_KEY }}
+          version: ${{ steps.version.outputs.base }}
+        run: |
+          a="$RUNNER_TEMP/artifacts"
+          "$a/mvs-dist/mvs-dist" build --version "$version" \
+            --feed "https://api.github.com/repos/$REPO/releases/latest" --eos \
+            --programs "$a/windows" --game-linux "$RUNNER_TEMP/linux-release" --relay-linux "$a/relay-linux/mvs-relay" \
+            --self-check self-check.json --out dist 2>&1 | tee "$RUNNER_TEMP/dist.log"
+          {
+            echo "### mvs-dist"
+            echo
+            echo '```'
+            grep -E '^dist: .*\.zip \(|^dist: self check|^guard:' "$RUNNER_TEMP/dist.log"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # Checksums in binary form ("hash *file"), the form a Windows sha256sum also expects, made inside dist so each
+      # names its file alone: one .sha256 beside each zip, so each download has its checksum with it, and SHA256SUMS
+      # of the three. Verify with: sha256sum -c <file>.sha256
+      - name: Checksums
+        run: |
+          cd dist
+          shopt -s nullglob
+          zips=(*.zip)
+          [ "${#zips[@]}" -eq 3 ] || { echo "::error::dist holds ${#zips[@]} zips, not three"; exit 1; }
+          for f in "${zips[@]}"; do
+            sha256sum -b "$f" > "$f.sha256"
+          done
+          sha256sum -b "${zips[@]}" > SHA256SUMS
+          cat SHA256SUMS
+          sha256sum -c ./*.sha256   # each zip verifies before it is published
+
+      # Each zip's attestation: anyone can check that it was made here, from this commit, by this workflow.
       - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
-          subject-path: programs/*.exe
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: programs-windows
-          path: programs/
-          if-no-files-found: error
+          subject-path: dist/*.zip
 
-  relay-linux:
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
-    permissions:
-      contents: read
-      id-token: write
-      attestations: write
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
-      - name: Build
+      # The release's text: where it came from, what each zip is, and how to check them.
+      - name: Notes
+        env:
+          run: ${{ steps.build.outputs.run }}
+          branch: ${{ steps.build.outputs.branch }}
+          on_default: ${{ steps.build.outputs.on_default }}
+          base: ${{ steps.version.outputs.base }}
         run: |
-          export MVS_VERSION="${GITHUB_REF_NAME#v}"
-          # one static file, as tools/relay-linux.ps1 builds it
-          export CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=rust-lld
-          export CARGO_PROFILE_RELEASE_DEBUG=0
-          export CARGO_PROFILE_RELEASE_STRIP=symbols
-          rustup target add x86_64-unknown-linux-musl
-          cargo build --release --locked --target x86_64-unknown-linux-musl -p mvs-relay
-          mkdir programs
-          cp target/x86_64-unknown-linux-musl/release/mvs-relay programs/
-          line=$(programs/mvs-relay --version | head -n 1)
-          case "$line" in
-            "mvs-relay $MVS_VERSION" | "mvs-relay $MVS_VERSION "*) echo "$line" ;;
-            *) echo "mvs-relay says \"$line\", not \"mvs-relay $MVS_VERSION\"" >&2; exit 1 ;;
-          esac
-          sha256sum programs/*
-      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
-        with:
-          subject-path: programs/mvs-relay
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: programs-relay-linux
-          path: programs/
-          if-no-files-found: error
+          {
+            echo "Built from \`$GITHUB_SHA\` in [build run $run](https://github.com/$REPO/actions/runs/$run)."
+            echo
+            echo "- \`MVS-Classic-$base.zip\`: the game for Windows, with its launcher."
+            echo "- \`MVS-Classic-$base-linux.zip\`: the game for Linux (a Steam Deck included), with its launcher."
+            echo "- \`MVS-Classic-Relay-$base.zip\`: the relay, for Windows (\`mvs-relay.exe\`) and Linux servers (\`mvs-relay\`)."
+            echo "- \`*.sha256\`, \`SHA256SUMS\`: checksums."
+            echo
+            echo "To check a download: \`sha256sum -c <file>.sha256\`, and that it was made by this repo's release workflow:"
+            echo "\`gh attestation verify <file> --repo $REPO\`."
+            echo
+            if [ "$on_default" = true ]; then
+              echo "The programs inside are attested too (built for a push to the default branch)."
+            else
+              echo "The programs inside were built on \`$branch\`; not attested."
+            fi
+          } > notes.md
+          cat notes.md >> "$GITHUB_STEP_SUMMARY"
 
-  # The Linux game, built the way tools/linux-build.sh builds it on a desktop: inside the Steam Runtime "sniper"
-  # container, so it runs on a Steam Deck and on ordinary desktop distributions.
-  game-linux:
-    runs-on: ubuntu-latest
-    timeout-minutes: 90
-    permissions:
-      contents: read
-      id-token: write
-      attestations: write
-    steps:
-      # The runner has 14 GB of disk for the container image (about 4 GB) and the build: remove preinstalled
-      # toolchains this job never uses, for room to spare. It takes about a minute, and a release run that fails for
-      # want of disk costs far more than that.
-      - name: Free disk space
+      # A draft, and left one: publishing is by hand. The game's updater reads only published releases, so it never
+      # sees this one until then. The release is made for the tag that started this run.
+      - name: Release
+        id: release
+        uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3.0.4
+        with:
+          name: MVS Classic ${{ steps.version.outputs.tag }}
+          body_path: notes.md
+          draft: true
+          prerelease: ${{ steps.version.outputs.prerelease }}
+          fail_on_unmatched_files: true
+          files: |
+            dist/*.zip
+            dist/*.sha256
+            dist/SHA256SUMS
+
+      - name: How to publish
+        env:
+          tag: ${{ steps.version.outputs.tag }}
+          url: ${{ steps.release.outputs.url }}
         run: |
-          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
-          df -h /
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      # DXVK-native (the library that turns the game's Direct3D 11 calls into Vulkan), built by `deps` at the tag
-      # the script pins. It is kept between runs under that tag, as the Linux workflow (linux.yml) keeps it, since
-      # building it takes minutes and gives the same files each time.
-      - name: DXVK tag
-        id: dxvk
-        run: echo "tag=$(sed -n 's/^DXVK_TAG=//p' tools/linux-build.sh)" >> "$GITHUB_OUTPUT"
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        id: dxvk-cache
-        with:
-          # The library and DXVK's license: `release` copies the license from DXVK's source folder, which is
-          # not kept otherwise.
-          path: |
-            target/linux-deps/dxvk
-            target/linux-deps/src/LICENSE
-          key: dxvk-${{ steps.dxvk.outputs.tag }}
-      - name: Build DXVK-native
-        if: steps.dxvk-cache.outputs.cache-hit != 'true'
-        run: tools/linux-build.sh deps
-
-      # The tag's version (v0.2.0 gives 0.2.0) goes into the programs. No MVS_UPDATE_FEED, unlike the Windows job:
-      # the game's updater is off on Linux, so a Linux build never looks for a newer release. The release folder is
-      # laid out in target/linux-release: "MVSC Launcher" at the top, the game and its libraries in game/.
-      - name: Build
-        run: MVS_VERSION="${GITHUB_REF_NAME#v}" tools/linux-build.sh release
-      # Each program must report the tag's version, as in the other jobs: a mismatch stops the release here.
-      # The programs run in the container the build used, not on the runner: the SDL3 library in game/ comes from
-      # the Steam Runtime and loads the sound and window-system libraries (PulseAudio, ALSA, X11, Wayland) that a
-      # desktop has and this runner does not. The image is already here from the build, under the same engine.
-      - name: Check the versions
-        run: |
-          engine=$(command -v podman || command -v docker)
-          image=$(sed -n 's/^IMAGE=//p' tools/linux-build.sh)
-          "$engine" run --rm --security-opt label=disable -v "$PWD/target/linux-release:/r:ro" \
-            -e version="${GITHUB_REF_NAME#v}" "$image" bash -euc '
-              check() {
-                line=$("$1" --version | head -n 1)
-                case "$line" in
-                  "$2 $version" | "$2 $version "*) echo "$line" ;;
-                  *) echo "$1 says \"$line\", not \"$2 $version\"" >&2; exit 1 ;;
-                esac
-              }
-              check "/r/MVSC Launcher" mvs-launcher
-              check "/r/game/MVS Classic" mvs'
-          sha256sum "target/linux-release/MVSC Launcher" "target/linux-release/game/MVS Classic"
-      # Both programs, one path per line, as the action's documentation lists several files. The spaces in the
-      # names need no quotes here: each line is read whole as one path.
-      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
-        with:
-          subject-path: |
-            target/linux-release/MVSC Launcher
-            target/linux-release/game/MVS Classic
-      # The whole folder, libraries and game/linux-build.json included: mvs-dist checks the programs against that
-      # file. GitHub's artifact download loses the files' Unix permissions (the "executable" mark), which is fine
-      # here: tools/release-fetch.ps1, on the maintainer's machine, hands the folder to mvs-dist, and mvs-dist marks
-      # the two programs executable by name when it packs the Linux zip.
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: programs-game-linux
-          path: target/linux-release/
-          if-no-files-found: error
+          {
+            echo
+            echo "**Draft release \`$tag\`: not published.** Check it on its page ($url), then publish it there"
+            echo "(Edit, then \"Publish release\") or with \`gh release edit $tag --draft=false\`."
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -55,7 +55,7 @@ pub struct Options {
     /// Skip the cargo builds and pack the last ones (a re-pack of the same version).
     pub no_build: bool,
     /// Skip the cargo builds and pack the programs in this folder (`mvs.exe`, `mvs-launcher.exe`, `mvs-relay.exe`):
-    /// the release workflow's, fetched and verified by `tools/release-fetch.ps1`.
+    /// the release workflow's (`release.yml`), downloaded from the build workflow's run.
     pub programs: Option<PathBuf>,
     /// The store the self check's match runs on (None: the one the built exe finds, its data root's).
     pub store: Option<PathBuf>,
@@ -1281,6 +1281,8 @@ mod tests {
     fn the_cross_script_adds_the_splat_after_the_flags_given() {
         let splat = temp("cross-splat");
         std::fs::create_dir_all(splat.join("crt/include")).unwrap();
+        // (Microsoft's folder names, as xwin's --preserve-ms-arch-notation makes them)
+        std::fs::create_dir_all(splat.join("crt/lib/x64")).unwrap();
         let s = splat.display();
         let lib = format!("-Lnative={s}/crt/lib/x64 -Lnative={s}/sdk/lib/um/x64 -Lnative={s}/sdk/lib/ucrt/x64");
         let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").canonicalize().unwrap();
@@ -1294,6 +1296,17 @@ mod tests {
         let (ok, out, err) = cross("cross-alone", None, Some(Path::new("/elsewhere")), Some(&splat));
         assert!(ok, "{err}");
         assert!(out.contains(&format!("flags {lib}\n")) && out.contains("dir /elsewhere\n"), "{out}");
+        // xwin's own folder names (its default), and a splat with neither: refused, naming both
+        std::fs::remove_dir_all(splat.join("crt/lib")).unwrap();
+        std::fs::create_dir_all(splat.join("crt/lib/x86_64")).unwrap();
+        let (ok, out, err) = cross("cross-x86_64", None, None, Some(&splat));
+        assert!(ok, "{err}");
+        let lib =
+            format!("-Lnative={s}/crt/lib/x86_64 -Lnative={s}/sdk/lib/um/x86_64 -Lnative={s}/sdk/lib/ucrt/x86_64");
+        assert!(out.contains(&format!("flags {lib}\n")), "{out}");
+        std::fs::remove_dir_all(splat.join("crt/lib")).unwrap();
+        let (ok, out, err) = cross("cross-nolib", None, None, Some(&splat));
+        assert!(!ok && out.is_empty() && err.contains("crt/lib/x86_64 or crt/lib/x64"), "{out}{err}");
         std::fs::remove_dir_all(&splat).unwrap();
         // without a splat it stops, says how the user makes one, and runs nothing
         let (ok, out, err) = cross("cross-none", Some(CRT_STATIC), None, None);

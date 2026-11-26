@@ -86,11 +86,47 @@ the repo's `third_party/eos` (`MVS_EOS_DLL` and `MVS_EOS_SO` name other copies o
 library) and the credentials from `MVS_EOS_CREDENTIALS`. The guard reads the paks' key as shown under "Point the
 tools at your beta". `release-check` tests the Windows updater and needs Windows.
 
-A version tag (`v<x.y.z>`) also builds the Linux game on GitHub (`.github/workflows/release.yml`, job
-`game-linux`), and `tools/release-fetch.ps1`, run on the maintainer's machine, packs it into the Linux zip with the
-others; with `--eos` (the default) its EOS library is the repo's too, so that machine needs only
-`MVS_EOS_CREDENTIALS`. Every push and pull request also builds a Linux test build (no EOS files, not a release): open
-the run on the repo's Actions tab and download `mvs-classic-linux` under "Artifacts".
+The releases on the repo's Releases page are packed on GitHub instead, as "Make a release" shows. Every push to a
+branch also builds a Linux test build (no EOS files, not a release): when the run's tests passed, open the run on
+the repo's Actions tab and download `mvs-classic-linux` under "Artifacts".
+
+### Make a release
+A release is packed on GitHub from the programs GitHub already built and tested for the commit you tag; nothing is
+built again for it. [`build.yml`](../.github/workflows/build.yml) builds every push to every branch, and
+[`release.yml`](../.github/workflows/release.yml) packs the release when a version tag is pushed. Their header
+comments say what each step does and why.
+
+1. Set the version in `Cargo.toml` (`version` under `[workspace.package]`, `0.2.0` say) and commit it with the rest
+   of the release's code.
+2. On that clean tree, make the self check's reference for that code, `self-check.json`:
+   - on Windows, `powershell -NoProfile -File tools/self-check.ps1 -Version 0.2.0`;
+   - on Linux, `pwsh -NoProfile -File tools/self-check.ps1 -Version 0.2.0`, with PowerShell (`pwsh`) installed and
+     `tools/linux-build.sh deps` run first.
+
+   The script refuses to run while the code has uncommitted changes, because the release checks that the code has
+   not changed since the commit that holds `self-check.json`. Commit `self-check.json` and push; `build.yml` builds
+   that commit.
+3. Tag the commit and push the tag: `git tag v0.2.0 && git push origin v0.2.0`. Both can be pushed together:
+   `release.yml` waits for the commit's build if it is still running. A suffix (`v0.2.0-test1`) makes a prerelease.
+4. When `release.yml` has run, the release is a draft on the repo's Releases page: three zips (the Windows game, the
+   Linux game, the relay for both), a `.sha256` beside each and `SHA256SUMS`. Check it, then publish it there
+   (Edit, then "Publish release") or with `gh release edit v0.2.0 --draft=false`.
+
+The game's updater offers only the newest published release that is not a prerelease, so players never see a draft
+or a prerelease.
+
+The release needs two secrets, set in the repo's Settings, then "Secrets and variables", then "Actions". Either one
+missing stops the release, by name.
+
+- `EOS_CREDENTIALS`: the text of `eos.json`, as it is. The game reads it to sign in to Epic's online services, and
+  it goes into both game zips. Its client id and secret are hidden in the run's logs.
+- `MVS_PAK_KEY`: the paks' key, 64 hex digits. It is never packed: the guard searches every zip for it and refuses a
+  zip that holds it.
+
+An attestation is GitHub's signed record of where a file was made and from which commit; the README's "Check a
+release's programs" shows how anyone checks one. A tag on a commit that was pushed only to another branch (a testing
+branch, say) still makes a release. Its zips are attested, but its programs are not: `build.yml` attests the
+programs only when it builds them for a push to the default branch. The release's notes say which.
 
 ### When you change Direct3D code or HLSL
 The Linux build needs two things that Windows makes for itself. Both are files in the repo, made again by a command

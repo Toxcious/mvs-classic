@@ -191,16 +191,26 @@ For day-to-day work, `play.bat` builds both and opens the launcher on your dev s
 
 ### Check a release's programs
 
-The programs in a release are built on GitHub's own machines from the release's tag
-([release.yml](.github/workflows/release.yml)), which attests each one: where it was built and from which commit.
-With the [GitHub CLI](https://cli.github.com/), check a program from the zip:
+A release's zips are packed on GitHub's own machines ([release.yml](.github/workflows/release.yml)), which attests
+each one: where it was made and from which commit. With the [GitHub CLI](https://cli.github.com/), check a zip you
+downloaded:
+
+```
+gh attestation verify MVS-Classic-<version>.zip --repo Toxcious/mvs-classic
+```
+
+The programs inside were built and tested on GitHub too ([build.yml](.github/workflows/build.yml)), which attests
+them when it built them for a push to the default branch. The release's notes say whether they were. If they were,
+check a program from the zip the same way:
 
 ```
 gh attestation verify "game\MVS Classic.exe" --repo Toxcious/mvs-classic
 ```
 
-The same works for `MVSC Launcher.exe` and both relays. The rest of the zip is text you can read (licences, small
-JSON files) and Epic's SDK, which Epic signs. Releases made before the workflow was added have no attestations.
+The same works for `MVSC Launcher.exe`, the Linux game's `MVSC Launcher` and `game/MVS Classic`, and both relays.
+Each zip has its SHA-256 beside it, in the release: check a download with `sha256sum -c <file>.sha256`. The rest of
+the zip is text you can read (licences, small JSON files) and Epic's SDK, which Epic signs. Releases made before the
+release workflow was added have no attestations.
 
 ### Check a change
 

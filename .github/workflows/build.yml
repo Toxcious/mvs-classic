@@ -1,0 +1,643 @@
+# Builds and checks every push to every branch, and offers what it built as downloads (the run's "Artifacts"). Five
+# jobs, the first four side by side:
+#   - test:    the format check, Clippy and the tests, built for Linux inside the Steam Runtime "sniper" container
+#              (tools/linux-build.sh), plus two checks of the source itself;
+#   - linux:   the Linux game and its launcher, laid out as the release folder by tools/linux-build.sh release;
+#   - windows: the Windows game, its launcher and the relay, cross-built on Linux (tools/windows-cross.sh) against an
+#              xwin copy of Microsoft's C runtime and Windows SDK, exactly as mvs-dist builds them for a release;
+#   - tools:   the relay for Linux servers (one static file) and mvs-dist, the program that packs a release;
+#   - offer:   once the tests passed, the Linux build again under one plain name for testers to find.
+#
+# release.yml packs a release from the programs this workflow built for the tagged commit, rather than building them
+# again. So every commit that may be tagged needs a build of its own: there is no path filter here (a commit that
+# changed only a document still gets its programs built), and no cancel-in-progress (a build cancelled by the next
+# push would leave its commit with nothing to release).
+#
+# Pull requests are not built: running code from someone else's fork on this repo's runners, and what that code may
+# then read or leave in the caches, is for the maintainer to weigh and decide later.
+#
+# The caches. A cold build of the workspace takes most of an hour on a runner, so each job keeps its target dir
+# between runs and Cargo rebuilds only what a push changed. Every run restores the newest cache its job has; only
+# runs on the default branch save one, so a branch starts from the default branch's build and never fills the
+# repo's cache space with its own. Before a save, tools/ci-prune.sh removes what this run's builds no longer use.
+name: build
+
+on:
+  push:
+    # Branches only. A tag push goes to release.yml, which uses this workflow's artifacts.
+    branches: ['**']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Every `run:` in bash with pipefail. Without a shell named, GitHub runs `bash -e`, where a command that fails before a
+# pipe (the prune into `tee`, say) does not fail its step, and the cache would then be saved anyway.
+defaults:
+  run:
+    shell: bash
+
+env:
+  # 'true' on a run of the default branch (a push to it, or a run started by hand on it), else 'false'. Only such
+  # runs save caches; only a push to it attests the programs.
+  ON_DEFAULT_BRANCH: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+
+jobs:
+  test:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 120
+    steps:
+      # The runner has 14 GB of disk for the container image (about 4 GB), the toolchains and the builds (about
+      # 7 GB): remove preinstalled toolchains this job never uses, for room to spare.
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
+          df -h /
+
+      # With the whole history: tools/ci-mtimes.sh diffs this commit against the one the cached build was made from,
+      # which can be on another branch (the default branch's cache, for a new branch) and need not be an ancestor of
+      # this one.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      # DXVK-native (the library that turns the game's Direct3D 11 calls into Vulkan), built by `deps` at the tag
+      # the script pins, is kept between runs under that tag: building it takes minutes and gives the same files
+      # each time.
+      - name: DXVK tag
+        id: dxvk
+        run: echo "tag=$(sed -n 's/^DXVK_TAG=//p' tools/linux-build.sh)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: dxvk-cache
+        with:
+          # The library and DXVK's license: `release` copies the license from DXVK's source folder, which is
+          # not kept otherwise.
+          path: |
+            target/linux-deps/dxvk
+            target/linux-deps/src/LICENSE
+          key: dxvk-${{ steps.dxvk.outputs.tag }}
+      - name: Build DXVK-native
+        if: steps.dxvk-cache.outputs.cache-hit != 'true'
+        run: tools/linux-build.sh deps
+      # Saved as soon as it is built: it depends on nothing else this job builds.
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: steps.dxvk-cache.outputs.cache-hit != 'true' && env.ON_DEFAULT_BRANCH == 'true'
+        with:
+          path: |
+            target/linux-deps/dxvk
+            target/linux-deps/src/LICENSE
+          key: ${{ steps.dxvk-cache.outputs.cache-primary-key }}
+
+      # The builds (Clippy's and the tests') are kept between runs, the workspace's own crates and test binaries
+      # included: compiling those is most of the job. The key names what Cargo cannot see for itself: the toolchain
+      # file (every unit's file name holds rustc's version, so an old toolchain's build is only dead weight) and the
+      # DXVK the game links. Then the lock, then the commit. The newest entry with the same toolchain and DXVK is
+      # restored, whatever its lock, so a dependency's update rebuilds only what it touches.
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: target-cache
+        with:
+          path: target/linux-sniper
+          key: >-
+            test-target-${{ hashFiles('rust-toolchain.toml') }}-dxvk-${{ steps.dxvk.outputs.tag }}-${{
+            hashFiles('Cargo.lock') }}-${{ github.sha }}
+          restore-keys: >-
+            test-target-${{ hashFiles('rust-toolchain.toml') }}-dxvk-${{ steps.dxvk.outputs.tag }}-
+      # The checkout stamped every file with the time of the checkout, newer than every build in the cache;
+      # tools/ci-mtimes.sh sets the files back, except those changed since the cache's commit, so Cargo rebuilds only
+      # what reads a changed file. Each build below writes Cargo's list of the units it used ("units") to a file in
+      # $RUNNER_TEMP/units: the prune before the save keeps those and removes the rest.
+      - name: Cached build's file times
+        run: |
+          tools/ci-mtimes.sh target/linux-sniper
+          mkdir -p "$RUNNER_TEMP/units"
+
+      - name: Format
+        run: tools/linux-build.sh cargo fmt --check
+      # The container's image is the sniper SDK's newest (`:latest`), so the summary names the one this run used.
+      - name: Build container's image
+        run: |
+          engine=$(command -v podman || command -v docker)
+          image=$(sed -n 's/^IMAGE=//p' tools/linux-build.sh)
+          {
+            echo "### Build container"
+            echo
+            echo "$image"
+            echo
+            "$engine" image inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' "$image"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+      # --message-format=json-render-diagnostics: Cargo prints the units as JSON on stdout, into the file, and the
+      # warnings and errors as usual on stderr, into the log.
+      - name: Clippy
+        id: clippy
+        run: >-
+          tools/linux-build.sh cargo clippy --release --all-targets --message-format=json-render-diagnostics
+          -- -D warnings > "$RUNNER_TEMP/units/clippy.json"
+      # Without incremental data and debug info, which a run that starts cold never uses: the test build is about
+      # 6 GB, not 40. Built in a step of its own, so the cache is saved only when every build in it succeeded (below);
+      # the next step's build is then up to date, and builds nothing.
+      - name: Build the tests
+        id: test-build
+        run: >-
+          tools/linux-build.sh cargo test --profile trace --config profile.trace.incremental=false
+          --config profile.trace.debug=false --workspace --no-fail-fast --no-run
+          --message-format=json-render-diagnostics > "$RUNNER_TEMP/units/test-build.json"
+      - name: Tests
+        id: tests
+        run: >-
+          tools/linux-build.sh cargo test --profile trace --config profile.trace.incremental=false
+          --config profile.trace.debug=false --workspace --no-fail-fast
+
+      # Saved when both builds (Clippy's and the tests') succeeded, failing tests or not: a build that failed or was
+      # cancelled can leave a crate built from an older commit than the one recorded, which tools/ci-mtimes.sh would
+      # then take as up to date. Not saved when this commit's cache already exists (an exact hit: a run started again).
+      - name: Prune the cached build
+        id: prune
+        if: >-
+          always() && env.ON_DEFAULT_BRANCH == 'true' && steps.clippy.outcome == 'success'
+          && steps.test-build.outcome == 'success' && steps.target-cache.outputs.cache-hit != 'true'
+        run: |
+          git rev-parse HEAD > target/linux-sniper/.ci-commit
+          tools/ci-prune.sh target/linux-sniper "$RUNNER_TEMP"/units/*.json | tee "$RUNNER_TEMP/prune.log"
+          { echo "### Cached build"; echo; grep -E ' is [^ ]+ (before|after);' "$RUNNER_TEMP/prune.log"; } \
+            >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: always() && steps.prune.outcome == 'success'
+        with:
+          path: target/linux-sniper
+          key: ${{ steps.target-cache.outputs.cache-primary-key }}
+
+      # On the runner itself: the generator is not part of the workspace, and rust-toolchain.toml picks its compiler
+      # and the rustfmt it formats with.
+      - name: D3D bindings
+        run: |
+          rustup toolchain install
+          cargo run --manifest-path tools/d3d-bindings/Cargo.toml -- --check
+      - name: No stubs left
+        run: "! grep -rn '// Unverified: stub' crates/"
+
+  # The Linux game and its launcher, built as tools/linux-build.sh release builds them on a desktop: inside the
+  # sniper container, so they run on a Steam Deck and on ordinary desktop distributions. At the workspace's version,
+  # with no update feed: the game's updater is off on Linux. release.yml packs the Linux zip from this job's folder.
+  linux:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    outputs:
+      short: ${{ steps.names.outputs.short }}
+    steps:
+      # The runner has 14 GB of disk for the container image (about 4 GB) and the build: remove preinstalled
+      # toolchains this job never uses, for room to spare.
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
+          df -h /
+      # The whole history, for tools/ci-mtimes.sh (see the test job).
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      # The commit's short name (12 characters in every job, so the artifacts of one run carry the same one) and the
+      # workspace's version, from [workspace.package] in Cargo.toml.
+      - name: Names
+        id: names
+        run: |
+          version=$(sed -n '/^\[workspace\.package\]/,/^\[/s/^version *= *"\(.*\)"$/\1/p' Cargo.toml)
+          [ -n "$version" ] || { echo "::error::no version in Cargo.toml's [workspace.package]"; exit 1; }
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "short=$(git rev-parse --short=12 HEAD)" >> "$GITHUB_OUTPUT"
+
+      # DXVK-native, as in the test job (the same cache).
+      - name: DXVK tag
+        id: dxvk
+        run: echo "tag=$(sed -n 's/^DXVK_TAG=//p' tools/linux-build.sh)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: dxvk-cache
+        with:
+          path: |
+            target/linux-deps/dxvk
+            target/linux-deps/src/LICENSE
+          key: dxvk-${{ steps.dxvk.outputs.tag }}
+      - name: Build DXVK-native
+        if: steps.dxvk-cache.outputs.cache-hit != 'true'
+        run: tools/linux-build.sh deps
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: steps.dxvk-cache.outputs.cache-hit != 'true' && env.ON_DEFAULT_BRANCH == 'true'
+        with:
+          path: |
+            target/linux-deps/dxvk
+            target/linux-deps/src/LICENSE
+          key: ${{ steps.dxvk-cache.outputs.cache-primary-key }}
+
+      # The release build, kept between runs as the test job keeps its builds (see there), under a key of its own:
+      # linux-build.sh builds into target/linux-sniper in every mode, so the two jobs cache the same dir, each with
+      # what it builds.
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: target-cache
+        with:
+          path: target/linux-sniper
+          key: >-
+            linux-target-${{ hashFiles('rust-toolchain.toml') }}-dxvk-${{ steps.dxvk.outputs.tag }}-${{
+            hashFiles('Cargo.lock') }}-${{ github.sha }}
+          restore-keys: >-
+            linux-target-${{ hashFiles('rust-toolchain.toml') }}-dxvk-${{ steps.dxvk.outputs.tag }}-
+      - name: Cached build's file times
+        run: |
+          tools/ci-mtimes.sh target/linux-sniper
+          mkdir -p "$RUNNER_TEMP/units"
+
+      # The same build `release` runs, first on its own: `release` lists no units, and the prune needs them. Its build
+      # then finds every unit up to date and only lays out the folder.
+      - name: Build the programs
+        id: units
+        run: >-
+          tools/linux-build.sh cargo build --release --locked -p mvs-app --bin mvs --bin mvs-launcher
+          --message-format=json-render-diagnostics > "$RUNNER_TEMP/units/release.json"
+      # The container's image is the sniper SDK's newest (`:latest`), so the summary names the one this run used.
+      - name: Build container's image
+        run: |
+          engine=$(command -v podman || command -v docker)
+          image=$(sed -n 's/^IMAGE=//p' tools/linux-build.sh)
+          {
+            echo "### Build container"
+            echo
+            echo "$image"
+            echo
+            "$engine" image inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' "$image"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+      # The release folder, in target/linux-release: "MVSC Launcher" at the top, the game and its libraries in game/,
+      # and game/linux-build.json (the version, both programs' SHA-256), which mvs-dist checks the programs against.
+      - name: Build the release folder
+        id: release
+        run: tools/linux-build.sh release
+      # Each program must report the workspace's version: release.yml holds a tag to that version.
+      # The programs run in the container the build used, not on the runner: the SDL3 library in game/ comes from
+      # the Steam Runtime and loads the sound and window-system libraries (PulseAudio, ALSA, X11, Wayland) that a
+      # desktop has and this runner does not. The image is already here from the build, under the same engine.
+      - name: Check the versions
+        env:
+          version: ${{ steps.names.outputs.version }}
+        run: |
+          engine=$(command -v podman || command -v docker)
+          image=$(sed -n 's/^IMAGE=//p' tools/linux-build.sh)
+          # (in single quotes: the container's bash expands the script, $version included)
+          # shellcheck disable=SC2016
+          "$engine" run --rm --security-opt label=disable -v "$PWD/target/linux-release:/r:ro" \
+            -e version "$image" bash -euc '
+              check() {
+                line=$("$1" --version | head -n 1)
+                case "$line" in
+                  "$2 $version" | "$2 $version "*) echo "$line" ;;
+                  *) echo "$1 says \"$line\", not \"$2 $version\"" >&2; exit 1 ;;
+                esac
+              }
+              check "/r/MVSC Launcher" mvs-launcher
+              check "/r/game/MVS Classic" mvs'
+          sha256sum "target/linux-release/MVSC Launcher" "target/linux-release/game/MVS Classic"
+      # Packed with tar first because GitHub's artifact upload drops Unix file permissions, and a player needs the
+      # two programs ("MVSC Launcher" and game/"MVS Classic") marked executable to start them; a .tar.gz keeps
+      # that mark.
+      - name: Pack the folder
+        id: pack
+        env:
+          version: ${{ steps.names.outputs.version }}
+          short: ${{ steps.names.outputs.short }}
+        run: |
+          file="target/MVS-Classic-$version-linux-$short.tar.gz"
+          tar -czf "$file" -C target/linux-release "MVSC Launcher" game
+          echo "file=$file" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: mvs-classic-${{ steps.names.outputs.short }}-game-linux
+          path: ${{ steps.pack.outputs.file }}
+          if-no-files-found: error
+      # Attests both programs (where they were built, from which commit, by this workflow), so anyone can check that
+      # the programs in a release came from this repo's code:
+      #   gh attestation verify "MVS Classic" --repo <owner>/<repo>
+      # On pushes to the default branch only: a branch's builds are tries, not candidates. One path per line; the
+      # spaces in the names need no quotes, since each line is read whole as one path.
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        if: github.event_name == 'push' && env.ON_DEFAULT_BRANCH == 'true'
+        with:
+          subject-path: |
+            target/linux-release/MVSC Launcher
+            target/linux-release/game/MVS Classic
+
+      # Saved when both builds succeeded, whatever the checks after them said (see the test job).
+      - name: Prune the cached build
+        id: prune
+        if: >-
+          always() && env.ON_DEFAULT_BRANCH == 'true' && steps.units.outcome == 'success'
+          && steps.release.outcome == 'success' && steps.target-cache.outputs.cache-hit != 'true'
+        run: |
+          git rev-parse HEAD > target/linux-sniper/.ci-commit
+          tools/ci-prune.sh target/linux-sniper "$RUNNER_TEMP"/units/*.json | tee "$RUNNER_TEMP/prune.log"
+          { echo "### Cached build"; echo; grep -E ' is [^ ]+ (before|after);' "$RUNNER_TEMP/prune.log"; } \
+            >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: always() && steps.prune.outcome == 'success'
+        with:
+          path: target/linux-sniper
+          key: ${{ steps.target-cache.outputs.cache-primary-key }}
+
+  # The Windows programs (mvs.exe, mvs-launcher.exe, mvs-relay.exe), built on Linux for Windows: Cargo compiles for
+  # the x86_64-pc-windows-msvc target, clang-cl compiles mvs-freetype's C, lld-link links, and xwin supplies the
+  # Windows headers and libraries Microsoft's compiler would. tools/windows-cross.sh puts those together. The builds
+  # are exactly mvs-dist's for a release, at the workspace's version and with the update feed of this repo.
+  windows:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    env:
+      # xwin, pinned to a release and to its tarball's SHA-256. To move to a newer one, check it, then change both.
+      XWIN_VERSION: 0.10.0
+      XWIN_SHA256: d870eb4b2f390878af6da1ccd3cf321d22fcb72720984853b4be732ae597fc88
+      # The Windows SDK and C runtime xwin fetches, named rather than left to xwin's defaults, so the cache keys
+      # below name what is really in them.
+      XWIN_SDK: 10.0.22621
+      XWIN_CRT: 14.44.17.14
+      XWIN_ARCH: x86_64
+      # The C runtime linked into each program, as mvs-dist builds them, so a player needs no Visual C++
+      # Redistributable. Every cross step below shares it: a change of flags makes Cargo rebuild everything.
+      CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS: -C target-feature=+crt-static
+      # The update feed the game and launcher check, built in as text: this repo's latest release.
+      MVS_UPDATE_FEED: https://api.github.com/repos/${{ github.repository }}/releases/latest
+    steps:
+      # The whole history, for tools/ci-mtimes.sh (see the test job).
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Names
+        id: names
+        run: echo "short=$(git rev-parse --short=12 HEAD)" >> "$GITHUB_OUTPUT"
+
+      # LLVM's clang-cl, lld-link and llvm-lib, under those plain names.
+      - name: Install LLVM
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends clang lld llvm
+      - name: Preflight
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$*"; exit 1; }
+          for tool in clang-cl lld-link llvm-lib; do
+            command -v "$tool" > /dev/null || fail "$tool is not on PATH after installing clang, lld and llvm"
+          done
+          {
+            echo "### Toolchain"
+            echo
+            clang-cl --version | head -n 1
+            lld-link --version | head -n 1
+            # (llvm-lib has no --version: it is llvm-ar under another name, from the same package)
+            echo "llvm-lib: $(readlink -f "$(command -v llvm-lib)"), $(llvm-ar --version | grep 'LLVM version')"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+      # The compiler rust-toolchain.toml names (rustup reads the file), and the Windows target, which the file does
+      # not list.
+      - name: Rust
+        run: |
+          rustup toolchain install
+          rustup target add x86_64-pc-windows-msvc
+
+      - name: Install xwin
+        run: |
+          set -euo pipefail
+          name="xwin-$XWIN_VERSION-x86_64-unknown-linux-musl"
+          curl -fsSL -o "$RUNNER_TEMP/$name.tar.gz" \
+            "https://github.com/Jake-Shadle/xwin/releases/download/$XWIN_VERSION/$name.tar.gz"
+          # Checked before anything in it runs.
+          echo "$XWIN_SHA256  $RUNNER_TEMP/$name.tar.gz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/$name.tar.gz" -C "$RUNNER_TEMP"
+          mkdir -p "$HOME/.local/bin"
+          install -m 755 "$RUNNER_TEMP/$name/xwin" "$HOME/.local/bin/xwin"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          "$HOME/.local/bin/xwin" --version
+      # The splat: the Windows SDK's and C runtime's headers and libraries, laid out where tools/windows-cross.sh
+      # looks. Cached under a key naming everything that decides its contents; made only when that cache is missing.
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: splat-cache
+        with:
+          path: ~/.cache/xwin/splat
+          key: xwin-${{ env.XWIN_VERSION }}-sdk-${{ env.XWIN_SDK }}-crt-${{ env.XWIN_CRT }}-${{ env.XWIN_ARCH }}
+      # --accept-license accepts Microsoft's license terms for the SDK and C runtime, which xwin downloads. The
+      # maintainer has already accepted them, for these same files, by building the game on Windows with Visual
+      # Studio; a runner has no one to ask.
+      - name: Make the splat
+        if: steps.splat-cache.outputs.cache-hit != 'true'
+        run: >-
+          xwin --accept-license --arch "$XWIN_ARCH" --sdk-version "$XWIN_SDK" --crt-version "$XWIN_CRT"
+          splat --output ~/.cache/xwin/splat
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: steps.splat-cache.outputs.cache-hit != 'true' && env.ON_DEFAULT_BRANCH == 'true'
+        with:
+          path: ~/.cache/xwin/splat
+          key: ${{ steps.splat-cache.outputs.cache-primary-key }}
+
+      # The builds, kept between runs as the test job keeps its builds (see there). Cargo does not see the splat,
+      # so the key names xwin's, the SDK's and the C runtime's versions.
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: target-cache
+        with:
+          path: target/xwin
+          key: >-
+            windows-target-${{ hashFiles('rust-toolchain.toml') }}-xwin-${{ env.XWIN_VERSION }}-sdk-${{
+            env.XWIN_SDK }}-crt-${{ env.XWIN_CRT }}-${{ hashFiles('Cargo.lock') }}-${{ github.sha }}
+          restore-keys: >-
+            windows-target-${{ hashFiles('rust-toolchain.toml') }}-xwin-${{ env.XWIN_VERSION }}-sdk-${{
+            env.XWIN_SDK }}-crt-${{ env.XWIN_CRT }}-
+      - name: Cached build's file times
+        run: |
+          tools/ci-mtimes.sh target/xwin
+          mkdir -p "$RUNNER_TEMP/units"
+
+      # Clippy for Windows: code behind cfg(windows) is checked only here. Any warning is an error.
+      - name: Clippy
+        id: clippy
+        run: >-
+          tools/windows-cross.sh clippy --release --workspace --all-targets --message-format=json-render-diagnostics
+          -- -D warnings > "$RUNNER_TEMP/units/clippy.json"
+      # One package a build, as mvs-dist builds them (crates/mvs-dist/src/pack.rs, build_command).
+      - name: Build the game and launcher
+        id: game
+        run: >-
+          tools/windows-cross.sh build --release --locked -p mvs-app --bin mvs --bin mvs-launcher
+          --message-format=json-render-diagnostics > "$RUNNER_TEMP/units/game.json"
+      - name: Build the relay
+        id: relay
+        run: >-
+          tools/windows-cross.sh build --release --locked -p mvs-relay --bin mvs-relay
+          --message-format=json-render-diagnostics > "$RUNNER_TEMP/units/relay.json"
+      # Each program is there and is a Windows program (it starts with "MZ"), and the game and the launcher hold the
+      # feed's URL as text. mvs-dist refuses programs without it when it packs the tag's release, and a release
+      # cannot rebuild them, so a program built without the feed is stopped here, at the push.
+      - name: Check the programs
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$*"; exit 1; }
+          dir=target/xwin/x86_64-pc-windows-msvc/release
+          for p in mvs mvs-launcher mvs-relay; do
+            [ -f "$dir/$p.exe" ] || fail "$dir/$p.exe was not built"
+            [ "$(head -c 2 "$dir/$p.exe")" = MZ ] || fail "$dir/$p.exe is not a Windows program"
+          done
+          for p in mvs mvs-launcher; do
+            grep -a -q -F "$MVS_UPDATE_FEED" "$dir/$p.exe" || fail "$dir/$p.exe was not built with the feed $MVS_UPDATE_FEED"
+          done
+          sha256sum "$dir/mvs.exe" "$dir/mvs-launcher.exe" "$dir/mvs-relay.exe"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: mvs-classic-${{ steps.names.outputs.short }}-windows
+          path: |
+            target/xwin/x86_64-pc-windows-msvc/release/mvs.exe
+            target/xwin/x86_64-pc-windows-msvc/release/mvs-launcher.exe
+            target/xwin/x86_64-pc-windows-msvc/release/mvs-relay.exe
+          if-no-files-found: error
+      # On pushes to the default branch only (see the linux job).
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        if: github.event_name == 'push' && env.ON_DEFAULT_BRANCH == 'true'
+        with:
+          subject-path: |
+            target/xwin/x86_64-pc-windows-msvc/release/mvs.exe
+            target/xwin/x86_64-pc-windows-msvc/release/mvs-launcher.exe
+            target/xwin/x86_64-pc-windows-msvc/release/mvs-relay.exe
+
+      # Saved when all three builds succeeded (see the test job).
+      - name: Prune the cached build
+        id: prune
+        if: >-
+          always() && env.ON_DEFAULT_BRANCH == 'true' && steps.clippy.outcome == 'success'
+          && steps.game.outcome == 'success' && steps.relay.outcome == 'success'
+          && steps.target-cache.outputs.cache-hit != 'true'
+        run: |
+          git rev-parse HEAD > target/xwin/.ci-commit
+          tools/ci-prune.sh target/xwin "$RUNNER_TEMP"/units/*.json | tee "$RUNNER_TEMP/prune.log"
+          { echo "### Cached build"; echo; grep -E ' is [^ ]+ (before|after);' "$RUNNER_TEMP/prune.log"; } \
+            >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: always() && steps.prune.outcome == 'success'
+        with:
+          path: target/xwin
+          key: ${{ steps.target-cache.outputs.cache-primary-key }}
+
+  # The relay for Linux servers, and mvs-dist (the program release.yml packs a release with), on the runner itself.
+  tools:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      # The whole history, for tools/ci-mtimes.sh (see the test job).
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Names
+        id: names
+        run: |
+          version=$(sed -n '/^\[workspace\.package\]/,/^\[/s/^version *= *"\(.*\)"$/\1/p' Cargo.toml)
+          [ -n "$version" ] || { echo "::error::no version in Cargo.toml's [workspace.package]"; exit 1; }
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "short=$(git rev-parse --short=12 HEAD)" >> "$GITHUB_OUTPUT"
+      # The compiler rust-toolchain.toml names, and the musl target the relay is built for.
+      - name: Rust
+        run: |
+          rustup toolchain install
+          rustup target add x86_64-unknown-linux-musl
+
+      # Both builds, kept between runs as the test job keeps its builds (see there).
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: target-cache
+        with:
+          path: target
+          key: tools-target-${{ hashFiles('rust-toolchain.toml') }}-${{ hashFiles('Cargo.lock') }}-${{ github.sha }}
+          restore-keys: tools-target-${{ hashFiles('rust-toolchain.toml') }}-
+      - name: Cached build's file times
+        run: |
+          tools/ci-mtimes.sh target
+          mkdir -p "$RUNNER_TEMP/units"
+
+      # One static file, as tools/relay-linux.ps1 builds it: musl, linked by rust-lld, no debug info, stripped. It
+      # runs on any Linux server, whatever its C library.
+      - name: Build the relay
+        id: relay
+        env:
+          CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER: rust-lld
+          CARGO_PROFILE_RELEASE_DEBUG: '0'
+          CARGO_PROFILE_RELEASE_STRIP: symbols
+        run: >-
+          cargo build --release --locked --target x86_64-unknown-linux-musl -p mvs-relay
+          --message-format=json-render-diagnostics > "$RUNNER_TEMP/units/relay.json"
+      # The relay must report the workspace's version: release.yml holds a tag to that version.
+      - name: Check the relay's version
+        env:
+          version: ${{ steps.names.outputs.version }}
+        run: |
+          relay=target/x86_64-unknown-linux-musl/release/mvs-relay
+          line=$("$relay" --version | head -n 1)
+          case "$line" in
+            "mvs-relay $version" | "mvs-relay $version "*) echo "$line" ;;
+            *) echo "mvs-relay says \"$line\", not \"mvs-relay $version\"" >&2; exit 1 ;;
+          esac
+          sha256sum "$relay"
+      # The packer runs on this same runner image in release.yml.
+      - name: Build mvs-dist
+        id: dist
+        run: >-
+          cargo build --release --locked -p mvs-dist --message-format=json-render-diagnostics
+          > "$RUNNER_TEMP/units/dist.json"
+      # (GitHub's artifact upload drops the "executable" mark; release.yml sets it again on mvs-dist.)
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: mvs-classic-${{ steps.names.outputs.short }}-relay-linux
+          path: target/x86_64-unknown-linux-musl/release/mvs-relay
+          if-no-files-found: error
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: mvs-classic-${{ steps.names.outputs.short }}-mvs-dist
+          path: target/release/mvs-dist
+          if-no-files-found: error
+      # On pushes to the default branch only (see the linux job). mvs-dist is not attested: it ships in no release.
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        if: github.event_name == 'push' && env.ON_DEFAULT_BRANCH == 'true'
+        with:
+          subject-path: target/x86_64-unknown-linux-musl/release/mvs-relay
+
+      # Saved when both builds succeeded (see the test job).
+      - name: Prune the cached build
+        id: prune
+        if: >-
+          always() && env.ON_DEFAULT_BRANCH == 'true' && steps.relay.outcome == 'success'
+          && steps.dist.outcome == 'success' && steps.target-cache.outputs.cache-hit != 'true'
+        run: |
+          git rev-parse HEAD > target/.ci-commit
+          tools/ci-prune.sh target "$RUNNER_TEMP"/units/*.json | tee "$RUNNER_TEMP/prune.log"
+          { echo "### Cached build"; echo; grep -E ' is [^ ]+ (before|after);' "$RUNNER_TEMP/prune.log"; } \
+            >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: always() && steps.prune.outcome == 'success'
+        with:
+          path: target
+          key: ${{ steps.target-cache.outputs.cache-primary-key }}
+
+  # A Linux build to try, offered only from a run whose tests passed: a build whose tests failed is never handed to a
+  # player. Find it on the run's page on GitHub (the Actions tab, then this run), under "Artifacts", as
+  # mvs-classic-linux; it downloads as a .zip with the .tar.gz inside. It is a test build, not a release: it has no
+  # EOS files (Epic's online services), so online play goes through the relay only. The .tar.gz keeps the two
+  # programs marked executable; unpack it with: tar -xzf MVS-Classic-<version>-linux-<commit>.tar.gz
+  offer:
+    needs: [test, linux]
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: mvs-classic-${{ needs.linux.outputs.short }}-game-linux
+          path: game-linux
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: mvs-classic-linux
+          path: game-linux/*.tar.gz
+          if-no-files-found: error
