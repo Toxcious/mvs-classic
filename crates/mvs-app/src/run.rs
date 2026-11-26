@@ -1761,7 +1761,8 @@ impl MatchLoop {
         let right = w.held("RightMouseButton");
         let shift = w.held("LeftShift") || w.held("RightShift");
         if w.held("MiddleMouseButton") || (right && shift) {
-            // (the lens's width at the pivot is about twice its distance: a pixel moves the pivot 0.001 of it, so the scene follows the pointer)
+            // (the lens's width at the pivot is about twice its distance: a pixel moves the pivot 0.001 of it, so the
+            // scene keeps up with the pointer)
             free.pan_by(&pov, -moved.0 * 0.001, moved.1 * 0.001);
         } else if right {
             free.orbit(moved.0 * 0.25, moved.1 * 0.25);
