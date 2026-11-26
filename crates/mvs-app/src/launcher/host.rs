@@ -45,7 +45,6 @@ pub struct Options {
 
 /// The parts the launcher runs on.
 pub struct Host {
-    pub window: Window,
     pub gpu: Gpu,
     pub swap: SwapChain,
     pub devices: Devices,
@@ -62,6 +61,8 @@ pub struct Host {
     pub play: bool,
     /// What PLAY starts the game with.
     pub game: GameArgs,
+    /// Last, so it drops after the swap chain that draws to it (a Wayland surface has to outlive its swap chain).
+    pub window: Window,
 }
 
 impl std::fmt::Debug for Host {

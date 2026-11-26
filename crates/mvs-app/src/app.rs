@@ -81,7 +81,6 @@ pub struct UiShared {
 
 /// The parts every screen runs on.
 pub struct Shell {
-    pub window: Window,
     pub swap: SwapChain,
     /// The GPU while no store is open; it moves into the renderer when one opens (exactly one of the two is set).
     gpu: Option<Gpu>,
@@ -139,6 +138,9 @@ pub struct Shell {
     want_ui: bool,
     want_audio: bool,
     audio_backend: Backend,
+    /// Last, so it drops after the swap chain and renderer that draw to it (a Wayland surface has to outlive its
+    /// swap chain).
+    pub window: Window,
 }
 
 impl std::fmt::Debug for Shell {
