@@ -98,6 +98,9 @@ pub struct Player {
     /// The Collision modules' view: the eye of the last draws (None before them) and the LOD distance factor.
     collision_loc: Option<V3>,
     lod: f64,
+    /// (the port's own Ghosts) The systems spawned now start ghosted (`set_ghost`): their fighter is hidden from this
+    /// screen.
+    pub spawn_ghost: bool,
 }
 
 impl fmt::Debug for Player {
@@ -151,6 +154,7 @@ impl Player {
             surfaces: None,
             collision_loc: None,
             lod: 1.0,
+            spawn_ghost: false,
         })
     }
 
@@ -323,7 +327,8 @@ impl Player {
         Some(Loaded { t: Arc::new(t), sections })
     }
 
-    fn insert(&mut self, s: SystemInstance, sections: Vec<Option<u32>>) -> SystemId {
+    fn insert(&mut self, mut s: SystemInstance, sections: Vec<Option<u32>>) -> SystemId {
+        s.ghost = self.spawn_ghost;
         let index = match self.free.pop() {
             Some(i) => {
                 let slot = &mut self.slots[i as usize];
@@ -587,6 +592,13 @@ impl Player {
         }
     }
 
+    /// (the port's own Ghosts) A ghosted system is not drawn, whatever its visibility.
+    pub fn set_ghost(&mut self, id: SystemId, on: bool) {
+        if let Some(s) = self.get(id) {
+            s.ghost = on;
+        }
+    }
+
     /// SetBeamSourcePoint (142bf87c0): the point of beam `index` of the system's emitter `emitter` (its place in the
     /// system), for a BeamSource with SourceMethod UserSet; the array grows with zero points to `index`.
     pub fn set_beam_source_point(&mut self, id: SystemId, emitter: i32, point: [f64; 3], index: i32) {
@@ -739,7 +751,7 @@ impl Player {
         for &i in &self.live {
             let slot = &mut self.slots[i as usize];
             let s = slot.sys.as_mut().unwrap();
-            if s.hidden {
+            if s.hidden || s.ghost {
                 continue;
             }
             let z = view_z(s.bounds.o, &view);

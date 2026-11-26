@@ -17,6 +17,7 @@ use crate::anim::{Clips, HeadScaleStep, Rig};
 use crate::blend::BlendSpaces;
 use crate::chars::{self, CharRender, MinionView, PawnActor, PawnCx, PoseHook, PoseOf, SANDWICH, render_of};
 use crate::frame::{ActorPose, FighterPose, MaterialRef, MeshPose, SecondKind};
+use crate::ghost::{self, Ghost};
 use crate::heart_skin;
 use crate::items::ItemAssets;
 use crate::items::snowball_head::Heads;
@@ -168,6 +169,8 @@ pub(crate) struct Rec {
     /// The pawn's own mesh components (addComponentMesh), in the order they were added.
     components: Vec<ComponentView>,
     pub(crate) visible: bool,
+    /// How this screen shows it under the port's own Ghosts (Shown where it is not drawn at all).
+    pub(crate) ghost: Ghost,
     pub(crate) outlines_on: bool,
     shown_at: Option<ShownAt>,
     flash_left: f64,
@@ -992,6 +995,7 @@ impl ViewPoser {
             montage: Vec::new(),
             components: Vec::new(),
             visible: true,
+            ghost: Ghost::Shown,
             outlines_on: true,
             shown_at: None,
             flash_left: 0.0,
@@ -1239,7 +1243,8 @@ impl ViewPoser {
             let fi = world.fighter(r.fid);
             let cx = PawnCx {
                 fid: r.fid,
-                hidden: fi.life.dead != 0.0 || fi.vis.invisible,
+                // (the port's own Ghosts: a pawn actor is no outline, so hidden with its fighter either way)
+                hidden: fi.life.dead != 0.0 || fi.vis.invisible || r.ghost != Ghost::Shown,
                 pose: r.pose.as_deref(),
                 stencil: if r.outlines_on { r.colour.stencil } else { 0 },
             };
@@ -1247,6 +1252,13 @@ impl ViewPoser {
                 a.present(&host, world, &cx, f64::from(alpha), actors);
             }
         }
+    }
+
+    /// How this screen shows fighter `f` under the port's own Ghosts as the last `place` found it (crate::ghost;
+    /// Shown for a fighter with no view or not drawn at all).
+    pub fn ghost(&self, w: &World, f: FighterId) -> Ghost {
+        let id = w.fighter(f).id;
+        self.recs.iter().find(|r| r.id == id && r.minion.is_none()).map_or(Ghost::Shown, |r| r.ghost)
     }
 
     /// The HUD's point of fighter `f` between the last tick (0) and the latest (1): its
@@ -1527,7 +1539,7 @@ impl ViewPoser {
     // ---- placing and presenting the views -------------------------------------------------------------------
 
     fn place_views(&mut self, w: &World) {
-        let ViewPoser { clips, recs, colours, .. } = self;
+        let ViewPoser { clips, recs, colours, me, online, .. } = self;
         for r in recs.iter_mut() {
             let clips = clips.get_mut(&r.key).expect("the view's clips");
             if r.minion.is_some() {
@@ -1540,7 +1552,8 @@ impl ViewPoser {
                     r.colour.stencil = c.stencil;
                     r.colour.outline = c.outline;
                 }
-                place_view(r, clips, w);
+                let g = ghost::ghost(w, r.fid, *me, *online);
+                place_view(r, clips, w, g);
             }
         }
     }
@@ -1630,6 +1643,7 @@ impl ViewPoser {
             n += 1;
             meshes_into(r, cs, cs_ue, &mut f.meshes);
             (f.fighter, f.priority, f.hidden, f.heart) = (r.id as u32, r.priority, !r.visible, r.heart.is_some());
+            f.outline = r.ghost == Ghost::Outline;
         }
         fighters.truncate(n);
     }
@@ -1689,7 +1703,9 @@ fn place_minion(r: &mut Rec, clips: &mut Clips, w: &World) {
     r.minion.as_mut().expect("a minion's view").live = Some(f);
     r.fid = f;
     r.id = w.fighter(f).id;
-    place_view(r, clips, w);
+    // (the port's own Ghosts: a minion is nobody's to see as an outline)
+    let g = if mvs_sim::world::own_rules::ghost_hidden(w, f) { Ghost::Hidden } else { Ghost::Shown };
+    place_view(r, clips, w, g);
     if let Some(place) = def.place {
         place(r, w, f);
     }
@@ -1720,8 +1736,8 @@ fn hide_minion(r: &mut Rec) {
 /// A minion view's loco key under MinionView::nav: one constant, the machine's own crossfades in its pose.
 const NAV_KEY: ViewKey = ViewKey::Gen(i32::MIN);
 
-/// One tick's placement of a view (placeViews' loop body).
-fn place_view(r: &mut Rec, clips: &mut Clips, w: &World) {
+/// One tick's placement of a view (placeViews' loop body); `ghost`: how this screen shows it under Ghosts.
+fn place_view(r: &mut Rec, clips: &mut Clips, w: &World, ghost: Ghost) {
     let f = r.fid;
     let fi = w.fighter(f);
     let dead = fi.life.dead != 0.0;
@@ -1736,8 +1752,11 @@ fn place_view(r: &mut Rec, clips: &mut Clips, w: &World) {
         fi.vis.always_visible.as_ref()
     };
     let parts_only = kept.is_some_and(|k| !k.is_empty());
-    // (the port's own Ghosts hides a fighter between its attacks, hits and flashes: `own_rules::ghost_hidden`)
-    r.visible = !dead && (shown || parts_only) && !mvs_sim::world::own_rules::ghost_hidden(w, f);
+    // (the port's own Ghosts hides a fighter between its attacks, hits and flashes, or draws its outline alone for a
+    // player of this machine: crate::ghost)
+    let drawn = !dead && (shown || parts_only);
+    r.ghost = if drawn { ghost } else { Ghost::Shown };
+    r.visible = drawn && ghost == Ghost::Shown;
     r.view.parts_only = parts_only;
     r.view.size_scale = f64::from(fi.body.size_scale);
     // (a skin's own intro over the sim's default one: skin_intro.rs; once a tick, its clock)
@@ -1941,7 +1960,11 @@ fn place_view(r: &mut Rec, clips: &mut Clips, w: &World) {
         d,
     };
     match was {
-        Some(p) if r.visible && p.raw_x == f64::from(fi.body.prev_x) && p.raw_y == f64::from(fi.body.prev_y) => {
+        Some(p)
+            if (r.visible || r.ghost != Ghost::Shown)
+                && p.raw_x == f64::from(fi.body.prev_x)
+                && p.raw_y == f64::from(fi.body.prev_y) =>
+        {
             s.px = p.x;
             s.py = p.y;
         }
@@ -2442,6 +2465,7 @@ pub(crate) fn build_rec(m: RecMake<'_>, clips: &mut Clips, blend: &BlendSpaces, 
         montage: Vec::new(),
         components: Vec::new(),
         visible: true,
+        ghost: Ghost::Shown,
         outlines_on: true,
         shown_at: None,
         flash_left: 0.0,
@@ -2533,7 +2557,8 @@ pub(crate) fn meshes_into(r: &Rec, cs: &[Mat4], cs_ue: &[Mat4], out: &mut Vec<Me
     let to_world = math::rows3x4(&math::to_ue(&model));
     let z_flip = math::compose([0.0; 3], [0.0, 0.0, 0.0, 1.0], [1.0, 1.0, -1.0]);
     let flipped_y = math::rows3x4(&math::to_ue(&math::mul(&model, &z_flip)));
-    let stencil = if r.outlines_on { r.colour.stencil } else { 0 };
+    // (the port's own Ghosts: a local player's hidden fighter is its outline alone, whatever the outline preference)
+    let stencil = if r.outlines_on || r.ghost == Ghost::Outline { r.colour.stencil } else { 0 };
     let mut out = PoseList { v: out, n: 0 };
     // (a skinned mesh's pose: its bones on the followed bones `map`)
     let skinned = |p: &mut MeshPose, m: &ViewMesh, map: Option<&[usize]>, stencil: u8| {

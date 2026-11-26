@@ -31,6 +31,7 @@ use mvs_vfx::player::Player;
 use mvs_vfx::{Attachment, SystemId};
 use mvs_view::actor_view::Xform;
 use mvs_view::actors::{actor_place, actor_rot};
+use mvs_view::ghost::Ghost;
 use mvs_view::mesh::MeshInfo;
 use mvs_view::skin_intro::IntroMute;
 use mvs_view::skins::{FighterColour, FighterDraws, fighter_colours, skin_of};
@@ -703,8 +704,10 @@ impl Fx {
         // (ahead of the events: a new projectile's view placed, its class view's components made)
         self.place_class_items(world, true);
         for e in &world.events {
+            self.player.spawn_ghost = Self::ghost_subject(e).is_some_and(|id| self.ghost_hidden(world, id));
             self.event(world, e);
         }
+        self.player.spawn_ghost = false;
         // (after the events: a despawned pawn's last events are read with its entry)
         self.drop_gone_pawns(world);
         self.place_smoke_trails(world);
@@ -714,6 +717,7 @@ impl Fx {
         self.place_projectiles(world);
         self.dilate_notify_fx(world);
         self.follow(world);
+        self.ghost_visibility(world);
         self.player.tick(STEP);
         self.each_char(|c, fx| c.after_tick(fx, world));
         // (the frame's placeProjectiles, after the tick: the items' thrown components and tunnel trails)
@@ -878,6 +882,71 @@ impl Fx {
             && mesh_hidden(w, fid)
         {
             self.player.set_visible(h, false);
+        }
+    }
+
+    /// (the port's own Ghosts) Fighter `id` is hidden whole from this screen (mvs_view::ghost; a local player's own
+    /// fighter is drawn as its outline and keeps its effects).
+    fn ghost_hidden(&self, w: &World, id: i32) -> bool {
+        w.by_id(id).is_some_and(|f| mvs_view::ghost::ghost(w, f, self.me, self.online) == Ghost::Hidden)
+    }
+
+    /// (the port's own Ghosts) The event's fighter, for an event whose systems are drawn on that fighter or spawned
+    /// where it stands (its moves' dust, trails, notifies, emotes, rage, dodge): those spawned while the fighter is
+    /// hidden start ghosted. A hit (an armored one too), a KO and a projectile's or an item's effects show.
+    fn ghost_subject(e: &Event) -> Option<i32> {
+        match *e {
+            Event::SmokeTrail { fighter, .. }
+            | Event::MoveFx { fighter, .. }
+            | Event::NotifyVfx { fighter, .. }
+            | Event::EmoteVfx { fighter, .. }
+            | Event::ParticleNotify { fighter, .. }
+            | Event::RageVfx { fighter, .. }
+            | Event::RageResidual { fighter, .. }
+            | Event::RageGlow { fighter, .. }
+            | Event::SwordGlow { fighter, .. }
+            | Event::SpawnFx { fighter, .. }
+            | Event::EvadeFx { fighter }
+            | Event::EnlargeFx { fighter, .. }
+            | Event::GrowFx { fighter }
+            | Event::ElectricFx { fighter, .. } => Some(fighter),
+            _ => None,
+        }
+    }
+
+    /// (the port's own Ghosts) Each step, after the followers are placed: the systems on a fighter (its attached
+    /// followers and the ones its pawn entry holds) ghosted while it is hidden from this screen and shown with it. A
+    /// one-shot spawned where it stood while hidden stays ghosted (`ghost_subject`).
+    fn ghost_visibility(&mut self, w: &World) {
+        let hidden: Vec<(i32, bool)> = self.pawns.keys().map(|&id| (id, self.ghost_hidden(w, id))).collect();
+        let of = |id: i32| hidden.iter().find(|h| h.0 == id).is_some_and(|h| h.1);
+        for (h, f) in &self.followers {
+            let id = match *f {
+                Follow::Mesh { id, .. }
+                | Follow::Socket { id, .. }
+                | Follow::Root { id, .. }
+                | Follow::RootScaled { id, .. }
+                | Follow::Evade { id, .. }
+                | Follow::Capsule { id, .. }
+                | Follow::CapsuleRel { id, .. } => id,
+                _ => continue,
+            };
+            self.player.set_ghost(*h, of(id));
+        }
+        for (id, p) in &self.pawns {
+            let on = of(*id);
+            let notify = p.notify.iter().filter_map(|n| n.1);
+            let psc = p.mesh_psc.iter().map(|m| m.2);
+            let own = [p.heal.1, p.smoke, p.residual.0, p.spawn, p.ice.0, p.ice.1, p.fire]
+                .into_iter()
+                .flatten()
+                .chain(p.wall.iter().copied().flatten())
+                .chain(p.rage.iter().copied())
+                .chain(notify)
+                .chain(psc);
+            for h in own {
+                self.player.set_ghost(h, on);
+            }
         }
     }
 

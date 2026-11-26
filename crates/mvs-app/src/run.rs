@@ -2215,13 +2215,18 @@ impl MatchLoop {
             let n = u.hud.pawns().len();
             let mut bottom = Vec::with_capacity(n);
             let mut top = Vec::with_capacity(n);
+            let mut ghosts = Vec::with_capacity(n);
             for (k, id) in u.hud.pawns().iter().enumerate() {
                 let Some(f) = id.and_then(|id| self.world.by_id(id)) else {
                     bottom.push(None);
                     top.push(None);
+                    ghosts.push(false);
                     continue;
                 };
-                let p = self.poser.hud_point(&self.world, f, alpha);
+                // (the port's own Ghosts: a fighter hidden from this screen has no tag over it and no pop texts)
+                let hidden = self.poser.ghost(&self.world, f) == mvs_view::ghost::Ghost::Hidden;
+                ghosts.push(hidden);
+                let p = self.poser.hud_point(&self.world, f, alpha).filter(|_| !hidden);
                 let (zb, zt) = match self.ui_z.get(k) {
                     Some(&z) => z,
                     None => {
@@ -2257,6 +2262,7 @@ impl MatchLoop {
                 real,
                 bottom: &bottom,
                 top: &top,
+                ghosts: &ghosts,
                 camera: &camera,
                 items: &items,
                 skillshots: &skillshots,

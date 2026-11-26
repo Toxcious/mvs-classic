@@ -24,6 +24,7 @@ mod chars;
 pub mod court_ball;
 pub mod curves;
 pub mod frame;
+pub mod ghost;
 pub mod heart_skin;
 mod items;
 pub mod layered;

@@ -100,6 +100,9 @@ pub struct FighterPose {
     /// one whose fighter is invisible whole is hidden): its bones are the effects' and the actors' sockets, the
     /// renderer draws none of its meshes.
     pub hidden: bool,
+    /// (the port's own Ghosts) Hidden, but drawn as its outline alone: its meshes into custom depth and stencil only
+    /// (a local player's own fighter while the rule hides it: crate::ghost).
+    pub outline: bool,
     /// The fighter wears a heart skin the effects draw petals for (heart_skin.rs: slot 0's Skin BaseColor Opacity Max is
     /// not 0 and its character has an entry).
     pub heart: bool,

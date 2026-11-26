@@ -38,6 +38,16 @@ impl Renderer {
                 }
             }
         }
+        // (the port's own Ghosts) a local player's hidden fighter: its meshes into custom depth and stencil alone, so
+        // the team outline's blendable draws its outline around nothing; no capture, no base or translucent pass.
+        for fp in f.fighters.iter().filter(|fp| fp.hidden && fp.outline) {
+            for (k, p) in fp.meshes.iter().enumerate() {
+                let (opaque, translucent) = (self.list.opaque.len(), self.list.translucent.len());
+                self.add_pose(Owner::Fighter(fp.fighter, k as u32), p, None, CHANNEL_0, false, None)?;
+                self.list.opaque.truncate(opaque);
+                self.list.translucent.truncate(translucent);
+            }
+        }
         for (a, ap) in f.actors.iter().enumerate() {
             for (k, p) in ap.meshes.iter().enumerate() {
                 self.add_pose(Owner::Actor(a as u32, k as u32), p, None, CHANNEL_0, !p.no_decals, None)?;

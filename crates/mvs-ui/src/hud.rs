@@ -175,6 +175,9 @@ pub struct HudFrame<'a> {
     /// damage) and the top (states) anchors; None (or none given) for a pawn not shown.
     pub bottom: &'a [Option<Anchor>],
     pub top: &'a [Option<Anchor>],
+    /// (the port's own Ghosts) Per HUD pawn: hidden from this screen (mvs_view::ghost), its pop texts not painted
+    /// (its anchors are None as well); none given: none hidden.
+    pub ghosts: &'a [bool],
     pub camera: &'a Camera,
     /// The items' pickup labels: the item's id and its place (UE cm).
     pub items: &'a [(i32, [f64; 3])],
@@ -2113,6 +2116,8 @@ impl Hud {
                 if labels[k].draw(fonts, out, dpi) {
                     self.drawn.push(Part::Label(k));
                 }
+            } else if f.ghosts.get(pops[k].p.fighter).copied().unwrap_or(false) {
+                // (the port's own Ghosts: a hidden fighter's pop texts are not painted while it is hidden)
             } else if pops[k].draw(fonts, out, dpi) {
                 self.drawn.push(Part::Pop(k));
             }
@@ -2322,6 +2327,7 @@ mod tests {
                 real: t,
                 bottom: &[],
                 top: &[],
+                ghosts: &[],
                 camera: &cam,
                 items: &[],
                 skillshots: &[],
@@ -2420,6 +2426,7 @@ mod tests {
                 real: t,
                 bottom: &[],
                 top: &[],
+                ghosts: &[],
                 camera: &cam,
                 items: &[],
                 skillshots: &[],

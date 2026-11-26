@@ -312,6 +312,7 @@ fn run() -> Result<(), String> {
             real: tf.real,
             bottom: &bottom,
             top: &top,
+            ghosts: &[],
             camera: &camera,
             items: &[],
             skillshots: &[],

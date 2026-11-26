@@ -229,6 +229,8 @@ pub struct SystemInstance {
     pub killed: bool,
     pub persistent: bool,
     pub hidden: bool,
+    /// (the port's own Ghosts) Not drawn while its fighter is hidden from this screen, whatever `hidden` says.
+    pub ghost: bool,
     /// UParticleSystemComponent::CustomTimeDilation.
     pub time_dilation: f64,
     /// Registered with the world manager but not in a tick list that still runs this frame.
@@ -294,6 +296,7 @@ impl SystemInstance {
             killed: false,
             persistent,
             hidden: false,
+            ghost: false,
             time_dilation: 1.0,
             waiting: false,
             sort_priority: 0,

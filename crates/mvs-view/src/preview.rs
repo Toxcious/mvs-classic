@@ -307,7 +307,7 @@ impl PreviewView {
             }
             m.to_world = math::rows3x4(&math::mul(&w, &c));
         }
-        FighterPose { fighter: u32::MAX, meshes, priority: None, hidden: false, heart: false }
+        FighterPose { fighter: u32::MAX, meshes, priority: None, hidden: false, outline: false, heart: false }
     }
 
     /// The body mesh as `pose` places it, without the meshes made: its skinning matrices into `bones` (the buffer
