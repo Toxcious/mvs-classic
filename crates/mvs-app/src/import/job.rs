@@ -85,6 +85,9 @@ impl Job {
         // SAFETY: the job's live handle.
         let _ = unsafe { TerminateJobObject(self.0, 1) };
     }
+
+    /// The job's process was waited on and reaped (its handle stays valid on Windows: nothing to do).
+    pub fn reaped(&self) {}
 }
 
 #[cfg(windows)]
@@ -128,7 +131,7 @@ use std::process::Command;
 #[cfg(not(windows))]
 use std::sync::OnceLock;
 #[cfg(not(windows))]
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 #[cfg(not(windows))]
 use crate::{Error, Result};
@@ -140,6 +143,8 @@ pub struct Job {
     memory: u64,
     process: OnceLock<Process>,
     peak: AtomicU64,
+    /// The process was waited on and reaped ([`Job::reaped`]): its bare pid may be another process's now.
+    reaped: AtomicBool,
 }
 
 /// The job's process, as signals reach it.
@@ -156,7 +161,7 @@ enum Process {
 impl Job {
     /// A job that kills its process when it drops, capped at `memory` private writable bytes.
     pub fn new(memory: u64) -> Result<Job> {
-        Ok(Job { memory, process: OnceLock::new(), peak: AtomicU64::new(0) })
+        Ok(Job { memory, process: OnceLock::new(), peak: AtomicU64::new(0), reaped: AtomicBool::new(false) })
     }
 
     /// A command of the job's process at `exe`: in the child, before its exec, the memory cap set and the parent's
@@ -217,7 +222,9 @@ impl Job {
                 libc::syscall(libc::SYS_pidfd_send_signal, fd.as_raw_fd(), sig, std::ptr::null::<libc::siginfo_t>(), 0)
                     == 0
             },
-            // SAFETY: a plain signal to the job's pid.
+            // (once reaped, the pid may have been given to another process)
+            Some(Process::Pid(_)) if self.reaped.load(Ordering::Relaxed) => false,
+            // SAFETY: a plain signal to the job's pid, not reaped yet.
             Some(Process::Pid(pid)) => unsafe { libc::kill(*pid as libc::pid_t, sig) == 0 },
             None => false,
         }
@@ -244,6 +251,12 @@ impl Job {
     pub fn kill(&self) {
         self.signal(libc::SIGKILL);
     }
+
+    /// The job's process was waited on and reaped (the poll's `try_wait`): no signal or wait goes to its bare pid
+    /// after, which the system may give to another process.
+    pub fn reaped(&self) {
+        self.reaped.store(true, Ordering::Relaxed);
+    }
 }
 
 #[cfg(not(windows))]
@@ -255,6 +268,9 @@ impl Drop for Job {
         // whole cleanup. The wait runs on a thread of its own (the launcher's frame drops workers and must not
         // block); through the pidfd it can only reap this process. ECHILD (the poll's try_wait reaped it) is fine.
         if let Some(p) = self.process.take() {
+            if matches!(p, Process::Pid(_)) && self.reaped.load(Ordering::Relaxed) {
+                return;
+            }
             let _ = std::thread::Builder::new().name("import reap".into()).spawn(move || reap(&p));
         }
     }

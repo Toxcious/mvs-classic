@@ -222,7 +222,11 @@ impl Worker {
                     // the worker's stdout closed without its answer: its end, once the process is gone (asked,
                     // never waited on: the launcher's frame must not block)
                     if !self.ended {
-                        match self.child.try_wait() {
+                        let waited = self.child.try_wait();
+                        if matches!(waited, Ok(Some(_))) {
+                            self.job.reaped();
+                        }
+                        match waited {
                             Ok(None) => {}
                             #[cfg(windows)]
                             Ok(Some(status)) => self.gone(status.code(), &mut out),
