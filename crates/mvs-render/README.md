@@ -9,3 +9,7 @@ materials on the GPU, `draw` the draw list and its executor, `targets` the defer
 
 `src/bin/render-frame.rs` draws one held frame offscreen (a trace match at a tick, or a pose tape's frame), writes
 its PNG and times it.
+
+`src/bin/preview.rs` draws a look (`src/look.rs`: a `look.json` and a file of pixel shaders, with lights, meshes,
+particle systems and camera changes) into a recorded match on any stage, as a still or a short clip: a visual idea
+seen in the real renderer before it is built as a feature. Nothing draws a look in a match.

@@ -241,6 +241,8 @@ pub struct Renderer {
     /// The stage's lights and sky (set by the stage, read by the lighting and the translucency).
     pub lights: LightSet,
     pub passes: Passes,
+    /// A look drawn before the post chain (the preview binary's; never set in a match).
+    pub look: Option<crate::look::Look>,
     /// The frame's size (the output's); the scene targets and the post chain run at the view's size inside it.
     pub(crate) output: [u32; 2],
     scalability: Scalability,
@@ -478,6 +480,7 @@ impl Renderer {
             timer,
             lights: LightSet::default(),
             passes: Passes::default(),
+            look: None,
             captures,
             decals,
             lighting,
@@ -1403,6 +1406,9 @@ impl Renderer {
         if passes.translucency {
             self.translucency.composite(&mut fr)?;
             self.timer.mark(gpu, "translucency composite");
+        }
+        if !menu && let Some(look) = &mut self.look {
+            look.draw(&fr)?;
         }
         if passes.post {
             let view = if menu { self.menu.post_view() } else { crate::post::PostView::STAGE };

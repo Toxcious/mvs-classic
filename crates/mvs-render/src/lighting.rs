@@ -267,7 +267,7 @@ fn build_passes(
     (rows, passes)
 }
 
-fn translated_world_to_clip(c: &Camera) -> M4 {
+pub(crate) fn translated_world_to_clip(c: &Camera) -> M4 {
     mul(&c.translated_world_to_view, &c.view_to_clip)
 }
 
