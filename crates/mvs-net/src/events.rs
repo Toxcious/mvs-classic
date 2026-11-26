@@ -311,6 +311,13 @@ impl EventLog {
 pub fn undo(e: &Event) -> Option<Event> {
     let mut u = e.clone();
     match &mut u {
+        // A notify's end taken back is not turned into a begin: the effect would start again with no end to come when
+        // the resim ended it at another tick (a dodge cancelled, a hit landing in a long move), and stay on for good.
+        // Deviation: an end a correction moves later cuts the effect off those few ticks early.
+        Event::NotifyVfx { on: false, .. }
+        | Event::EmoteVfx { on: false, .. }
+        | Event::ActorVfx { on: false, .. }
+        | Event::ParticleNotify { on: false, .. } => return None,
         Event::SoundStart { fighter, key, .. } => {
             return Some(Event::SoundStop {
                 fighter: *fighter,
@@ -417,5 +424,24 @@ mod tests {
         let s = Event::StruggleUi { fighter: 0, time_left: 1.0, total: 2.0, hide_input: true };
         assert!(matches!(undo(&s), Some(Event::StruggleUi { hide_input: false, .. })));
         assert_eq!(undo(&sound(0, 1)), None);
+    }
+
+    #[test]
+    fn a_notify_end_taken_back_never_starts_its_effect_again() {
+        let n = NotifyRef { montage: Name(7), index: 2 };
+        let vfx = |on| Event::NotifyVfx { fighter: 0, n, on, left: false, copy: false, poly: false };
+        let mut log = EventLog::new();
+        log.take(5, &[vfx(true)]);
+        log.take(10, &[vfx(false)]);
+        // the resim ends it at tick 7 instead; tick 10's end goes
+        let mut shown: Vec<Event> = Vec::new();
+        for (t, evs) in [(7, vec![vfx(false)]), (10, vec![])] {
+            let taken = log.take(t, &evs);
+            shown.extend(taken.gone.iter().filter_map(undo));
+            shown.extend(taken.fresh);
+        }
+        assert!(!shown.iter().any(|e| matches!(e, Event::NotifyVfx { on: true, .. })), "{shown:?}");
+        // a begin taken back still ends its effect
+        assert!(matches!(undo(&vfx(true)), Some(Event::NotifyVfx { on: false, .. })));
     }
 }
