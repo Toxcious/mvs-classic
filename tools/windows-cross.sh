@@ -56,7 +56,16 @@ export CC_x86_64_pc_windows_msvc=clang-cl
 export AR_x86_64_pc_windows_msvc=llvm-lib
 export CFLAGS_x86_64_pc_windows_msvc="/imsvc$XWIN/crt/include /imsvc$XWIN/sdk/include/ucrt /imsvc$XWIN/sdk/include/um /imsvc$XWIN/sdk/include/shared"
 export CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER=lld-link
-lib="-Lnative=$XWIN/crt/lib/x64 -Lnative=$XWIN/sdk/lib/um/x64 -Lnative=$XWIN/sdk/lib/ucrt/x64"
+# (xwin names the library folders x86_64, or Microsoft's x64 when made with --preserve-ms-arch-notation)
+arch=x86_64
+if [ -d "$XWIN/crt/lib/x64" ]; then
+    arch=x64
+fi
+if [ ! -d "$XWIN/crt/lib/$arch" ]; then
+    echo "The xwin splat at $XWIN has no x64 libraries (crt/lib/x86_64 or crt/lib/x64): make it for x86_64." >&2
+    exit 1
+fi
+lib="-Lnative=$XWIN/crt/lib/$arch -Lnative=$XWIN/sdk/lib/um/$arch -Lnative=$XWIN/sdk/lib/ucrt/$arch"
 flags=${CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS:-}
 export CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS="${flags:+$flags }$lib"
 export CARGO_TARGET_DIR=${CARGO_TARGET_DIR:-$ROOT/target/xwin}
