@@ -130,6 +130,9 @@ pub struct Shell {
     pub online_feed: Option<String>,
     /// (the port's own, dev) `--wheel`: the matches of `crate::wheel::switched` run this Chaos Wheel rule.
     pub wheel: Option<mvs_sim::setup::Wheel>,
+    /// (the port's own, dev) `--free-cam`: the matches draw through a free camera that starts this far from the
+    /// game's view: yaw and pitch (degrees) and the distance factor.
+    pub free_cam: Option<[f64; 3]>,
     want_ui: bool,
     want_audio: bool,
     audio_backend: Backend,
@@ -187,6 +190,7 @@ impl Shell {
             net: None,
             online_feed: None,
             wheel: None,
+            free_cam: None,
             want_ui: o.ui,
             want_audio: o.audio,
             audio_backend: if o.audio_offline { Backend::Offline } else { Backend::Wasapi },

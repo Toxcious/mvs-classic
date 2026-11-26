@@ -798,6 +798,10 @@ struct KoAnchor {
 #[derive(Clone, Debug)]
 pub struct MatchCamera {
     pub rig: CameraRig,
+    /// (the port's own, dev) The free camera that replaces the drawn view; None: the game's.
+    pub free: Option<crate::free_cam::FreeCam>,
+    /// The rig's point of view of the last frame, before the free camera replaced it.
+    pub game_pov: Pov,
     /// Wind's hold on the lens (the port's own rule).
     wind: WindCam,
     /// RegisteredOnscreenActors in its order, with each one's point of the tick.
@@ -819,6 +823,8 @@ impl MatchCamera {
         let mut rig = CameraRig::new(&world.data.stage, f64::from(BF_CAPSULE_HALF), f64::from(BF_CAPSULE_RADIUS));
         rig.resize(aspect);
         MatchCamera {
+            game_pov: rig.pov,
+            free: None,
             rig,
             wind: WindCam::default(),
             order: IndexMap::new(),
@@ -864,7 +870,14 @@ impl MatchCamera {
 
     /// The frame's camera at `alpha` between the last tick (0) and the latest (1).
     pub fn camera(&mut self, alpha: f32) -> Camera {
-        self.rig.place(f64::from(alpha), self.wind.at(f64::from(alpha)))
+        let game = self.rig.place(f64::from(alpha), self.wind.at(f64::from(alpha)));
+        self.game_pov = self.rig.pov;
+        let Some(free) = &self.free else { return game };
+        // the poser and the listener read the rig's pov and root: they follow the drawn view
+        let (camera, pov) = free.camera(&self.game_pov, &game);
+        self.rig.pov = pov;
+        self.rig.root = pov.pos;
+        camera
     }
 
     fn feed(&mut self, w: &World) {

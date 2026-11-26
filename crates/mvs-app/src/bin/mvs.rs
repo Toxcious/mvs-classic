@@ -13,6 +13,7 @@
 //!   [--waves endless|100 [--character <key>] [--waves-bot <level>]]   (a Waves run on `--stage`, cast from `--seed`)
 //!   [--wheel [--wheel-seconds <n>] [--wheel-pool <key>[,..]]]   (with `--play` too: the Chaos Wheel rule in the command line's match, a Lab and Local Play;
 //!   with `--relay`, on both players' lines)
+//!   [--free-cam [<yaw>,<pitch>,<zoom>]]   (dev: the free camera, see docs/development.md)
 //!   [--relay <addr> (--host | --join <lobby>) [--key <file>] [--feed <trace match>]]
 //!   [--online-config <file> [--direct-loopback] [--online-open host|join:<code>|queue:<mode>[,..]] [--online-lag <ms>]
 //!   [--online-desync-at <tick>] [--feed <trace match>]]
@@ -61,7 +62,7 @@ mvs --play --store <dir> [--data <dir>] [--size 1920x1080] [--full-screen] [--ad
 mvs [--data <dir>] [--store <dir>] [--size 1920x1080] [--full-screen] [--adapter <text>] [--seed <n>] [--no-ui] \
 [--replay <trace match> [--trace-out <file>]] [--real-pace] [--shot <tick>[,..]] [--out <dir>] [--throttle <rate>] \
 [--bench <secs>] [--stage <key>] [--stage-layout <file>] [--bots <level>] [--shot-results <secs>] [--no-audio] [--input-script <jsonl>] [--menu-tape <out>] [--shot-frames <frame>[,..]] \
-[--live-loads] [--audio-tape <file>] [--waves endless|100 [--character <key>] [--waves-bot <level>]] [--wheel [--wheel-seconds <n>] [--wheel-pool <key>[,..]]]\n[--relay <addr> (--host | --join <lobby>) [--key <file>] [--feed <trace match>]]\n\
+[--live-loads] [--audio-tape <file>] [--waves endless|100 [--character <key>] [--waves-bot <level>]] [--wheel [--wheel-seconds <n>] [--wheel-pool <key>[,..]]] [--free-cam [<yaw>,<pitch>,<zoom>]]\n[--relay <addr> (--host | --join <lobby>) [--key <file>] [--feed <trace match>]]\n\
 [--online-config <file> [--direct-loopback] [--online-open host|join:<code>|queue:<mode>[,..]] [--online-lag <ms>] \
 [--online-desync-at <tick>] [--feed <trace match>]]
 \n[--queue-fake [--queue-bots <s>] [--queue-start <s>] [--queue-vote-no] [--queue-path <pm.path json>]]\n\
@@ -138,6 +139,8 @@ struct Args {
     wheel_seconds: Option<f64>,
     /// (dev) `--wheel-pool <key>[,..]`: `--wheel` drawing these mutators alone (one to see a rule every window).
     wheel_pool: Option<Vec<String>>,
+    /// (the port's own, dev) `--free-cam [<yaw>,<pitch>,<zoom>]`: the free camera, from that orbit.
+    free_cam: Option<[f64; 3]>,
 }
 
 /// The flags of a test or scripted run: one of them mutes the device unless `--sound` is given, so a run the agents
@@ -177,7 +180,8 @@ fn online_open_of(v: &str) -> Result<mvs_ui::menu::online::OnlineCmd, String> {
     Err(format!("--online-open: {v} is not host, join:<code> or queue:<modes>"))
 }
 
-fn parse(mut it: impl Iterator<Item = String>) -> Result<Args, String> {
+fn parse(it: impl Iterator<Item = String>) -> Result<Args, String> {
+    let mut it = it.peekable();
     let num = |v: Option<String>, what: &str| -> Result<u32, String> {
         let v = v.ok_or(format!("{what}: no value"))?;
         v.parse().map_err(|_| format!("{what}: {v} is not a count"))
@@ -253,6 +257,7 @@ fn parse(mut it: impl Iterator<Item = String>) -> Result<Args, String> {
         wheel: false,
         wheel_seconds: None,
         wheel_pool: None,
+        free_cam: None,
     };
     let (mut mute, mut sound, mut test, mut back, mut front) = (false, false, false, false, false);
     let (mut audio_tape, mut results_press) = (None, None);
@@ -343,6 +348,17 @@ fn parse(mut it: impl Iterator<Item = String>) -> Result<Args, String> {
                     return Err(format!("--wheel-pool: {k} is no mutator of the wheel's list"));
                 }
                 a.wheel_pool = Some(keys);
+            }
+            "--free-cam" => {
+                // (a start orbit follows when the next word is numbers)
+                let orbit = it.next_if(|v| v.starts_with(|c: char| c.is_ascii_digit() || c == '-' || c == '.'));
+                a.free_cam = Some(match orbit {
+                    None => [0.0, 0.0, 1.0],
+                    Some(v) => {
+                        let n: Vec<f64> = v.split(',').filter_map(|p| p.parse().ok()).collect();
+                        <[f64; 3]>::try_from(n).map_err(|_| format!("--free-cam: {v} is not <yaw>,<pitch>,<zoom>"))?
+                    }
+                });
             }
             "--shot" => {
                 for t in it.next().ok_or("--shot: no value")?.split(',') {
@@ -565,6 +581,7 @@ fn run(a: Args) -> mvs_app::Result<()> {
         None => None,
     };
     let mut shell = Shell::new(&a.shell)?;
+    shell.free_cam = a.free_cam;
     shell.wheel = a.wheel.then(|| mvs_app::wheel::switch_rule(a.wheel_seconds, a.wheel_pool.clone()));
     if a.load_bench {
         return mvs_app::load_bench::run(&mut shell);

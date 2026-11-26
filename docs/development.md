@@ -44,6 +44,11 @@ and tests find the dev store by themselves; `CONTENT_STORE=<dir>` points them at
   before it is published, write it into a file and draw the launcher's screens with it:
   `cargo run --profile trace -p mvs-ui --bin launcher-shots -- --out <dir> --store content/.store --notes <file>`
   (the file's shape is in the tool's header). A `## Download` section is the page's and is left out.
+- `mvs --free-cam [<yaw>,<pitch>,<zoom>]` (dev, any match) draws through a free camera: an orbit about the point the
+  game's lens looks at. The optional start is degrees, degrees and a distance factor (`90,5,1.4` is the side view;
+  `0,0,1`, the default, is the game's own). Mouse: right-drag orbits, middle-drag or Shift + right-drag pans, the wheel
+  zooms. F8 turns the keys on and off; while on, the keyboard drives the camera and no fighter: WASD or the arrows
+  orbit and tilt, Q / E zoom, R back to the game's view, F follows the fighters or holds the pivot where it is.
 
 It builds the `trace` profile: release code built incrementally, so a rebuild after a small change takes seconds,
 not minutes. `--release` is for timings and what ships.

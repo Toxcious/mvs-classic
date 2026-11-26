@@ -282,6 +282,10 @@ pub struct MatchLoop {
     chat: Option<MatchChat>,
     /// Enter was held at the last frame (a key repeat opens no box).
     chat_enter: bool,
+    /// (the port's own, dev) The free camera's keys are on (F8): the keyboard drives it, not the fighter.
+    free_keys: bool,
+    /// The pointer as the free camera last saw it.
+    free_ptr: Option<(f32, f32)>,
     /// The tick an input script's `win` ends the match at (120 ticks stepped, then the harness's
     /// podium: HandleWinLoss for team 0, the match run on to its end).
     win_at: Option<i32>,
@@ -788,6 +792,7 @@ impl MatchLoop {
             cam = c;
             cam.rig.resize(f64::from(size[0]) / f64::from(size[1]));
         }
+        cam.free = sh.free_cam.map(|[y, p, z]| mvs_view::free_cam::FreeCam::new(y, p, z));
         let hud_bundle = parts.as_mut().and_then(|p| p.hud.take());
         let ui_parts = match &sh.ui {
             Some(s) => Some(Self::ui_parts(sh, s, &world, me, playing_online, &usernames, &kind, hud_bundle)?),
@@ -1012,6 +1017,8 @@ impl MatchLoop {
             menu_list: ElementList::default(),
             chat: None,
             chat_enter: false,
+            free_keys: false,
+            free_ptr: None,
             win_at: None,
             tutorial,
             waves_end: waves_end.then(EndBeat::default),
@@ -1514,6 +1521,7 @@ impl MatchLoop {
         // the pause menu or Escape's end
         self.chat_frame(sh);
         self.script_win(sh);
+        self.free_cam_frame(sh, f.dt.clamp(0.0, MAX_DT));
         // Escape: the pause menu's key where the match has one. A match with none (online, a server's, a replay) takes
         // no Escape, as in the build: UI_Game makes no UI_PauseMenu there and Can Pause is false (UG @3679, @500).
         // (the port's own) a run with no menus at all (no UI loaded) ends on Escape: it has no other way out.
@@ -1725,6 +1733,59 @@ impl MatchLoop {
         sh.window.take_menu_keys();
         sh.devices.take_chars();
         release_keyboard(&mut sh.devices);
+    }
+
+    /// (the port's own, dev) `--free-cam`: the mouse (right-drag orbits, middle-drag or Shift + right-drag pans, the
+    /// wheel zooms) and, after F8, the keyboard (WASD / arrows orbit and tilt, Q / E zoom, R the game's view, F follows
+    /// the fighters or holds the pivot), which then reaches no fighter.
+    fn free_cam_frame(&mut self, sh: &mut Shell, dt: f64) {
+        if self.cam.free.is_none() {
+            return;
+        }
+        let paused =
+            self.pause.as_ref().is_some_and(|p| p.pause.paused) || self.lab.as_ref().is_some_and(|l| l.control.paused);
+        let chat = self.chat.as_ref().is_some_and(MatchChat::is_open);
+        let ptr = sh.devices.pointer;
+        let moved = match (ptr, self.free_ptr) {
+            (Some(a), Some(b)) => (f64::from(a.0 - b.0), f64::from(a.1 - b.1)),
+            _ => (0.0, 0.0),
+        };
+        self.free_ptr = ptr;
+        if paused || chat {
+            return;
+        }
+        let pov = self.cam.game_pov;
+        let w = &sh.window;
+        let Some(free) = self.cam.free.as_mut() else { return };
+        free.zoom_by(f64::from(sh.devices.take_wheel()));
+        let right = w.held("RightMouseButton");
+        let shift = w.held("LeftShift") || w.held("RightShift");
+        if w.held("MiddleMouseButton") || (right && shift) {
+            // (the lens's width at the pivot is about twice its distance: a pixel moves the pivot 0.001 of it, so the scene follows the pointer)
+            free.pan_by(&pov, -moved.0 * 0.001, moved.1 * 0.001);
+        } else if right {
+            free.orbit(moved.0 * 0.25, moved.1 * 0.25);
+        }
+        if w.pressed("F8") {
+            self.free_keys = !self.free_keys;
+            eprintln!("mvs: free cam keys {}", if self.free_keys { "on (F8 gives the keyboard back)" } else { "off" });
+        }
+        if self.free_keys {
+            let down = |a: &str, b: &str| w.held(a) || w.held(b);
+            let axis = |p: bool, n: bool| f64::from(i8::from(p) - i8::from(n));
+            free.orbit(
+                axis(down("D", "Right"), down("A", "Left")) * 90.0 * dt,
+                axis(down("W", "Up"), down("S", "Down")) * 60.0 * dt,
+            );
+            free.zoom_by(axis(w.held("E"), w.held("Q")) * 6.0 * dt);
+            if w.pressed("R") {
+                free.reset();
+            }
+            if w.pressed("F") {
+                free.toggle_follow(&pov);
+            }
+            release_keyboard(&mut sh.devices);
+        }
     }
 
     /// An input script's `win` (its Win gate): from the match's first frame 120 ticks on, HandleWinLoss for team 0

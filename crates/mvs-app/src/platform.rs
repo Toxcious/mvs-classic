@@ -370,6 +370,11 @@ impl Window {
                 }
                 Msg::Mouse(k, down) => {
                     devices.mouse(k, down);
+                    if down {
+                        self.keys.held.insert(k);
+                    } else {
+                        self.keys.held.remove(k);
+                    }
                     let button = match k {
                         "LeftMouseButton" => Some(0),
                         "MiddleMouseButton" => Some(1),
