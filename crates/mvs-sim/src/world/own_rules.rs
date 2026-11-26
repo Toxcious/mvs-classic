@@ -134,9 +134,11 @@ pub const WIND_WARN: i32 = 90;
 pub const WIND_GUST: i32 = 120;
 pub const WIND_EVERY: i32 = 330;
 /// Wind: the gust's push (units a second) on a fighter on the ground and off it, and its ramp in and out (ticks).
-pub const WIND_GROUND: Real = 420.0;
-pub const WIND_AIR: Real = 650.0;
-pub const WIND_RAMP_IN: Real = 12.0;
+pub const WIND_GROUND: Real = 900.0;
+pub const WIND_AIR: Real = 1400.0;
+pub const WIND_RAMP_IN: Real = 5.0;
+/// Wind: the gust's lift (units a second) on a fighter off the ground, so it swoops them up as it carries them.
+pub const WIND_AIR_LIFT: Real = 300.0;
 pub const WIND_RAMP_OUT: Real = 24.0;
 /// Black Hole: its middle's height over the main floor's top (units), the ticks it takes to open and to close (the
 /// window's last), its core's radius and the reach of its pull (units).
@@ -147,8 +149,8 @@ pub const HOLE_CORE: Real = 150.0;
 pub const HOLE_REACH: Real = 3200.0;
 /// Black Hole: its pull (units a second) at the reach's edge and at the middle (it grows by the square of the
 /// nearness), and beyond the reach falling with the distance.
-pub const HOLE_PULL_FAR: Real = 150.0;
-pub const HOLE_PULL_NEAR: Real = 800.0;
+pub const HOLE_PULL_FAR: Real = 300.0;
+pub const HOLE_PULL_NEAR: Real = 1600.0;
 /// Black Hole: the core's hit, and the share of its throw's way that is up.
 pub const HOLE_DAMAGE: Real = 12.0;
 pub const HOLE_KNOCK_BACK: Real = 2200.0;
@@ -281,7 +283,7 @@ pub fn gust_at(w: &World, part: Real) -> Option<Gust> {
 }
 
 /// Wind: each live player not in a hit's pause swept (`moves::sweep_move`, the stage's walls stop it) by the gust's
-/// push, `WIND_AIR` off the ground. A fighter on the ground walks off a ledge it is blown over.
+/// push, `WIND_AIR` and a lift of `WIND_AIR_LIFT` off the ground. A fighter on the ground walks off a ledge it is blown over.
 fn gusts(w: &mut World) {
     let Some(g) = gust_at(w, 0.0).filter(|g| g.blow > 0.0) else { return };
     let dt = crate::consts::DT;
@@ -291,9 +293,9 @@ fn gusts(w: &mut World) {
             continue;
         }
         let x = fr.body.x;
-        let speed = if crate::fighter::grounded(w, f) { WIND_GROUND } else { WIND_AIR };
+        let (speed, lift) = if crate::fighter::grounded(w, f) { (WIND_GROUND, 0.0) } else { (WIND_AIR, WIND_AIR_LIFT) };
         let ay = crate::fighter::body::actor_y(w, f);
-        crate::fighter::moves::sweep_move(w, f, x + g.dir * speed * g.blow * dt, ay);
+        crate::fighter::moves::sweep_move(w, f, x + g.dir * speed * g.blow * dt, ay + lift * g.blow * dt);
     }
 }
 
