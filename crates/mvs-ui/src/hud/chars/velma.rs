@@ -96,7 +96,7 @@ impl VelmaHud {
     /// Pawn_Velma's GlassesOff_C (a full-screen BackgroundBlur, strength 2), AddToViewport(0) by GlassesOff @2548-2697
     /// and destroyed by GlassesOn at a count of 0 or less @2717, by ReceiveDestroyed @6133, AbductPlayer @6233 and
     /// EndOfMatch @6333: both gated on IsPlayingOnline(GetPlayerController(0)) && IsLocallyControlled() @2764 / @3081.
-    /// Here: an online match, a Velma of this machine (BrokerPlayer.is_local), alive, whose GlassesOffCount
+    /// Here: an online match, this machine's own Velma (BrokerPlayer.is_me: online is_local holds for every pawn), alive, whose GlassesOffCount
     /// (`mvs_sim` chars/velma/pawn.rs, kept for every Velma) is above 0.
     pub(crate) fn glasses_off(&self) -> bool {
         self.glasses
@@ -108,7 +108,7 @@ impl VelmaHud {
                 let (Some(_), Some(f), Some(p)) = (self.sent[i], self.map.fighter(w, i), self.players.get(i)) else {
                     return false;
                 };
-                p.is_local && w.fighter(f).life.dead <= 0.0 && velma_of(w, f).is_some_and(|s| s.glasses_off_count > 0)
+                p.is_me && w.fighter(f).life.dead <= 0.0 && velma_of(w, f).is_some_and(|s| s.glasses_off_count > 0)
             });
         for i in 0..self.sent.len() {
             let Some(f) = self.map.fighter(w, i) else { continue };

@@ -2713,18 +2713,21 @@ mod tests {
         let Some(mut h) = mvs_sim_trace::harness::fresh(&ms, 1) else { return };
         let bundle = Bundle::load(&store, "hud").expect("the hud bundle");
         let text = GameText::load(&store).expect("the game text");
-        let up = |h: &mvs_sim_trace::harness::Harness, online: bool| {
+        let up_as = |h: &mvs_sim_trace::harness::Harness, online: bool, me: usize| {
             let mut s = setup(1, &[0, 1], &[false, false]);
             s.online = online;
+            s.me = me;
             s.players[0].character = Some("velma".to_owned());
             let mut hud = Hud::new(&bundle, &text, &h.w, &s).expect("the HUD");
             hud.observe(&h.w, &[], 0.0, 0.0);
             hud.chars.iter().any(CharHud::glasses_off)
         };
+        let up = |h: &mvs_sim_trace::harness::Harness, online: bool| up_as(h, online, 0);
         let v = h.fighter(0);
         assert!(!up(&h, true), "a count of 0: no blur");
         mvs_sim::chars::velma::state::velma_mut(&mut h.w, v).expect("a Velma").glasses_off_count = 1;
         assert!(up(&h, true), "online, a live Velma with the glasses off: the blur");
+        assert!(!up_as(&h, true, 1), "another machine's Velma: no blur on this screen");
         assert!(!up(&h, false), "an offline match: no blur");
         h.w.fighter_mut(v).life.dead = 1.0;
         assert!(!up(&h, true), "a dead Velma: no blur");
