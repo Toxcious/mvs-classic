@@ -15,6 +15,8 @@ cbuffer Look : register(b0) {
     float4 AxisV;
     // The look file's `params`.
     float4 Params[4];
+    // Clip to translated world, WorldToClip's inverse.
+    row_major float4x4 ClipToWorld;
 };
 
 Texture2D SceneColorTex : register(t0);
@@ -27,6 +29,8 @@ Texture2D Tex4 : register(t6);
 Texture2D Tex5 : register(t7);
 Texture2D Tex6 : register(t8);
 Texture2D Tex7 : register(t9);
+// GBufferA: the world normal as n * 0.5 + 0.5 (rgb).
+Texture2D SceneNormalTex : register(t10);
 SamplerState Wrap : register(s0);
 SamplerState Clamp : register(s1);
 
@@ -36,6 +40,19 @@ SamplerState Clamp : register(s1);
 float SceneDepth(float2 px) {
     float z = SceneDepthTex.Load(int3(px, 0));
     return z <= 0 ? 1e9 : TimeDepth.z / (z - TimeDepth.y);
+}
+
+// The scene's world place (cm) at pixel `px` (its uv `uv`); far where nothing was drawn.
+float3 SceneWorld(float2 px, float2 uv) {
+    float z = SceneDepthTex.Load(int3(px, 0));
+    float4 w = mul(float4(uv.x * 2 - 1, 1 - uv.y * 2, max(z, 1e-7), 1), ClipToWorld);
+    return w.xyz / w.w + CameraOrigin.xyz;
+}
+
+// The scene's world normal at pixel `px` (0 where no G-buffer was written).
+float3 SceneNormal(float2 px) {
+    float3 n = SceneNormalTex.Load(int3(px, 0)).rgb * 2 - 1;
+    return dot(n, n) > 0.01 ? normalize(n) : 0;
 }
 
 // The scene's colour (linear, before the post chain) at `uv`.

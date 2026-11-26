@@ -376,8 +376,13 @@ impl Look {
         for (k, r) in self.file.params.iter().enumerate() {
             rows[10 + k] = *r;
         }
+        for (i, row) in crate::view::inverse(&m).iter().enumerate() {
+            rows[14 + i] = row.map(|v| v as f32);
+        }
+        // t0 SceneColor's copy, t1 depth, t2..t9 the look's textures, t10 GBufferA (the world normal).
         let mut srvs: Vec<Option<ID3D11ShaderResourceView>> = vec![copy.srv.clone(), t.depth.srv.clone()];
-        srvs.extend(self.textures.iter().map(|x| x.srv.clone()));
+        srvs.extend((0..TEXTURES).map(|k| self.textures.get(k).and_then(|x| x.srv.clone())));
+        srvs.push(t.gbuffer[0].srv.clone());
         let samplers = [Some(gpu.sampler(self.wrap)), Some(gpu.sampler(self.clamp))];
         gpu.viewport([0, 0, size[0], size[1]]);
         gpu.set_geometry_shader(None);
@@ -437,8 +442,8 @@ impl Look {
 }
 
 /// The Look buffer's rows (prelude.hlsl): WorldToClip 4, CameraOrigin, Screen, TimeDepth, Center, AxisU, AxisV,
-/// Params 4.
-const ROWS: usize = 14;
+/// Params 4, ClipToWorld 4.
+const ROWS: usize = 18;
 
 #[cfg(test)]
 mod tests {
