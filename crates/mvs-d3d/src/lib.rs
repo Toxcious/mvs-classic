@@ -89,19 +89,46 @@ fn wsi_writes(
 pub fn set_linux_wsi() {
     #[cfg(not(windows))]
     {
-        let (wsi, config) =
-            wsi_writes(std::env::var_os("DXVK_WSI_DRIVER").as_deref(), std::env::var_os("DXVK_CONFIG").as_deref());
+        let before = [std::env::var_os(DXVK_VARS[0]), std::env::var_os(DXVK_VARS[1])];
+        let (wsi, config) = wsi_writes(before[0].as_deref(), before[1].as_deref());
+        // (the first call's, before anything is written: a later call finds the values this one wrote)
+        let _ = PLAYERS_DXVK.set(before);
         // SAFETY: the first call is the first line of `main`, before any thread that reads the environment; a later
         // call writes nothing.
         unsafe {
             if let Some(wsi) = wsi {
-                std::env::set_var("DXVK_WSI_DRIVER", wsi);
+                std::env::set_var(DXVK_VARS[0], wsi);
             }
             if let Some(config) = config {
-                std::env::set_var("DXVK_CONFIG", config);
+                std::env::set_var(DXVK_VARS[1], config);
             }
         }
     }
+}
+
+/// The variables [`set_linux_wsi`] writes: DXVK's window system and its config.
+#[cfg(not(windows))]
+const DXVK_VARS: [&str; 2] = ["DXVK_WSI_DRIVER", "DXVK_CONFIG"];
+
+/// [`DXVK_VARS`] as the program found them, before [`set_linux_wsi`] first wrote them.
+#[cfg(not(windows))]
+static PLAYERS_DXVK: std::sync::OnceLock<[Option<std::ffi::OsString>; 2]> = std::sync::OnceLock::new();
+
+/// Gives `cmd` the DXVK variables as the player had them, not as [`set_linux_wsi`] wrote them: for a program that is
+/// not the game (a browser, Steam, a file manager), which would otherwise take the game's window system and frame
+/// latency with it, and pass them on to what it starts (Proton's DXVK reads `DXVK_CONFIG`). Does nothing on Windows
+/// and before `set_linux_wsi` ran.
+pub fn players_env(cmd: &mut std::process::Command) -> &mut std::process::Command {
+    #[cfg(not(windows))]
+    if let Some(before) = PLAYERS_DXVK.get() {
+        for (var, value) in DXVK_VARS.iter().zip(before) {
+            match value {
+                Some(v) => cmd.env(var, v),
+                None => cmd.env_remove(var),
+            };
+        }
+    }
+    cmd
 }
 
 /// Whether DXVK-native's window system can start, asked before the first DXGI or D3D11 call (after

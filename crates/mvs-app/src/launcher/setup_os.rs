@@ -320,7 +320,8 @@ fn shell_open(target: &std::ffi::OsStr) -> Result<(), String> {
 #[cfg(not(windows))]
 fn shell_open(target: &std::ffi::OsStr) -> Result<(), String> {
     use std::process::{Command, Stdio};
-    let mut child = Command::new("xdg-open")
+    // (with the player's DXVK variables: what it opens, Steam included, is not the game)
+    let mut child = mvs_d3d::players_env(&mut Command::new("xdg-open"))
         .arg(target)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
