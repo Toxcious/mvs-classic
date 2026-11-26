@@ -15,6 +15,7 @@
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
+use mvs_d3d::Dxgi::Common::DXGI_FORMAT_R8G8B8A8_UNORM;
 use mvs_render::assets::Assets;
 use mvs_render::fx::surfaces::level_surfaces;
 use mvs_render::fx::{CameraRoot, Fx};
@@ -25,7 +26,6 @@ use mvs_render::renderer::{Passes, Renderer, StaticMesh};
 use mvs_render::scenery::level_emitters;
 use mvs_render::stage::{to_world, transform};
 use mvs_view::{FrameInput, FrameTime, MatchCamera, MaterialRef, MeshPose, ViewPoser};
-use windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_R8G8B8A8_UNORM;
 
 const USAGE: &str = "usage: preview [--store <dir>] --match <trace match> --tick <n> [--stage <stage>] --look <dir> \
                      [--clip <seconds>] [--fps 30] [--size 1920x1080] --out <dir>";

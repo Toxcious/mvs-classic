@@ -10,10 +10,10 @@
 use std::path::Path;
 use std::sync::Arc;
 
+use mvs_d3d::Direct3D::D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP;
+use mvs_d3d::Direct3D11::*;
 use mvs_view::Camera;
 use serde::Deserialize;
-use windows::Win32::Graphics::Direct3D::D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP;
-use windows::Win32::Graphics::Direct3D11::*;
 
 use crate::gpu::{
     BlendKey, BlendTarget, BufDesc, BufKind, Buffer, DepthKey, Gpu, RasterKey, SamplerKey, StateId, StateKey, TexDesc,
