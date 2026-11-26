@@ -82,6 +82,9 @@ pub struct Cursor {
     /// Current Direction (SmoothMovementDirection), SavedPositionX / Y.
     dir: [f64; 2],
     saved: [f64; 2],
+    /// (the port's own) the stick's point before its rounding to a pixel, the next move's start while the pointer is
+    /// still at its rounded point (`process_movement_direction`).
+    exact: [f64; 2],
     visibility_timer: f64,
     init_in: f64,
     inited: bool,
@@ -120,6 +123,7 @@ impl Cursor {
             is_transitioning_out: false,
             dir: [0.0; 2],
             saved: [0.0; 2],
+            exact: [0.0; 2],
             visibility_timer: 0.0,
             init_in: INIT_DELAY,
             inited: false,
@@ -364,9 +368,19 @@ impl Cursor {
         }
         let [w, h] = cx.view.size();
         let dpi = cx.view.dpi;
-        let base = cx.view.mouse.unwrap_or(self.saved);
-        let x = round((base[0] + ax * dpi).clamp(EDGE, f64::from(w) - EDGE));
-        let y = round((base[1] + ay * dpi).clamp(EDGE, f64::from(h) - EDGE));
+        // Deviation: the build moves from the pointer's whole pixel (GetMousePosition) each tick, so a move under half
+        // a pixel is lost: at a high frame rate the pointer stalls over a button (friction) and runs fast off one.
+        // The port goes on from its unrounded point while the pointer is still where it put it, so the speed is the
+        // same at any frame rate.
+        let base = match cx.view.mouse {
+            Some(m) if m == [round(self.exact[0]), round(self.exact[1])] => self.exact,
+            Some(m) => m,
+            None => self.saved,
+        };
+        let ex = (base[0] + ax * dpi).clamp(EDGE, f64::from(w) - EDGE);
+        let ey = (base[1] + ay * dpi).clamp(EDGE, f64::from(h) - EDGE);
+        self.exact = [ex, ey];
+        let (x, y) = (round(ex), round(ey));
         self.saved = [x, y];
         cx.view.set_position(x, y);
     }
